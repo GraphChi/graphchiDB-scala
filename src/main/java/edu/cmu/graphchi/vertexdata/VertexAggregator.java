@@ -45,24 +45,25 @@ public class VertexAggregator {
      * @param <VertexDataType> vertex data type
      * @throws IOException if the vertex data file is not found
      */
-    public static <VertexDataType> void foreach(int numVertices, String baseFilename, BytesToValueConverter<VertexDataType> conv,
-                                                 ForeachCallback<VertexDataType> callback) throws IOException {
+    public static <VertexDataType> void foreach(long numVertices, String baseFilename, BytesToValueConverter<VertexDataType> conv,
+                                                ForeachCallback<VertexDataType> callback) throws IOException {
 
         VertexData<VertexDataType> vertexData = new VertexData<VertexDataType>(numVertices, baseFilename, conv, true);
 
         DataBlockManager blockManager = new DataBlockManager();
         vertexData.setBlockManager(blockManager);
 
-        int CHUNK = 1000000;
-        for(int i=0; i < numVertices; i += CHUNK) {
-            int en = i + CHUNK;
+        int CHUNK = 10000000;
+        for(long i=0; i < numVertices; i += CHUNK) {
+            long en = i + CHUNK;
             if (en >= numVertices) en = numVertices - 1;
             int blockId =  vertexData.load(i, en);
 
-            Iterator<Integer> iter = vertexData.currentIterator();
+            Iterator<Long> iter = vertexData.currentIterator();
 
             while (iter.hasNext()) {
-                int j = iter.next();
+                long j = iter.next();
+
                 ChiPointer ptr = vertexData.getVertexValuePtr(j, blockId);
                 VertexDataType value = blockManager.dereference(ptr, conv);
                 callback.callback(j, value);
@@ -80,10 +81,10 @@ public class VertexAggregator {
      * @param <VertexDataType>
      * @return
      */
-    public static <VertexDataType> Iterator<VertexIdValue<VertexDataType> > vertexIterator(final int numVertices,
-                                                                                            String baseFilename,
-                                                                                            final BytesToValueConverter<VertexDataType> conv,
-                                                                                            final VertexIdTranslate idTranslate) throws IOException {
+    public static <VertexDataType> Iterator<VertexIdValue<VertexDataType> > vertexIterator(final long numVertices,
+                                                                                           String baseFilename,
+                                                                                           final BytesToValueConverter<VertexDataType> conv,
+                                                                                           final VertexIdTranslate idTranslate) throws IOException {
         final VertexData<VertexDataType> vertexData = new VertexData<VertexDataType>(numVertices, baseFilename, conv, true);
 
         final DataBlockManager blockManager = new DataBlockManager();
@@ -93,22 +94,36 @@ public class VertexAggregator {
 
         return new Iterator<VertexIdValue<VertexDataType>>() {
 
-            int i=0, blockId;
-            Iterator<Integer> curIter;
+            long i=0;
+            int blockId;
+            Iterator<Long> curIter = null;
 
             @Override
             public boolean hasNext() {
                 if (i >= numVertices - 1) return false;
-                if (curIter == null || !curIter.hasNext()) {
-                    int en = i + CHUNK;
-                    if (en >= numVertices) en = numVertices - 1;
+                while (curIter == null || !curIter.hasNext()) {
+                    long en = i + CHUNK;
+                    if (en >= numVertices || en < 0) en = numVertices - 1;
 
                     try {
-                        blockId =  vertexData.load(i, en);
+                        System.out.println("VertexAggrerator loading " + i + " -- " + en);
+                        blockId = vertexData.load(i, en);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
                     this.curIter = vertexData.currentIterator();
+                    if (!this.curIter.hasNext() && en >= numVertices - 1) {
+                        return false;
+                    }
+                    if (!this.curIter.hasNext() && vertexData.isReachedEnd()) {
+                        return false;
+                    }
+
+                    if (!this.curIter.hasNext()) {
+                        i = vertexData.nextChunkStart();
+                        System.out.println("VertexAggrerator next ==> " + i);
+
+                    }
                 }
                 return true;
             }
@@ -116,7 +131,11 @@ public class VertexAggregator {
             @Override
             public VertexIdValue next() {
                 if (hasNext()) {
-                    i = curIter.next();
+                    try {
+                        i = curIter.next();
+                    } catch (ArrayIndexOutOfBoundsException aie) {
+                        throw aie;
+                    }
                     ChiPointer ptr = vertexData.getVertexValuePtr(i, blockId);
                     return new VertexIdValue<VertexDataType>(idTranslate.backward(i), blockManager.dereference(ptr, conv));
                 } else throw new IllegalStateException("No more elements in the iterator!");
@@ -132,7 +151,7 @@ public class VertexAggregator {
     private static class SumCallbackInt implements ForeachCallback<Integer> {
         long sum = 0;
         @Override
-        public void callback(int vertexId, Integer vertexValue) {
+        public void callback(long vertexId, Integer vertexValue) {
             sum += vertexValue;
         }
 
@@ -148,7 +167,7 @@ public class VertexAggregator {
      * @return the sum
      * @throws IOException if the vertex data file is not found
      */
-    public static long sumInt(int numVertices, String baseFilename) throws IOException {
+    public static long sumInt(long numVertices, String baseFilename) throws IOException {
         SumCallbackInt callback = new SumCallbackInt();
         foreach(numVertices, baseFilename, new IntConverter(), callback);
         return callback.getSum();

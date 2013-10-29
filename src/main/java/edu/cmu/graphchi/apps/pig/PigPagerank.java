@@ -115,6 +115,7 @@ public class PigPagerank extends PigGraphChiBase implements GraphChiProgram<Floa
         engine.run(this, 4);
 
         logger.info("Ready.");
+        pigFinishedResults = false;
 
         /* Create iterator for the vertex values */
         this.vertexIterator = VertexAggregator.vertexIterator(engine.numVertices(), getGraphName(), new FloatConverter(),
@@ -128,21 +129,27 @@ public class PigPagerank extends PigGraphChiBase implements GraphChiProgram<Floa
      */
     protected FastSharder createSharder(String graphName, int numShards) throws IOException {
         return new FastSharder<Float, Float>(graphName, numShards, new VertexProcessor<Float>() {
-            public Float receiveVertexValue(int vertexId, String token) {
+            public Float receiveVertexValue(long vertexId, String token) {
                 return (token == null ? 0.0f : Float.parseFloat(token));
             }
         }, new EdgeProcessor<Float>() {
-            public Float receiveEdge(int from, int to, String token) {
+            public Float receiveEdge(long from, long to, String token) {
                 return (token == null ? 0.0f : Float.parseFloat(token));
             }
         }, new FloatConverter(), new FloatConverter());
     }
+
+
+    boolean pigFinishedResults = false;
 
     @Override
     /**
      * Generates the output to the Pig script, tuple by tuple
      */
     protected Tuple getNextResult(TupleFactory tupleFactory) throws ExecException {
+        if (pigFinishedResults) {
+            throw new RuntimeException("Asked for getNextReulsts although results already exhausted!");
+        }
         if (vertexIterator.hasNext()) {
             Tuple t = tupleFactory.newTuple(2);
             VertexIdValue<Float> val = vertexIterator.next();
@@ -150,6 +157,7 @@ public class PigPagerank extends PigGraphChiBase implements GraphChiProgram<Floa
             t.set(1, val.getValue());
             return t;
         } else {
+            pigFinishedResults = true;
             return null;
         }
     }

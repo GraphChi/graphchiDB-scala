@@ -28,12 +28,12 @@ public class SmokeTest implements GraphChiProgram<Integer, Integer> {
     private static Logger logger = ChiLogger.getLogger("smoketest");
 
     // Keep track of loaded vertex values to check vertex value loading works
-    private static HashMap<Integer, Integer> loadedVertexValues = new HashMap<Integer, Integer>();
+    private static HashMap<Long, Long> loadedVertexValues = new HashMap<Long, Long>();
 
     public void update(ChiVertex<Integer, Integer> vertex, GraphChiContext context) {
         if (context.getIteration() == 0) {
             /* Check vertex value was loaded properly */
-            int originalId = context.getVertexIdTranslate().backward(vertex.getId());
+            long originalId = context.getVertexIdTranslate().backward(vertex.getId());
             if (loadedVertexValues.containsKey(originalId)) {
                 if (!vertex.getValue().equals(loadedVertexValues.get(originalId))) {
                     throw new RuntimeException("Vertex value for vertex " + originalId + " not loaded properly:" +
@@ -43,10 +43,10 @@ public class SmokeTest implements GraphChiProgram<Integer, Integer> {
                 }
             }
 
-            vertex.setValue(vertex.getId() + context.getIteration());
+            vertex.setValue((int) (vertex.getId() % 100000000L + context.getIteration()));
         } else {
             int curval = vertex.getValue();
-            int vexpected = vertex.getId() + context.getIteration() - 1;
+            int vexpected = (int) (vertex.getId() % 100000000L + context.getIteration() - 1);
             if (curval != vexpected) {
                 throw new RuntimeException("Mismatch (vertex). Expected: " + vexpected + " but had " +
                         curval);
@@ -55,20 +55,19 @@ public class SmokeTest implements GraphChiProgram<Integer, Integer> {
             for(int i=0; i<vertex.numInEdges(); i++) {
                 int has = vertex.inEdge(i).getValue();
                 int correction = vertex.getId() > vertex.inEdge(i).getVertexId() ? +1 : 0;
-                int expected = vertex.inEdge(i).getVertexId() + context.getIteration() - 1 + correction;
+                int expected = (int) (vertex.inEdge(i).getVertexId() % 100000000L) + context.getIteration() - 1 + correction;
                 if (expected != has)
                     throw new RuntimeException("Mismatch (edge): " + expected + " expected but had "+ has +
                             ". Iteration:" + context.getIteration() + ", edge:" + vertex.inEdge(i).getVertexId()
                             + " -> " + vertex.getId());
             }
-            vertex.setValue(vertex.getId() + context.getIteration());
+            vertex.setValue((int) (vertex.getId() % 100000000L + context.getIteration()));
 
         }
         int val = vertex.getValue();
         for(int i=0; i<vertex.numOutEdges(); i++) {
             vertex.outEdge(i).setValue(val);
         }
-
 
     }
 
@@ -99,18 +98,18 @@ public class SmokeTest implements GraphChiProgram<Integer, Integer> {
      */
     protected static FastSharder createSharder(String graphName, int numShards) throws IOException {
         return new FastSharder<Integer, Integer>(graphName, numShards, new VertexProcessor<Integer>() {
-            public Integer receiveVertexValue(int vertexId, String token) {
+            public Integer receiveVertexValue(long vertexId, String token) {
                 if (token == null) {
                     return 0;
                 } else {
                     synchronized (this) {
-                       loadedVertexValues.put(vertexId, Integer.parseInt(token));
+                       loadedVertexValues.put(vertexId, Long.parseLong(token));
                     }
                     return Integer.parseInt(token);
                 }
             }
         }, new EdgeProcessor<Integer>() {
-            public Integer receiveEdge(int from, int to, String token) {
+            public Integer receiveEdge(long from, long to, String token) {
                 return (token == null ? 0 : Integer.parseInt(token));
             }
         }, new IntConverter(), new IntConverter());
@@ -123,7 +122,7 @@ public class SmokeTest implements GraphChiProgram<Integer, Integer> {
 
         /* Create shards */
         FastSharder sharder = createSharder(baseFilename, nShards);
-        sharder.setAllowSparseDegreesAndVertexData(false);
+        sharder.setAllowSparseDegreesAndVertexData(true);
         if (baseFilename.equals("pipein")) {     // Allow piping graph in
             sharder.shard(System.in);
         } else {
@@ -144,21 +143,21 @@ public class SmokeTest implements GraphChiProgram<Integer, Integer> {
         int i=0;
         while(iter.hasNext()) {
             VertexIdValue<Integer> x = iter.next();
-            int internalId = engine.getVertexIdTranslate().forward(x.getVertexId());
-            int expectedValue = internalId + 4;
-            if (expectedValue != x.getValue()) {
+            long internalId = engine.getVertexIdTranslate().forward(x.getVertexId());
+
+            logger.info(i + ". Scan: " + internalId + " " + x.getVertexId());
+
+            long expectedValue = internalId % 100000000L + 4;
+            if (expectedValue != x.getValue() && x.getValue() != 0) { // Latter condition a hack for cases where vertices have zero degree and will not be updated
                 throw new IllegalStateException("Expected internal value to be " + expectedValue
                         + ", but it was " + x.getValue() + "; internal id=" + internalId + "; orig=" + x.getVertexId());
             }
             if (i % 10000 == 0) {
-                logger.info("Scanning vertices: " + i);
+                logger.info("Scanning vertices: " + i + ", " + internalId);
             }
             i++;
         }
 
-        if (i != engine.numVertices())
-            throw new IllegalStateException("Error in iterator: did not have numVertices vertices: " + i + "/" + engine.numVertices());
-
-        logger.info("Ready.");
+        logger.info("Ready. Vertices:" + i);
     }
 }

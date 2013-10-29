@@ -7,6 +7,7 @@ import ucar.unidata.io.RandomAccessFile;
 import java.io.EOFException;
 import java.io.File;
 import java.io.IOException;
+import java.util.logging.Logger;
 /**
  * Copyright [2012] [Aapo Kyrola, Guy Blelloch, Carlos Guestrin / Carnegie Mellon University]
  *
@@ -37,10 +38,13 @@ public class DegreeData {
     private RandomAccessFile degreeFile;
 
     private byte[] degreeData;
-    private int vertexSt, vertexEn;
+    private long vertexSt, vertexEn;
 
     private boolean sparse = false;
-    private int lastQuery = 0, lastId = -1;
+    private long lastQuery = 0, lastId = -1, lastStart = 0;
+    private boolean intervalContainsAny = true;
+    private boolean hitEnd;
+    private final static Logger logger = ChiLogger.getLogger("degree-data");
 
     public DegreeData(String baseFilename) throws IOException {
         File sparseFile = new File(ChiFilenames.getFilenameOfDegreeData(baseFilename, true));
@@ -54,6 +58,11 @@ public class DegreeData {
             degreeFile = new RandomAccessFile(denseFile.getAbsolutePath(), "r");
         }
         vertexEn = vertexSt = 0;
+        hitEnd = false;
+    }
+
+    public boolean wasLast() {
+         return (hitEnd);
     }
 
     /**
@@ -62,10 +71,14 @@ public class DegreeData {
      * @param _vertexEn last vertex (inclusive)
      * @throws IOException
      */
-    public void load(int _vertexSt, int _vertexEn) throws IOException {
+    public void load(long _vertexSt, long _vertexEn) throws IOException {
+    /*    if (sparse && !intervalContainsAny && _vertexSt < lastId && _vertexEn < lastId && _vertexSt >= lastQuery) {
+             return; // Nothing to do for sure
+        }*/
+        hitEnd = false;
 
-        int prevVertexEn = vertexEn;
-        int prevVertexSt = vertexSt;
+        long prevVertexEn = vertexEn;
+        long prevVertexSt = vertexSt;
 
         vertexSt = _vertexSt;
         vertexEn = _vertexEn;
@@ -76,49 +89,79 @@ public class DegreeData {
         degreeData = new byte[(int)dataSize];
         int len = 0;
 
+        logger.info("Load degree: " + vertexSt + " -- " + _vertexEn);
+
         // Little bit cmoplicated book keeping to avoid redundant reads
         if (prevVertexEn > _vertexSt && prevVertexSt <= _vertexSt) {
             // Copy previous
             len = (int) ((prevVertexEn - vertexSt + 1) * 8);
             System.arraycopy(prevData, prevData.length - len, degreeData, 0, len);
+            logger.info("Copied previous data: " + len + " , prevVertexEn:" + prevVertexEn);
+
         }
 
 
         if (!sparse) {
             int adjLen = (int) (dataSize - len);
 
-            if (adjLen == 0) return;
+            if (adjLen == 0){
+                return;
+            }
+            intervalContainsAny = false;
+
             long dataStart =  (long)  vertexSt * 4l * 2l + len;
 
             try {
                 degreeFile.seek(dataStart);
                 degreeFile.readFully(degreeData, (int)(dataSize - adjLen), adjLen);
+
             } catch (EOFException eof) {
             	ChiLogger.getLogger("engine").info("Error: Tried to read past file: " + dataStart + " --- " + (dataStart + dataSize));
                 // But continue
             }
+            /* Check if any edges */
+            for(long vid=vertexSt; vid<=vertexEn; vid++) {
+                if (getDegree(vid).getDegree() > 0) {
+                    intervalContainsAny = true;
+                    break;
+                }
+            }
         } else {
             if (lastQuery > _vertexSt) {
                 lastId = -1;
-                degreeFile.seek(0);
+                if (prevVertexSt <= _vertexSt) {
+                    degreeFile.seek(lastStart);
+                } else {
+                    degreeFile.seek(0);
+                }
+                logger.info("Rewind because lastQuery: " + lastQuery + " > " + _vertexSt + ", lastId:" + lastId + " -->" + degreeFile.getFilePointer());
             }
 
+            lastStart = 0;
             try {
+                intervalContainsAny = false;
+
                 while(true) {
-                    int vertexId = (lastId < 0 ? degreeFile.readInt() : lastId);
+                    long vertexId = (lastId < 0 ? degreeFile.readLong() : lastId);
                     if (vertexId >= _vertexSt && vertexId <= _vertexEn) {
-                        degreeFile.readFully(degreeData, (vertexId - vertexSt) * 8, 8);
-                        VertexDegree deg = getDegree(vertexId);
+                        if (lastStart == 0 && !intervalContainsAny) {
+                            lastStart = degreeFile.getFilePointer() - 8;
+                        }
+                        degreeFile.readFully(degreeData, (int) (vertexId - vertexSt) * 8, 8);
                         lastId = -1;
+
+
+                        intervalContainsAny = true;
                     } else if (vertexId > vertexEn){
                         lastId = vertexId; // Remember last one read
+                        logger.info("Finished scan, next one will be: " + lastId);
                         break;
                     } else {
                         degreeFile.skipBytes(8);
                     }
                 }
             } catch (EOFException eof) {
-                degreeFile.seek(0);
+                hitEnd = true;
             }
             lastQuery = _vertexEn;
         }
@@ -130,11 +173,11 @@ public class DegreeData {
      * @param vertexId id of the vertex
      * @return  VertexDegree object
      */
-    public VertexDegree getDegree(int vertexId) {
+    public VertexDegree getDegree(long vertexId) {
         assert(vertexId >= vertexSt && vertexId <= vertexEn);
 
         byte[] tmp = new byte[4];
-        int idx = vertexId - vertexSt;
+        int idx = (int) (vertexId - vertexSt);
         System.arraycopy(degreeData, idx * 8, tmp, 0, 4);
 
         int indeg = ((tmp[3]  & 0xff) << 24) + ((tmp[2] & 0xff) << 16) + ((tmp[1] & 0xff) << 8) + (tmp[0] & 0xff);
@@ -143,5 +186,18 @@ public class DegreeData {
         int outdeg = ((tmp[3]  & 0xff) << 24) + ((tmp[2] & 0xff) << 16) + ((tmp[1] & 0xff) << 8) + (tmp[0] & 0xff);
 
         return new VertexDegree(indeg, outdeg);
+    }
+
+    public boolean doesIntervalContainAnyEdges() {
+        return intervalContainsAny;
+    }
+
+    public long next() {
+        if (!sparse) throw new IllegalStateException("Can be only called when sparse data!");
+        return lastId;
+    }
+
+    public boolean sparse() {
+        return sparse;
     }
 }
