@@ -33,6 +33,9 @@ public class VertexInterval {
     }
 
 
+    public boolean contains(long vertexId) {
+        return vertexId >= firstVertex && vertexId <= lastVertex;
+    }
 
     public long getLastVertex() {
         return lastVertex;

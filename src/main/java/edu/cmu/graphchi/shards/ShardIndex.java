@@ -61,7 +61,7 @@ public class ShardIndex {
      * @param vertexId
      * @return
      */
-    public IndexEntry lookup(int vertexId) {
+    public IndexEntry lookup(long vertexId) {
         int idx = Arrays.binarySearch(vertices, vertexId);
         if (idx >= 0) {
             return new IndexEntry(vertexId, edgePointer[idx], fileOffset[idx]);
