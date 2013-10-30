@@ -55,5 +55,8 @@ public class TestVertexIdTranslate {
                 assertEquals(link, VertexIdTranslate.getAux(vPacket));
             }
         }
+
+        System.out.println(VertexIdTranslate.getVertexId(3221225472L));
+        System.out.println(VertexIdTranslate.getAux(3221225472L));
     }
 }

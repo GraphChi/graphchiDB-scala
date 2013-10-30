@@ -83,7 +83,7 @@ public class ChiFilenames {
     }
 
     public static int getBlocksize(int sizeOf) {
-        int blocksize = 4096 * 1024;
+        int blocksize = 1024 * 1024;
         while (blocksize % sizeOf != 0) blocksize++;
         assert(blocksize % sizeOf == 0);
         return blocksize;

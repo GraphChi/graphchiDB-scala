@@ -64,7 +64,7 @@ public class SlidingShard <EdgeDataType> {
     private BufferedDataInputStream adjFile;
     private BufferedDataInputStream adjPointerFile;
     private boolean modifiesOutedges = true;
-    
+
     private static final Logger logger = ChiLogger.getLogger("slidingshard");
 
 
@@ -164,51 +164,52 @@ public class SlidingShard <EdgeDataType> {
 
                 n = (int) (VertexIdTranslate.getAux(nextVertexPtr) - VertexIdTranslate.getAux(curVertexPtr));
 
-                if (n <= 0) {
+                if (n < 0) {
                     throw new IllegalStateException("n<0: cur=" + curVertexPtr + ", next=" + nextVertexPtr);
                 }
-                assert(n > 0);
-                if (adjOffset != 8 * VertexIdTranslate.getAux(curVertexPtr)) {
-                    System.err.println("offset mismatch: adjOffset " + adjOffset +
-                            " != " + 8 * VertexIdTranslate.getAux(curVertexPtr));
-                }
-                assert(adjOffset == 8 * VertexIdTranslate.getAux(curVertexPtr));
-                curvid = VertexIdTranslate.getVertexId(curVertexPtr);
+                if (n > 0) {
+                    if (adjOffset != 8 * VertexIdTranslate.getAux(curVertexPtr)) {
+                        System.err.println("offset mismatch: adjOffset " + adjOffset +
+                                " != " + 8 * VertexIdTranslate.getAux(curVertexPtr));
+                    }
+                    assert(adjOffset == 8 * VertexIdTranslate.getAux(curVertexPtr));
+                    curvid = VertexIdTranslate.getVertexId(curVertexPtr);
 
-                if (curvid < start) {
-                    skip(n);
-                } else {
-                    ChiVertex vertex = vertices[(int)(curvid - start)];
-                    assert(vertex == null || vertex.getId() == curvid);
-
-                    if (vertex != null) {
-                        while (--n >= 0) {
-                            long target = VertexIdTranslate.getVertexId(adjFile.readLong());
-                            adjOffset += 8;
-                            ChiPointer eptr = readEdgePtr();
-
-                            if (!onlyAdjacency) {
-                                if (!curBlock.active) {
-                                    if (asyncEdataLoading) {
-                                        curBlock.readAsync();
-                                    } else {
-                                        curBlock.readNow();
-                                    }
-                                }
-                                curBlock.active = true;
-                            }
-                            try {
-                                vertex.addOutEdge(eptr == null ? -1 : eptr.blockId, eptr == null ? -1 : eptr.offset, target);
-                            } catch (ArrayIndexOutOfBoundsException aie) {
-                                aie.printStackTrace();;
-                            }
-                            if (!(target >= rangeStart && target <= rangeEnd)) {
-                                throw new IllegalStateException("Target " + target + " not in range! Range="
-                                    + rangeStart + " -- " + rangeEnd + "; offset:" + adjOffset + ", foff=");
-                            }
-                        }
-                    } else {
+                    if (curvid < start) {
                         skip(n);
+                    } else {
+                        ChiVertex vertex = vertices[(int)(curvid - start)];
+                        assert(vertex == null || vertex.getId() == curvid);
+
+                        if (vertex != null) {
+                            while (--n >= 0) {
+                                long target = VertexIdTranslate.getVertexId(adjFile.readLong());
+                                adjOffset += 8;
+                                ChiPointer eptr = readEdgePtr();
+
+                                if (!onlyAdjacency) {
+                                    if (!curBlock.active) {
+                                        if (asyncEdataLoading) {
+                                            curBlock.readAsync();
+                                        } else {
+                                            curBlock.readNow();
+                                        }
+                                    }
+                                    curBlock.active = true;
+                                }
+                                try {
+                                    vertex.addOutEdge(eptr == null ? -1 : eptr.blockId, eptr == null ? -1 : eptr.offset, target);
+                                } catch (ArrayIndexOutOfBoundsException aie) {
+                                    aie.printStackTrace();;
+                                }
+                                if (!(target >= rangeStart && target <= rangeEnd)) {
+                                    throw new IllegalStateException("Target " + target + " not in range! Range="
+                                            + rangeStart + " -- " + rangeEnd + "; offset:" + adjOffset + ", foff=");
+                                }
+                            }
+                        } else {
+                            skip(n);
+                        }
                     }
                 }
                 curVertexPtr = nextVertexPtr;
@@ -227,8 +228,8 @@ public class SlidingShard <EdgeDataType> {
 
     public void setOffset(int newoff, long _curvid, int edgeptr, int _vertexSeq) {
         try {
-           if (adjFile != null) adjFile.close();
-           if (adjPointerFile != null) adjPointerFile.close();
+            if (adjFile != null) adjFile.close();
+            if (adjPointerFile != null) adjPointerFile.close();
         } catch (IOException ioe) {}
         adjFile = null;
         adjPointerFile = null;

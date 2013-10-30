@@ -216,20 +216,21 @@ public class MemoryShard <EdgeDataType> {
         boolean containsRangeEnd = (vid < rangeEnd && viden > rangeEnd);
         boolean containsRangeSt = (vid <= rangeStart && viden >= rangeStart);
 
-
         DataInput adjInput = (compressedInput != null ? compressedInput : new DataInputStream(new ByteArrayInputStream(adjData)));
-
         adjInput.skipBytes(adjOffset);
 
 
         try {
             while(adjOffset < end) {
+                long thisPtr = adjPointers[vertexSeq];
+                long nextPtr = adjPointers[vertexSeq+1];
+                vid = VertexIdTranslate.getVertexId(thisPtr);
 
                 if (containsRangeEnd) {
                     if (!hasSetOffset && vid > rangeEnd) {
                         streamingOffset = adjOffset;
                         streamingOffsetEdgePtr = edataPtr;
-                        streamingOffsetVid = vid;
+                        streamingOffsetVid = VertexIdTranslate.getVertexId(adjPointers[vertexSeq]);
                         streamingOffsetVertexSeq = vertexSeq;
                         hasSetOffset = true;
                     }
@@ -242,20 +243,25 @@ public class MemoryShard <EdgeDataType> {
                     }
                 }
 
-                long thisPtr = adjPointers[vertexSeq];
-                long nextPtr = adjPointers[vertexSeq+1];
-                vid = VertexIdTranslate.getVertexId(thisPtr);
+
                 long n = VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(thisPtr);
 
                 /* Sanity checks */
-                assert(n > 0);
-                assert(VertexIdTranslate.getVertexId(nextPtr) >= vid);
+                if (n <= 0) {
+                    System.err.println("n = " + n + " vseq=" + vertexSeq + "; vid: " + vid);
+                }
+                if(VertexIdTranslate.getVertexId(nextPtr) < vid) {
+                    throw new IllegalStateException("Incorrect ordering of ptrs:" + vid + " > " +
+                            VertexIdTranslate.getVertexId(nextPtr));
+                }
+
 
                 vertexSeq++;
                 ChiVertex vertex = null;
                 if (vid >= windowStart && vid <= windowEnd) {
                     vertex = vertices[(int) (vid - windowStart)];
                 }
+
 
                 while (--n >= 0) {
                     long target = VertexIdTranslate.getVertexId(adjInput.readLong());

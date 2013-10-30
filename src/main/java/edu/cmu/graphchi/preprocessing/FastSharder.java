@@ -326,7 +326,11 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         if (!memoryEfficientDegreeCount) {
             writeDegrees();
         } else {
-            computeVertexDegrees();
+            computeVertexDegrees(false);
+        }
+
+        if ("1".equals(System.getProperty("debugdegreecount"))) {
+            computeVertexDegrees(true);
         }
 
         /**
@@ -614,7 +618,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             }
         }
 
-        ptrOut.writeLong(VertexIdTranslate.encodeVertexPacket(curvid, edgeCounter));
+        ptrOut.writeLong(VertexIdTranslate.encodeVertexPacket(shoveled[shoveled.length - 1], edgeCounter));
 
 
         adjOut.close();
@@ -791,10 +795,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         String ln;
         long lineNum = 0;
 
-        /* Special debug mode */
-        boolean shuffledIds = "1".equals(System.getProperty("shuffleids"));
-        if (shuffledIds) logger.info("Going to shuffle IDs");
-
 
         if (!format.equals(GraphInputFormat.MATRIXMARKET)) {
             while ((ln = ins.readLine()) != null) {
@@ -809,17 +809,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                         if (format == GraphInputFormat.EDGELIST) {
                         /* Edge list: <src> <dst> <value> */
                             if (tok.length == 2) {
-                                if (!shuffledIds) {
-                                    this.addEdge(Long.parseLong(tok[0]), Long.parseLong(tok[1]), null);
-                                } else {
-                                    long from = Long.parseLong(tok[0]);
-                                    long to = Long.parseLong(tok[1]);
+                                this.addEdge(Long.parseLong(tok[0]), Long.parseLong(tok[1]), null);
 
-                                    if (from > 4100000L) from = 9999999999L + from * 6789L ;
-                                    if (to > 4100000L) to = 9999999999L + to * 6789L;
-                                    this.addEdge(from, to, null);
-
-                                }
                             } else if (tok.length == 3) {
                                 this.addEdge(Long.parseLong(tok[0]), Long.parseLong(tok[1]), tok[2]);
                             }
@@ -927,9 +918,11 @@ public class FastSharder <VertexValueType, EdgeValueType> {
      * This is done only if we do not have enough memory to keep track of
      * vertex degrees in-memory.
      */
-    private void computeVertexDegrees() {
+    private void computeVertexDegrees(boolean debugMode) {
         long totalEdges = 0;
         long emittedDegrees = 0;
+        long totalOutEdges = 0;
+        long totalInEdges = 0;
 
         try {
             logger.info("Use sparse degrees: " + useSparseDegrees);
@@ -1019,6 +1012,19 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
                     for(int i=0; i < verts.length; i++) {
                         totalEdges += verts[i].numEdges();
+                        totalInEdges += verts[i].numInEdges();
+                        totalOutEdges += verts[i].numOutEdges();
+
+                        if (debugMode) {
+                            if (verts[i].numInEdges() != inDegrees[(int)verts[i].getId()]) {
+                                System.err.println(verts[i].getId() + " indeg mismatch: " +
+                                        verts[i].numInEdges() + "/" +  inDegrees[(int)verts[i].getId()]);
+                            }
+                            if (verts[i].numOutEdges() != outDegrees[(int)verts[i].getId()]) {
+                                System.err.println(verts[i].getId() + " outdeg mismatch: " +
+                                        verts[i].numOutEdges() + "/" +  outDegrees[(int)verts[i].getId()]);
+                            }
+                        }
 
                         if ((subIntervalSt + (long)i) > lastVertexId) {
                             if (!useSparseDegrees) {
@@ -1077,10 +1083,9 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             }
         }
         if (shoveledEdges * 2 != totalEdges) {
+            logger.warning("In-edges: " + totalInEdges + ", out:" + totalOutEdges);
             logger.warning("Mismatch in degree counting: shoveled " + shoveledEdges * 2 + " but counted  " + totalEdges);
             assert(shoveledEdges == totalEdges);
         }
     }
-
-
 }
