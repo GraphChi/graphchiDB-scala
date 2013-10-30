@@ -7,6 +7,7 @@ import edu.cmu.graphchi.datablocks.BytesToValueConverter;
 import edu.cmu.graphchi.datablocks.ChiPointer;
 import edu.cmu.graphchi.datablocks.DataBlockManager;
 import edu.cmu.graphchi.io.CompressedIO;
+import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import nom.tam.util.BufferedDataInputStream;
 
 import java.io.*;
@@ -53,11 +54,15 @@ public class SlidingShard <EdgeDataType> {
     private int sizeOf = -1;
     private int adjOffset = 0;
     private long curvid = 0;
+    private int vertexSeq = 0;
     private boolean onlyAdjacency = false;
     private boolean asyncEdataLoading = true;
 
+    private long curVertexPtr, nextVertexPtr;
+
     private BytesToValueConverter<EdgeDataType> converter;
     private BufferedDataInputStream adjFile;
+    private BufferedDataInputStream adjPointerFile;
     private boolean modifiesOutedges = true;
     
     private static final Logger logger = ChiLogger.getLogger("slidingshard");
@@ -113,7 +118,7 @@ public class SlidingShard <EdgeDataType> {
 
 
     public void skip(int n) throws IOException {
-        int tot = n * 4;
+        int tot = n * 8;
         adjOffset += tot;
         adjFile.skipBytes(tot);
         edataOffset += sizeOf * n;
@@ -134,7 +139,6 @@ public class SlidingShard <EdgeDataType> {
         }
 
         if (adjFile == null) {
-
             File compressedFile = new File(adjDataFilename + ".gz");
             if (compressedFile.exists()) {
                 logger.info("Note: using compressed: " + compressedFile.getName());
@@ -143,49 +147,39 @@ public class SlidingShard <EdgeDataType> {
             } else {
                 adjFile = new BufferedDataInputStream(new FileInputStream(adjDataFilename), 1024 * 1024);
             }
+            adjPointerFile = new BufferedDataInputStream(new FileInputStream(ChiFilenames.getFilenameShardsAdjPointers(adjDataFilename)));
+            adjPointerFile.skipBytes(8 * (int)vertexSeq);
             adjFile.skipBytes(adjOffset);
+            curVertexPtr = adjPointerFile.readLong();
+            nextVertexPtr = adjPointerFile.readLong();
+            vertexSeq++;
+
         }
 
 
         try {
-            for(long i=(curvid - start); i < nvecs; i++) {
-                int n;
-                int ns = adjFile.readUnsignedByte();
-                assert(ns >= 0);
-                adjOffset++;
+            curvid = VertexIdTranslate.getVertexId(curVertexPtr);
 
-                if (ns == 0) {
-                    curvid++;
-                    int nz = adjFile.readUnsignedByte();
+            while(curvid < nvecs + start) {
+                int n = 0;
 
-                    adjOffset++;
-                    assert(nz >= 0);
-                    curvid += nz;
-                    i += nz;
+                n = (int) (VertexIdTranslate.getAux(nextVertexPtr) - VertexIdTranslate.getAux(curVertexPtr));
 
-                    if (nz == 254) {
-                        long nzz = adjFile.readLong();
-
-                        curvid += nzz + 1;
-                        i += nzz + 1;
-                        adjOffset += 8;
-
-                    }
-
-                    continue;
+                if (n <= 0) {
+                    throw new IllegalStateException("n<0: cur=" + curVertexPtr + ", next=" + nextVertexPtr);
                 }
-
-                if (ns == 0xff) {
-                    n = adjFile.readIntReversed();
-                    adjOffset += 4;
-                } else {
-                    n = ns;
+                assert(n > 0);
+                if (adjOffset != 8 * VertexIdTranslate.getAux(curVertexPtr)) {
+                    System.err.println("offset mismatch: adjOffset " + adjOffset +
+                            " != " + 8 * VertexIdTranslate.getAux(curVertexPtr));
                 }
+                assert(adjOffset == 8 * VertexIdTranslate.getAux(curVertexPtr));
+                curvid = VertexIdTranslate.getVertexId(curVertexPtr);
 
-                if (i < 0) {
+                if (curvid < start) {
                     skip(n);
                 } else {
-                    ChiVertex vertex = vertices[(int)i];
+                    ChiVertex vertex = vertices[(int)(curvid - start)];
                     assert(vertex == null || vertex.getId() == curvid);
 
                     if (vertex != null) {
@@ -218,7 +212,12 @@ public class SlidingShard <EdgeDataType> {
                         skip(n);
                     }
                 }
-                curvid++;
+                curVertexPtr = nextVertexPtr;
+                curvid = VertexIdTranslate.getVertexId(curVertexPtr);
+                if (curvid - VertexIdTranslate.getVertexId(curVertexPtr) < nvecs) {
+                    nextVertexPtr = adjPointerFile.readLong();
+                    vertexSeq++;
+                }
             }
         } catch (EOFException e) {}    // kosher
     }
@@ -227,12 +226,16 @@ public class SlidingShard <EdgeDataType> {
         releasePriorToOffset(true, false);
     }
 
-    public void setOffset(int newoff, long _curvid, int edgeptr) {
+    public void setOffset(int newoff, long _curvid, int edgeptr, int _vertexSeq) {
         try {
            if (adjFile != null) adjFile.close();
+           if (adjPointerFile != null) adjPointerFile.close();
         } catch (IOException ioe) {}
         adjFile = null;
+        adjPointerFile = null;
+
         adjOffset = newoff;
+        vertexSeq = _vertexSeq;
         curvid = _curvid;
         edataOffset = edgeptr;
     }

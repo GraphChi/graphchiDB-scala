@@ -393,7 +393,8 @@ public class GraphChiEngine <VertexDataType, EdgeDataType> {
                                 long nextIntervalEn = intervals.get(execInterval + 1).getLastVertex();
 
                                 slidingShards.get(execInterval).setOffset(memoryShard.getStreamingOffset(),
-                                        memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr());
+                                        memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr(),
+                                        memoryShard.getStreamingOffsetVertexSeq());
                                 nextWindow = new FutureTask<IntervalData>(new AutoLoaderTask(new VertexInterval(nextIntervalSt,
                                         Math.min(nextIntervalEn, nextIntervalSt + 1 + adjMaxWindow)), execInterval + 1,
                                         createMemoryShard(nextIntervalSt, nextIntervalEn, execInterval + 1)));
@@ -446,7 +447,8 @@ public class GraphChiEngine <VertexDataType, EdgeDataType> {
                     if (!disableOutEdges && !autoLoadNext) {
                         if (memoryShard.isHasSetOffset()) {
                              slidingShards.get(execInterval).setOffset(memoryShard.getStreamingOffset(),
-                                memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr());
+                                memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr(),
+                                     memoryShard.getStreamingOffsetVertexSeq());
                         }
                     }
                 }
@@ -454,7 +456,7 @@ public class GraphChiEngine <VertexDataType, EdgeDataType> {
 
             for(SlidingShard shard : slidingShards) {
                 shard.flush();
-                shard.setOffset(0, 0, 0);
+                shard.setOffset(0, 0, 0, 0);
             }
             program.endIteration(chiContext);
         }    // Iterations

@@ -45,4 +45,15 @@ public class TestVertexIdTranslate {
             assertEquals(v1, v2);
         }
     }
+
+    @Test
+    public void testEncoding() {
+        for(long i = 0; i < 5000000000L; i += 1000000L) {
+            for(long link=0; link<268435455L; link+=1000005L) {
+                long vPacket = VertexIdTranslate.encodeVertexPacket(i, link);
+                assertEquals(i, VertexIdTranslate.getVertexId(vPacket));
+                assertEquals(link, VertexIdTranslate.getAux(vPacket));
+            }
+        }
+    }
 }

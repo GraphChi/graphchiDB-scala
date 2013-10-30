@@ -143,7 +143,6 @@ public class QueryShard {
                     n = ns;
                 }
 
-                ArrayList<Long> targets = new ArrayList<Long>(n);
                 while (--n >= 0) {
                     long target = Long.reverseBytes(adjFile.readLong());
                     if (target == queryId)  {

@@ -9,9 +9,12 @@ import edu.cmu.graphchi.ChiVertex;
 import edu.cmu.graphchi.datablocks.BytesToValueConverter;
 import edu.cmu.graphchi.datablocks.DataBlockManager;
 import edu.cmu.graphchi.io.CompressedIO;
+import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import nom.tam.util.BufferedDataInputStream;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.LongBuffer;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -48,6 +51,8 @@ public class MemoryShard <EdgeDataType> {
     private long rangeEnd;
 
     private byte[] adjData;
+    private long[] adjPointers;
+
     private int[] blockIds = new int[0];
     private int[] blockSizes = new int[0];;
 
@@ -62,7 +67,7 @@ public class MemoryShard <EdgeDataType> {
 
     private DataBlockManager dataBlockManager;
     private BytesToValueConverter<EdgeDataType> converter;
-    private int streamingOffset, streamingOffsetEdgePtr;
+    private int streamingOffset, streamingOffsetEdgePtr, streamingOffsetVertexSeq;
     private long streamingOffsetVid;
     private int blocksize = 0;
 
@@ -144,7 +149,7 @@ public class MemoryShard <EdgeDataType> {
             // This means we are using compressed data and cannot read in parallel (or could we?)
             // A bit ugly.
             index = new ArrayList<ShardIndex.IndexEntry>();
-            index.add(new ShardIndex.IndexEntry(0, 0, 0));
+            index.add(new ShardIndex.IndexEntry(0, 0, 0, 0));
         }
         final int sizeOf = (converter == null ? 0 : converter.sizeOf());
 
@@ -192,13 +197,17 @@ public class MemoryShard <EdgeDataType> {
         _timer.stop();
     }
 
-    private void loadAdjChunk(long windowStart, long windowEnd, ChiVertex[] vertices, boolean disableOutEdges, DataInput compressedInput, int sizeOf, int chunk) throws IOException {
+    private void loadAdjChunk(long windowStart, long windowEnd, ChiVertex[] vertices,
+                              boolean disableOutEdges, DataInput compressedInput,
+                              int sizeOf,
+                              int chunk) throws IOException {
         ShardIndex.IndexEntry indexEntry = index.get(chunk);
 
         long vid = indexEntry.vertex;
         long viden = (chunk < index.size() - 1 ?  index.get(chunk + 1).vertex : Long.MAX_VALUE);
         int edataPtr = indexEntry.edgePointer * sizeOf;
         int adjOffset = indexEntry.fileOffset;
+        int vertexSeq = indexEntry.vertexSeq;
         int end = adjDataLength;
         if (chunk < index.size() - 1) {
             end = index.get(chunk + 1).fileOffset;
@@ -221,6 +230,7 @@ public class MemoryShard <EdgeDataType> {
                         streamingOffset = adjOffset;
                         streamingOffsetEdgePtr = edataPtr;
                         streamingOffsetVid = vid;
+                        streamingOffsetVertexSeq = vertexSeq;
                         hasSetOffset = true;
                     }
                 }
@@ -232,37 +242,21 @@ public class MemoryShard <EdgeDataType> {
                     }
                 }
 
-                int n = 0;
-                int ns = adjInput.readUnsignedByte();
-                adjOffset += 1;
-                assert(ns >= 0);
-                if (ns == 0) {
-                    // next value tells the number of vertices with zeros
-                    vid++;
-                    int nz = adjInput.readUnsignedByte();
-                    adjOffset += 1;
-                    vid += nz;
+                long thisPtr = adjPointers[vertexSeq];
+                long nextPtr = adjPointers[vertexSeq+1];
+                vid = VertexIdTranslate.getVertexId(thisPtr);
+                long n = VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(thisPtr);
 
-                    if (nz == 254) {
-                        long nnz = adjInput.readLong();
-                        adjOffset += 8;
-                        vid += nnz + 1;
-                    }
+                /* Sanity checks */
+                assert(n > 0);
+                assert(VertexIdTranslate.getVertexId(nextPtr) >= vid);
 
-                    continue;
-                }
-                if (ns == 0xff) {   // If 255 is not enough, then stores a 32-bit integer after.
-                    n = Integer.reverseBytes(adjInput.readInt());
-                    adjOffset += 4;
-                } else {
-                    n = ns;
-                }
-
-
+                vertexSeq++;
                 ChiVertex vertex = null;
                 if (vid >= windowStart && vid <= windowEnd) {
                     vertex = vertices[(int) (vid - windowStart)];
                 }
+
 
                 while (--n >= 0) {
                     long target = adjInput.readLong();
@@ -321,8 +315,7 @@ public class MemoryShard <EdgeDataType> {
 
         /* Load index */
         index = new ShardIndex(new File(adjDataFilename)).sparserIndex(1204 * 1024);
-        BufferedInputStream adjStream =	new BufferedInputStream(adjStreamRaw, (int) fileSizeEstimate /
-                4);
+        BufferedInputStream adjStream =	new BufferedInputStream(adjStreamRaw, (int) fileSizeEstimate / 4);
 
         // Hack for cases when the load is not divided into subwindows
         TimerContext _timer = loadAdjTimer.time();
@@ -345,6 +338,17 @@ public class MemoryShard <EdgeDataType> {
 
         adjStream.close();
         adjDataStream.close();
+
+        /* Load pointers: TODO: use mmapping? */
+        File adjPointersFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjDataFilename));
+        long len =adjPointersFile.length();
+        byte[] ptrBytes = new byte[(int) len];
+        int l = new FileInputStream(adjPointersFile).read(ptrBytes);
+        if (l < len) throw new RuntimeException("Could not read whole file");
+        ByteBuffer bb = ByteBuffer.wrap(ptrBytes);
+        LongBuffer lb = bb.asLongBuffer();
+        adjPointers = new long[lb.capacity()];
+        lb.get(adjPointers);
 
         _timer.stop();
         return null;
@@ -381,6 +385,10 @@ public class MemoryShard <EdgeDataType> {
 
     public void setConverter(BytesToValueConverter<EdgeDataType> converter) {
         this.converter = converter;
+    }
+
+    public int getStreamingOffsetVertexSeq() {
+        return streamingOffsetVertexSeq;
     }
 
     public int getStreamingOffset() {

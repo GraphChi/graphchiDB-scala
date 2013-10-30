@@ -13,6 +13,7 @@ public class ShardIndex {
     private long[] vertices;
     private int[] edgePointer;
     private int[] fileOffset;
+    private int[] vertexSeq;
 
     public ShardIndex(File adjFile) throws IOException {
         this.indexFile = new File(adjFile.getAbsolutePath() + ".index");
@@ -20,14 +21,16 @@ public class ShardIndex {
     }
 
     private void load() throws IOException {
-        int n = (int) (indexFile.length() / 16) + 1;
+        int n = (int) (indexFile.length() / 20) + 1;
         vertices = new long[n];
         edgePointer = new int[n];
         fileOffset = new int[n];
+        vertexSeq = new int[n];
 
         vertices[0] = 0;
         edgePointer[0] = 0;
         fileOffset[0] = 0;
+        vertexSeq[0] = 0;
 
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(indexFile)));
         int i = 1;
@@ -35,6 +38,7 @@ public class ShardIndex {
             vertices[i] = dis.readLong();
             fileOffset[i] = dis.readInt();
             edgePointer[i] = dis.readInt();
+            vertexSeq[i] = dis.readInt();
             i++;
         }
     }
@@ -44,11 +48,11 @@ public class ShardIndex {
      */
     public ArrayList<IndexEntry> sparserIndex(int edgeDistance) {
         ArrayList<IndexEntry> spIdx = new ArrayList<IndexEntry>();
-        spIdx.add(new IndexEntry(0, 0, 0));
+        spIdx.add(new IndexEntry(0, 0, 0, 0));
         int lastEdgePointer = 0;
         for(int j=0; j<vertices.length; j++) {
             if (edgePointer[j] - lastEdgePointer >= edgeDistance) {
-                 spIdx.add(new IndexEntry(vertices[j], edgePointer[j], fileOffset[j]));
+                 spIdx.add(new IndexEntry(vertices[j], edgePointer[j], fileOffset[j], vertexSeq[j]));
                  lastEdgePointer = edgePointer[j];
             }
 
@@ -64,10 +68,10 @@ public class ShardIndex {
     public IndexEntry lookup(long vertexId) {
         int idx = Arrays.binarySearch(vertices, vertexId);
         if (idx >= 0) {
-            return new IndexEntry(vertexId, edgePointer[idx], fileOffset[idx]);
+            return new IndexEntry(vertexId, edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
         } else {
             idx = -(idx + 1) - 1;
-            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx]);
+            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
         }
 
     }
@@ -77,12 +81,13 @@ public class ShardIndex {
     public static class IndexEntry {
 
         public long vertex;
-        public int edgePointer, fileOffset;
+        public int edgePointer, fileOffset, vertexSeq;
 
-        IndexEntry(long vertex, int edgePointer, int fileOffset) {
+        IndexEntry(long vertex, int edgePointer, int fileOffset, int vertexSeq) {
             this.vertex = vertex;
             this.edgePointer = edgePointer;
             this.fileOffset = fileOffset;
+            this.vertexSeq = vertexSeq;
         }
 
         @Override

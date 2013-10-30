@@ -530,6 +530,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
         logger.info("Processing shovel " + shardNum + " ... writing shard");
 
+        /* Compute links */
+        int[] links = new int[shoveled.length];
 
         /*
          Now write the final shard in a compact form. Note that there is separate shard
@@ -541,6 +543,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
          */
         File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
         DataOutputStream adjOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(adjFile)));
+        File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
+        DataOutputStream ptrOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(ptrFile)));
         File indexFile = new File(adjFile.getAbsolutePath() + ".index");
         DataOutputStream indexOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(indexFile)));
         long curvid = 0;
@@ -548,6 +552,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         int edgeCounter = 0;
         int lastIndexFlush = 0;
         int edgesPerIndexEntry = 4096; // Tuned for fast shard queries
+
+        int vertexSeq = 0;
 
         long lastSparseSetEntry = 0; // Optimization
 
@@ -560,19 +566,12 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                     indexOut.writeLong(curvid);
                     indexOut.writeInt(adjOut.size());
                     indexOut.writeInt(edgeCounter);
+                    indexOut.writeInt(vertexSeq);
                     lastIndexFlush = edgeCounter;
                 }
 
-                int count = i - istart;
-
-                if (count > 0) {
-                    if (count < 255) {
-                        adjOut.writeByte(count);
-                    } else {
-                        adjOut.writeByte(0xff);
-                        adjOut.writeInt(Integer.reverseBytes(count));
-                    }
-                }
+                ptrOut.writeLong(VertexIdTranslate.encodeVertexPacket(curvid, edgeCounter));
+                vertexSeq++;
                 for(int j=istart; j<i; j++) {
                     adjOut.writeLong(shoveled2[j]);
                     edgeCounter++;
@@ -581,26 +580,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                 shoveledEdges += i - istart;
 
                 istart = i;
-
-                // Handle zeros
-                if (from != (-1)) {
-                    if (from - curvid > 1 || (i == 0 && from > 0)) {
-                        long nz = (from - curvid - 1);
-                        if (i ==0 && from >0 ) nz = from;
-                        do {
-                            adjOut.writeByte(0);
-                            nz--;
-                            int tnz = (int) Math.min(254, nz);   // This can be very inefficient if the id-range is very sparse!!
-                            adjOut.writeByte(tnz);
-
-                            nz -= tnz;
-                            if (tnz == 254) {    // Check if this right
-                                adjOut.writeLong(nz - 1);
-                                nz = 0;
-                            }
-                        } while (nz > 0);
-                    }
-                }
 
                 /* Optimization for very sparse vertex intervals */
                 if (useSparseDegrees && curvid - lastSparseSetEntry >= DEGCOUNT_SUBINTERVAL) {
@@ -611,10 +590,13 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                 curvid = from;
             }
         }
+
+        ptrOut.writeLong(VertexIdTranslate.encodeVertexPacket(curvid, edgeCounter));
+
+
         adjOut.close();
         indexOut.close();
-
-
+        ptrOut.close();
 
         /**
          * Step 2: EDGE DATA
@@ -1053,7 +1035,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                 }
                 if (memoryShard.isHasSetOffset()) {
                     slidingShards[p].setOffset(memoryShard.getStreamingOffset(),
-                            memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr());
+                            memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr(),
+                            memoryShard.getStreamingOffsetVertexSeq());
                 }
             }
             parallelExecutor.shutdown();
