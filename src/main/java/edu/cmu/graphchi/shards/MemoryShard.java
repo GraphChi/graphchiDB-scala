@@ -257,9 +257,8 @@ public class MemoryShard <EdgeDataType> {
                     vertex = vertices[(int) (vid - windowStart)];
                 }
 
-
                 while (--n >= 0) {
-                    long target = adjInput.readLong();
+                    long target = VertexIdTranslate.getVertexId(adjInput.readLong());
                     adjOffset += 8;
                     if (!(target >= rangeStart && target <= rangeEnd))
                         throw new IllegalStateException("Target " + target + " not in range!");
@@ -285,7 +284,6 @@ public class MemoryShard <EdgeDataType> {
 
                     // TODO: skip
                 }
-                vid++;
             }
         } catch (EOFException eof) {
             return;

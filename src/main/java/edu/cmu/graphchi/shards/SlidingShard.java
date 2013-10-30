@@ -153,7 +153,6 @@ public class SlidingShard <EdgeDataType> {
             curVertexPtr = adjPointerFile.readLong();
             nextVertexPtr = adjPointerFile.readLong();
             vertexSeq++;
-
         }
 
 
@@ -184,7 +183,7 @@ public class SlidingShard <EdgeDataType> {
 
                     if (vertex != null) {
                         while (--n >= 0) {
-                            long target = adjFile.readLong();
+                            long target = VertexIdTranslate.getVertexId(adjFile.readLong());
                             adjOffset += 8;
                             ChiPointer eptr = readEdgePtr();
 

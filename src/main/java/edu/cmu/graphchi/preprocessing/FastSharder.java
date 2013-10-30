@@ -490,6 +490,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
          * Read the edges into memory.
          */
         BufferedDataInputStream in = new BufferedDataInputStream(new FileInputStream(shovelFile));
+        long minTarget = Long.MAX_VALUE;
+        long maxTarget = Long.MIN_VALUE;
         for(int i=0; i<shoveled.length; i++) {
 
             long from = in.readLong();
@@ -500,6 +502,10 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             long newTo = finalIdTranslate.forward(preIdTranslate.backward(to));
             shoveled[i] = newFrom;
             shoveled2[i] = newTo;
+
+            minTarget = Math.min(newTo, minTarget);
+            maxTarget = Math.max(newTo, maxTarget);
+
 
             if (newFrom < 0 || newTo < 0) {
                 throw new IllegalStateException("Negative value: " + from + " --> " + newFrom + ", to: " + to + " --> " + newTo + "; " + finalIdTranslate.stringRepresentation());
@@ -531,7 +537,24 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         logger.info("Processing shovel " + shardNum + " ... writing shard");
 
         /* Compute links */
-        int[] links = new int[shoveled.length];
+        int[] nexts = new int[(int) (1 + maxTarget - minTarget)];
+
+        for(int j=shoveled.length-1; j>=0; j--) {
+            long vid = shoveled2[j];
+            int a = (int) (vid - minTarget);
+            long link = (long) nexts[a];
+            shoveled2[j] = VertexIdTranslate.encodeVertexPacket(vid, link);
+            nexts[a] = j;
+            assert(j < (1<<30));
+        }
+
+        /* Write start indices */
+        File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
+        DataOutputStream startOutFile = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(startIdxFile)));
+        for(int i=0; i<nexts.length; i++) {
+            startOutFile.writeInt(nexts[i]);
+        }
+        startOutFile.close();
 
         /*
          Now write the final shard in a compact form. Note that there is separate shard
@@ -929,7 +952,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
             /* Efficiently handly only intervals that have any vertices */
             long[] representedArray = new long[representedIntervals.size()];
-
 
             int k = 0;
             if (useSparseDegrees) {

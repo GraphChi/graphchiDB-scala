@@ -70,6 +70,10 @@ public class ChiFilenames {
         return adjFileName + ".ptr";
     }
 
+    public static String getFilenameShardsAdjStartIndices(String adjFileName) {
+        return adjFileName + ".stidx";
+    }
+
     public static String getFilenameIntervals(String baseFilename, int nShards) {
         return baseFilename + "." + nShards + ".linked_intervalsjavaLong";
     }
