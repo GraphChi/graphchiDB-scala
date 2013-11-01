@@ -142,7 +142,6 @@ public class QueryShard {
             int END = (1<<30) - 1;
             int off = inEdgeStartBuffer.get((int) (queryId - interval.getFirstVertex()));
 
-            int j = 0;
             while(off != END) {
                 offsets.add(off);
                 adjFileInput.seek(off * 8);
@@ -166,8 +165,6 @@ public class QueryShard {
                 int firstOff = offsets.get(0);
                 ShardIndex.IndexEntry startIndex = index.lookupByOffset(firstOff * 8);
                 pointerIdxBuffer.position(startIndex.vertexSeq);
-
-
 
                 long last = pointerIdxBuffer.get();
                 while (offsetIterator.hasNext()) {

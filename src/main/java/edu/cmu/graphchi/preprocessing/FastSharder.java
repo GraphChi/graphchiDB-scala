@@ -494,8 +494,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
          * Read the edges into memory.
          */
         BufferedDataInputStream in = new BufferedDataInputStream(new FileInputStream(shovelFile));
-        long minTarget = Long.MAX_VALUE;
-        long maxTarget = Long.MIN_VALUE;
+        long minTarget = finalIdTranslate.getVertexIntervalLength() * shardNum;
+        long maxTarget = finalIdTranslate.getVertexIntervalLength() * (1 + shardNum) - 1;
         for(int i=0; i<shoveled.length; i++) {
 
             long from = in.readLong();
@@ -507,8 +507,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             shoveled[i] = newFrom;
             shoveled2[i] = newTo;
 
-            minTarget = Math.min(newTo, minTarget);
-            maxTarget = Math.max(newTo, maxTarget);
 
 
             if (newFrom < 0 || newTo < 0) {
