@@ -193,7 +193,7 @@ public class VertexQuery {
     }
 
     public ArrayList<Long> queryInNeighbors(final long internalId) {
-        ArrayList<Long> inNeighbors;
+        System.out.println("Querying inNeighbors: " + internalId);
 
         /* Query from shards in parallel */
         for(int i=0; i<intervals.size(); i++) {

@@ -47,7 +47,7 @@ public class ShortestPathQuery {
     public void inNeighbors(long vertexId) {
         long st = System.currentTimeMillis();
         ArrayList<Long> neighbors = queryEngine.queryInNeighbors(translator.forward(vertexId));
-        System.out.println(neighbors);
+
         System.out.println("Querying in-neighbors (" + neighbors.size() + ") took " +
                 (System.currentTimeMillis() - st) + " ms");
     }

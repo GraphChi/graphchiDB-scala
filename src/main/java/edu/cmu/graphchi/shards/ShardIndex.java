@@ -76,6 +76,15 @@ public class ShardIndex {
 
     }
 
+    public IndexEntry lookupByOffset(int fileOffsetQuery) {
+        int idx = Arrays.binarySearch(fileOffset, fileOffsetQuery);
+        if (idx >= 0) {
+            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+        } else {
+            idx = -(idx + 1) - 1;
+            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+        }
+    }
 
 
     public static class IndexEntry {

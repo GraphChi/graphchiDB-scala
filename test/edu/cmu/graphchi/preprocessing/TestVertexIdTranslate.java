@@ -56,7 +56,8 @@ public class TestVertexIdTranslate {
             }
         }
 
-        System.out.println(VertexIdTranslate.getVertexId(3221225472L));
-        System.out.println(VertexIdTranslate.getAux(3221225472L));
+        long x = VertexIdTranslate.encodeVertexPacket(1214077, 1<<30 -1);
+        assertEquals(1214077, VertexIdTranslate.getVertexId(x));
+        assertEquals(1<<30 - 1, VertexIdTranslate.getAux(x));
     }
 }

@@ -198,7 +198,7 @@ public class FriendsOfFriends {
             }
 
             long queryId = Long.parseLong(ln);
-            fof.recommendFriends(queryId, 500);
+            fof.recommendFriends(queryId, 1000000);
         }
         fof.queryEngine.shutdown();
     }

@@ -542,13 +542,18 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
         /* Compute links */
         int[] nexts = new int[(int) (1 + maxTarget - minTarget)];
+        for(int j=0; j<nexts.length; j++) {
+            nexts[j] = (1<<30) - 1;
+        }
 
         for(int j=shoveled.length-1; j>=0; j--) {
             long vid = shoveled2[j];
             int a = (int) (vid - minTarget);
             long link = (long) nexts[a];
+
             shoveled2[j] = VertexIdTranslate.encodeVertexPacket(vid, link);
             nexts[a] = j;
+
             assert(j < (1<<30));
         }
 

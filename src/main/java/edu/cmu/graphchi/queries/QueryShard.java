@@ -1,12 +1,15 @@
 package edu.cmu.graphchi.queries;
 
 import edu.cmu.graphchi.ChiFilenames;
+import edu.cmu.graphchi.engine.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.shards.ShardIndex;
 import ucar.unidata.io.RandomAccessFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.BufferUnderflowException;
+import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -16,6 +19,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Iterator;
 
 /**
  * Shard query support
@@ -31,16 +35,28 @@ public class QueryShard {
     private File adjFile;
 
     private LongBuffer pointerIdxBuffer;
+    private IntBuffer inEdgeStartBuffer;
+    private VertexInterval interval;
 
 
     public QueryShard(String fileName, int shardNum, int numShards) throws IOException {
         this.shardNum = shardNum;
         this.numShards = numShards;
         this.fileName = fileName;
+
+        this.interval = ChiFilenames.loadIntervals(fileName, numShards).get(shardNum);
+
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
         adjFileInput = new RandomAccessFile(adjFile.getAbsolutePath(), "r", 64 * 1024);
         index = new ShardIndex(adjFile);
         loadPointers();
+        loadInEdgeStartBuffer();
+    }
+
+    private void loadInEdgeStartBuffer() throws IOException {
+        File inEdgeStartBufferFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(adjFile.getAbsolutePath()));
+        FileChannel inEdgeStartChannel = new java.io.RandomAccessFile(inEdgeStartBufferFile, "r").getChannel();
+        inEdgeStartBuffer = inEdgeStartChannel.map(FileChannel.MapMode.READ_ONLY, 0, inEdgeStartBufferFile.length()).asIntBuffer();
     }
 
     void loadPointers() throws IOException {
@@ -101,65 +117,77 @@ public class QueryShard {
         long ptr = pointerIdxBuffer.get();
 
         while(curvid < vertexId) {
-            curvid = VertexIdTranslate.getVertexId(ptr);
-            if (curvid == vertexId) {
-                return ptr;
+            try {
+                curvid = VertexIdTranslate.getVertexId(ptr);
+                if (curvid == vertexId) {
+                    return ptr;
+                }
+                ptr = pointerIdxBuffer.get();
+            } catch (BufferUnderflowException bufe) {
+                return -1;
             }
-            ptr = pointerIdxBuffer.get();
         }
         return -1L;
     }
 
     public synchronized void queryIn(Long queryId, QueryCallback callback) {
-        ArrayList<Long> inNeighbors = new ArrayList<Long>();
+
+        if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
+            throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
+        }
 
         try {
-            adjFileInput.seek(0);
-            long curvid = 0;
-            while(true) {
-                int n;
-                int ns = adjFileInput.readUnsignedByte();
-                assert(ns >= 0);
+            /* Step 1: collect adj file offsets for the in-edges */
+            ArrayList<Integer> offsets = new ArrayList<Integer>();
+            int END = (1<<30) - 1;
+            int off = inEdgeStartBuffer.get((int) (queryId - interval.getFirstVertex()));
 
-                if (ns == 0) {
-                    curvid++;
-                    int nz = adjFileInput.readUnsignedByte();
-
-                    assert(nz >= 0);
-                    curvid += nz;
-
-                    if (nz == 254) {
-                        long nnz = Long.reverseBytes(adjFileInput.readLong());
-                        curvid += nnz + 1;
-                    }
-
-                    continue;
+            int j = 0;
+            while(off != END) {
+                offsets.add(off);
+                adjFileInput.seek(off * 8);
+                long edge = Long.reverseBytes(adjFileInput.readLong());
+                if (VertexIdTranslate.getVertexId(edge) != queryId) {
+                    throw new RuntimeException("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
                 }
-
-                if (ns == 0xff) {
-                    n = adjFileInput.readInt();
-                } else {
-                    n = ns;
+                off = (int) VertexIdTranslate.getAux(edge);
+                if (off > END) {
+                    throw new RuntimeException("Encoding error: " + edge + " --> " + VertexIdTranslate.getVertexId(edge)
+                        + " off : " + VertexIdTranslate.getAux(edge));
                 }
-
-                while (--n >= 0) {
-                    long target = Long.reverseBytes(adjFileInput.readLong());
-                    if (target == queryId)  {
-                        inNeighbors.add(curvid);
-                        adjFileInput.skipBytes(n * 8);
-                        break;
-                    }
-                }
-                curvid++;
-
             }
 
-        } catch (java.io.EOFException eof) {
-            // Kosher
+            /* Step 2: collect the vertex ids that contain the offsets by passing over the pointer data */
+            /* Find beginning */
+            ArrayList<Long> inNeighbors = new ArrayList<Long>(offsets.size());
+
+            Iterator<Integer> offsetIterator = offsets.iterator();
+            if (!offsets.isEmpty()) {
+                int firstOff = offsets.get(0);
+                ShardIndex.IndexEntry startIndex = index.lookupByOffset(firstOff * 8);
+                pointerIdxBuffer.position(startIndex.vertexSeq);
+
+
+
+                long last = pointerIdxBuffer.get();
+                while (offsetIterator.hasNext()) {
+                    off = offsetIterator.next();
+                    long ptr = last;
+
+                    while(VertexIdTranslate.getAux(ptr) <= off) {
+                        last = ptr;
+                        ptr = pointerIdxBuffer.get();
+                    }
+                    inNeighbors.add(VertexIdTranslate.getVertexId(last));
+                }
+            }
+            callback.receiveInNeighbors(queryId, inNeighbors);
+
+
         } catch (Exception err) {
             throw new RuntimeException(err);
         }
-        callback.receiveInNeighbors(queryId, inNeighbors);
+        callback.receiveInNeighbors(queryId, new ArrayList<Long>(0));
     }
 
 
