@@ -10,7 +10,7 @@ import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.engine.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.shards.ShardIndex;
-import ucar.unidata.io.RandomAccessFile;
+
 
 import java.io.File;
 import java.io.IOException;
@@ -34,13 +34,13 @@ import java.util.concurrent.TimeUnit;
  */
 public class QueryShard {
 
-    private RandomAccessFile adjFileInput;
     private ShardIndex index;
     private int shardNum;
     private int numShards;
     private String fileName;
     private File adjFile;
 
+    private LongBuffer adjBuffer;
     private LongBuffer pointerIdxBuffer;
     private IntBuffer inEdgeStartBuffer;
     private VertexInterval interval;
@@ -60,7 +60,10 @@ public class QueryShard {
         this.interval = ChiFilenames.loadIntervals(fileName, numShards).get(shardNum);
 
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
-        adjFileInput = new RandomAccessFile(adjFile.getAbsolutePath(), "r", 64 * 1024);
+
+        adjBuffer = new java.io.RandomAccessFile(adjFile, "r").getChannel().map(FileChannel.MapMode.READ_ONLY, 0,
+                    adjFile.length()).asLongBuffer();
+
         index = new ShardIndex(adjFile);
         loadPointers();
         loadInEdgeStartBuffer();
@@ -89,7 +92,7 @@ public class QueryShard {
                 indexEntries.add(index.lookup(a));
             }
 
-            ShardIndex.IndexEntry entry = null, lastEntry = null;
+            ShardIndex.IndexEntry entry = null;
             for(int qIdx=0; qIdx < sortedIds.size(); qIdx++) {
                 entry = indexEntries.get(qIdx);
                 long vertexId = sortedIds.get(qIdx);
@@ -102,9 +105,9 @@ public class QueryShard {
 
                     ArrayList<Long> res = new ArrayList<Long>(n);
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
-                    adjFileInput.seek(adjOffset * 8);
+                    adjBuffer.position((int)adjOffset);
                     for(int i=0; i<n; i++) {
-                        res.add(VertexIdTranslate.getVertexId(Long.reverseBytes(adjFileInput.readLong())));
+                        res.add(VertexIdTranslate.getVertexId(adjBuffer.get()));
                     }
                     callback.receiveOutNeighbors(vertexId, res);
                 } else {
@@ -156,12 +159,10 @@ public class QueryShard {
             int END = (1<<30) - 1;
             int off = inEdgeStartBuffer.get((int) (queryId - interval.getFirstVertex()));
 
-            //TODO: try with memory mapping
-
             while(off != END) {
                 offsets.add(off);
-                adjFileInput.seek(off * 8);
-                long edge = Long.reverseBytes(adjFileInput.readLong());
+                adjBuffer.position(off);
+                long edge = adjBuffer.get();
                 if (VertexIdTranslate.getVertexId(edge) != queryId) {
                     throw new RuntimeException("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
                 }
