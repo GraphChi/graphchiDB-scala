@@ -27,9 +27,13 @@
         <dependency>
         <groupId>com.yammer.metrics</groupId>
         <artifactId>metrics-core</artifactId>
-        <version>2.2.0</version>
+        <version>2.1.1</version>
     </dependency>
-
+        <dependency>
+            <groupId>com.codahale.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+            <version>3.0.1</version>
+        </dependency>
 	    <!-- Scala version is very important. Luckily the plugin warns you if you don't specify:   
 	        [WARNING] you don't define org.scala-lang:scala-library as a dependency of the project -->  
 	    <dependency>  

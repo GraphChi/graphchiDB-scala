@@ -1,6 +1,7 @@
 package edu.cmu.graphchi.queries.bench;
 
 import edu.cmu.graphchi.ChiFilenames;
+import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.queries.VertexQuery;
 
@@ -48,7 +49,7 @@ public class GraphQueryBench {
             ids.add((long)random.nextInt(numVertices));
         }
         String resultFilename = filename + "_querybench_" + N + "_" + comment.replace(" ", "_") +
-                    System.currentTimeMillis() + ".csv";
+                System.currentTimeMillis() + ".csv";
 
         BufferedWriter resultWriter = new BufferedWriter(new FileWriter(resultFilename));
 
@@ -105,16 +106,23 @@ public class GraphQueryBench {
 
         System.out.println("Test [" + comment + "] finished in " + total / 1000 + "secs.");
         System.out.println("Checksum: "+ checksum);
+
+        GraphChiEnvironment.reportMetrics();
     }
 
     public static void main(String[] args) throws  IOException {
         String filename = args[0];
         int numShards = Integer.parseInt(args[1]);
+        String comment;
 
-        BufferedReader rd = new BufferedReader(new InputStreamReader(System.in));
+        if (args.length > 2) {
+            comment = args[2];
+        } else {
+            BufferedReader rd = new BufferedReader(new InputStreamReader(System.in));
 
-        System.out.print("Bench comment: ");
-        String comment = rd.readLine();
+            System.out.print("Bench comment: ");
+            comment = rd.readLine();
+        }
         GraphQueryBench qbench = new GraphQueryBench(filename, numShards, comment);
         qbench.bench1();
     }

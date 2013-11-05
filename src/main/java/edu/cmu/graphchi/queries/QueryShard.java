@@ -1,6 +1,12 @@
 package edu.cmu.graphchi.queries;
 
+import com.codahale.metrics.MetricRegistry;
+import static com.codahale.metrics.MetricRegistry.*;
+import static com.codahale.metrics.MetricRegistry.name;
+
+import com.codahale.metrics.Timer;
 import edu.cmu.graphchi.ChiFilenames;
+import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.engine.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.shards.ShardIndex;
@@ -20,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Shard query support
@@ -37,6 +44,12 @@ public class QueryShard {
     private LongBuffer pointerIdxBuffer;
     private IntBuffer inEdgeStartBuffer;
     private VertexInterval interval;
+
+
+    private static final Timer inEdgeIndexLookupTimer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-indexlookup"));
+
+    private final Timer inEdgePhase1Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase1"));
+    private final Timer inEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase2"));
 
 
     public QueryShard(String fileName, int shardNum, int numShards) throws IOException {
@@ -138,9 +151,12 @@ public class QueryShard {
 
         try {
             /* Step 1: collect adj file offsets for the in-edges */
+            final Timer.Context _timer1 = inEdgePhase1Timer.time();
             ArrayList<Integer> offsets = new ArrayList<Integer>();
             int END = (1<<30) - 1;
             int off = inEdgeStartBuffer.get((int) (queryId - interval.getFirstVertex()));
+
+            //TODO: try with memory mapping
 
             while(off != END) {
                 offsets.add(off);
@@ -155,15 +171,23 @@ public class QueryShard {
                         + " off : " + VertexIdTranslate.getAux(edge));
                 }
             }
+            _timer1.stop();
 
             /* Step 2: collect the vertex ids that contain the offsets by passing over the pointer data */
             /* Find beginning */
+
+
             ArrayList<Long> inNeighbors = new ArrayList<Long>(offsets.size());
 
             Iterator<Integer> offsetIterator = offsets.iterator();
             if (!offsets.isEmpty()) {
+                final Timer.Context  _timer2 = inEdgePhase2Timer.time();
+
                 int firstOff = offsets.get(0);
+                final Timer.Context  _timer3 = inEdgeIndexLookupTimer.time();
                 ShardIndex.IndexEntry startIndex = index.lookupByOffset(firstOff * 8);
+                _timer3.stop();
+
                 pointerIdxBuffer.position(startIndex.vertexSeq);
 
                 long last = pointerIdxBuffer.get();
@@ -177,6 +201,8 @@ public class QueryShard {
                     }
                     inNeighbors.add(VertexIdTranslate.getVertexId(last));
                 }
+                _timer2.stop();
+
             }
             callback.receiveInNeighbors(queryId, inNeighbors);
 
