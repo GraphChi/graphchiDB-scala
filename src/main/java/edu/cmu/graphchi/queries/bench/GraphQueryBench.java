@@ -52,6 +52,8 @@ public class GraphQueryBench {
                 System.currentTimeMillis() + ".csv";
 
         BufferedWriter resultWriter = new BufferedWriter(new FileWriter(resultFilename));
+        resultWriter.write("iter" + "," + "vertexid" + "," + "indeg" + "," + "outdeg" + "," + "inms" + "," + "outms" + "\n");
+
 
         long st = System.currentTimeMillis();
 
