@@ -17,17 +17,14 @@ class TestDenseStorage {
 
 
   @Test def testMmappedDenseStorage() {
-
     val storage = new MemoryMappedDenseByteStorageBlock(testFile, 10000, 4) with DataBlock[Int]
 
     Random.shuffle((0 until 10000).toList).foreach(i => storage.set(idx = i, value = i * 2))
 
-    Random.shuffle((0 until 10000).toList).foreach(i =>  {
+    Random.shuffle((0 until 10000).toList).foreach(i => {
       val x = storage.get(i)
       assertEquals(i * 2, x)
     }
-
-
     )
 
   }

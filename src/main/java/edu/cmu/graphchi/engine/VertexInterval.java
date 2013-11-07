@@ -20,18 +20,25 @@ public class VertexInterval {
 
     private long firstVertex;
     private long lastVertex; // Inclusive
+    private int id;
 
-    public VertexInterval(long firstVertex, long lastVertex) {
+    public VertexInterval(long firstVertex, long lastVertex, int id) {
         this.firstVertex = firstVertex;
         this.lastVertex = lastVertex;
+        this.id = id;
     }
 
-
+    public int getId() {
+        return id;
+    }
 
     public long getFirstVertex() {
         return firstVertex;
     }
 
+    public long length() {
+        return lastVertex - firstVertex + 1;
+    }
 
     public boolean contains(long vertexId) {
         return vertexId >= firstVertex && vertexId <= lastVertex;

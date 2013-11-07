@@ -113,7 +113,7 @@ public class ChiFilenames {
         ArrayList<VertexInterval> intervals = new ArrayList<VertexInterval>(nShards);
         while((line = rd.readLine()) != null) {
             long vid = Long.parseLong(line);
-            intervals.add(new VertexInterval(lastId, vid));
+            intervals.add(new VertexInterval(lastId, vid, intervals.size()));
             lastId = vid + 1;
         }
         return intervals;

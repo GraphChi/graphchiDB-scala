@@ -7,7 +7,7 @@ import java.nio.ByteBuffer
 /**
  * @author Aapo Kyrola
  */
-class MemoryMappedDenseByteStorageBlock(file: File, size: Int, elementSize: Int) extends IndexedByteStorageBlock {
+class MemoryMappedDenseByteStorageBlock(file: File, size: Long, elementSize: Int) extends IndexedByteStorageBlock {
 
   /** If file exists and is of proper size, do nothing - otherwise initialize */
   if (!file.exists()) {
