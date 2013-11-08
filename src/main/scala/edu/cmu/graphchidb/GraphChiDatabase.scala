@@ -60,8 +60,24 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
   def internalToOriginalId(vertexId: Long) = vertexIdTranslate.backward(vertexId)
 
-  def queryIn(internalId: Long) = new QueryResult(vertexIndexing, queryEngine.queryInNeighbors(internalId).toSet)
-  def queryOut(internalId: Long) = new QueryResult(vertexIndexing, queryEngine.queryOutNeighbors(internalId).toSet)
+
+  def timed[R](blockName: String, block: => R): R = {
+    val t0 = System.nanoTime()
+    val result = block
+    val t1 = System.nanoTime()
+    println( blockName + " " +  (t1 - t0) / 1000000 + "ms")
+    result
+  }
+
+  def queryIn(internalId: Long) = {
+    timed ("query-in", { new QueryResult(vertexIndexing, queryEngine.queryInNeighbors(internalId).toSet) } )
+  }
+
+  def queryOut(internalId: Long) = {
+      timed ("query-out", {
+        new QueryResult(vertexIndexing, queryEngine.queryOutNeighbors(internalId).toSet)
+      } )
+  }
 
   class QueryResult(indexing: DatabaseIndexing, rows: Set[java.lang.Long]) {
 
@@ -77,15 +93,14 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
       if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
       if (column2.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
 
-      val joins1 = column.getMany(rows)
+      val joins1 = timed("join1",  column.getMany(rows))
       val rows2 = rows.intersect(joins1.keySet)
-      println("rows2: " + rows2.size)
-      val joins2 = column2.getMany(rows2)
-      println("joins2:" + joins2.size)
+      val joins2 = timed ("join2", column2.getMany(rows2) )
       joins2.keySet map {row => (row, joins1(row), joins2(row))}
     }
 
     def getRows = rows
+
   }
 }
 
