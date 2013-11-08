@@ -3,7 +3,17 @@ package edu.cmu.akyrola.prototype
 import java.util.Locale
 import edu.cmu.graphchidb.GraphChiDatabase
 
+/*
+// Console
+import edu.cmu.akyrola.prototype.TwitterPrototypeDatabase._
+queryFollowersAndCountries("kyrpov")
+queryFollowersAndCountries("biz")
+
+
+ */
+
 /**
+ *
  * @author Aapo Kyrola
  */
 object TwitterPrototypeDatabase {
@@ -15,12 +25,18 @@ object TwitterPrototypeDatabase {
 
   val countries =  Locale.getISOCountries
   val countryColumn = DB.createCategoricalColumn("country", countries, DB.vertexIndexing)
+  val nameColumn = DB.createMySQLColumn("twitter_names", "name", DB.vertexIndexing)
 
-
-  def queryFollowersAndCountries(userId: Long) = {
-    val internalId = DB.originalToInternalId(userId)
-    DB.queryIn(internalId).join(countryColumn)
+  def vertex(name: String) = {
+    DB.internalToOriginalId(nameColumn.getByName(name).getOrElse(throw new RuntimeException(name + " not found")))
   }
+
+  def queryFollowersAndCountries(name: String) = {
+    val internalId = DB.originalToInternalId(vertex(name))
+    DB.queryIn(internalId).join(countryColumn, nameColumn)
+  }
+
+
 
   def main(args: Array[String]) {
     println("Total countries: " + countries.size)

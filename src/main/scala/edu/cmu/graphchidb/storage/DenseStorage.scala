@@ -34,6 +34,7 @@ class MemoryMappedDenseByteStorageBlock(file: File, size: Long, elementSize: Int
   def readIntoBuffer(idx: Int, out: ByteBuffer) = {
       byteBuffer.position(idx * elementSize)
       byteBuffer.get(out.array())
+      true
   }
 
   def writeFromBuffer(idx: Int, in: ByteBuffer) = {

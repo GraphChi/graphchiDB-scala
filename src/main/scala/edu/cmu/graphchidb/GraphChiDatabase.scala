@@ -6,7 +6,7 @@ import java.io.File
 import edu.cmu.graphchi.engine.VertexInterval
 
 import scala.collection.JavaConversions._
-import edu.cmu.graphchidb.storage.{CategoricalColumn, Column}
+import edu.cmu.graphchidb.storage.{MySQLBackedColumn, CategoricalColumn, Column}
 import edu.cmu.graphchi.queries.{VertexQuery, QueryShard}
 
 /**
@@ -45,6 +45,12 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
      col
   }
 
+  def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
+     val col = new MySQLBackedColumn[String](tableName, columnName, indexing, vertexIdTranslate)
+     columns = columns + (tableName + "." + columnName -> col.asInstanceOf[Column[AnyRef]])
+     col
+  }
+
   def column(name: String) = columns(name)
 
   def numVertices = intervals.last.getLastVertex
@@ -52,6 +58,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
   var queryEngine = new VertexQuery(baseFilename, numShards)
 
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
+  def internalToOriginalId(vertexId: Long) = vertexIdTranslate.backward(vertexId)
 
   def queryIn(internalId: Long) = new QueryResult(vertexIndexing, queryEngine.queryInNeighbors(internalId).toSet)
   def queryOut(internalId: Long) = new QueryResult(vertexIndexing, queryEngine.queryOutNeighbors(internalId).toSet)
@@ -60,10 +67,25 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
     // TODO: multijoin
       def join[T](column: Column[T]) = {
-          if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!");
-          rows map {row => (row, column.getName(row))}
+          if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
+          val joins1 = column.getMany(rows)
+
+         joins1.keySet map {row => (row, joins1(row))}
       }
 
+    def join[T, V](column: Column[T], column2: Column[V]) = {
+      if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
+      if (column2.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
+
+      val joins1 = column.getMany(rows)
+      val rows2 = rows.intersect(joins1.keySet)
+      println("rows2: " + rows2.size)
+      val joins2 = column2.getMany(rows2)
+      println("joins2:" + joins2.size)
+      joins2.keySet map {row => (row, joins1(row), joins2(row))}
+    }
+
+    def getRows = rows
   }
 }
 
