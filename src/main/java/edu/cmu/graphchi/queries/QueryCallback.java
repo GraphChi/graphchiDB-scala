@@ -8,8 +8,8 @@ import java.util.List;
  */
 public interface QueryCallback {
 
-    void receiveOutNeighbors(long vertexId, ArrayList<Long> neighborIds);
+    void receiveOutNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Long> dataPointers);
 
-    void receiveInNeighbors(long vertexId, ArrayList<Long> neighborIds);
+    void receiveInNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Long> dataPointers);
 
 }

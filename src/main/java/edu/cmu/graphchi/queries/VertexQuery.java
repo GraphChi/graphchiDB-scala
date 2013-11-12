@@ -221,7 +221,7 @@ public class VertexQuery {
 
             super.queryOut(queryIds, new QueryCallback() {
                 @Override
-                public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighbors) {
+                public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighbors, ArrayList<Long> pointers) {
                     for (Long target : neighbors) {
                         Integer curCount = results.get(target);
                         if (curCount == null) {
@@ -232,7 +232,7 @@ public class VertexQuery {
                     }
                 }
 
-                public void receiveInNeighbors(long vertexId, ArrayList<Long> neighbors) {
+                public void receiveInNeighbors(long vertexId, ArrayList<Long> neighbors, ArrayList<Long> pointers) {
                     throw new IllegalStateException();
                 }
 
@@ -245,11 +245,11 @@ public class VertexQuery {
             final HashMap<Long, ArrayList<Long>> results = new HashMap<Long, ArrayList<Long>>(queryIds.size());
             super.queryOut(queryIds, new QueryCallback() {
                 @Override
-                public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighbors) {
+                public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighbors, ArrayList<Long> pointers) {
                     results.put(vertexId, neighbors);
                 }
 
-                public void receiveInNeighbors(long vertexId, ArrayList<Long> neighbors) {
+                public void receiveInNeighbors(long vertexId, ArrayList<Long> neighbors, ArrayList<Long> pointers) {
                     throw new IllegalStateException();
                 }
             });
@@ -265,8 +265,8 @@ public class VertexQuery {
         public ArrayList<Long> queryInNeighbors(long internalId) {
             final ArrayList<Long> results = new ArrayList<Long>();
             super.queryIn(internalId, new QueryCallback() {
-                public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighborIds) {}
-                public void receiveInNeighbors(long vertexId, ArrayList<Long> neighborIds) {
+                public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Long> pointers) {}
+                public void receiveInNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Long> pointers) {
                     results.addAll(neighborIds);
                 }
             } );

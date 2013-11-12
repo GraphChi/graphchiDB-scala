@@ -7,6 +7,7 @@ import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import java.io.File
 import java.sql.DriverManager
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate
+import java.nio.ByteBuffer
 
 /**
  *
@@ -16,6 +17,10 @@ import edu.cmu.graphchi.preprocessing.VertexIdTranslate
  */
 
 trait Column[T] {
+
+  def encode(value: T, out: ByteBuffer) : Unit
+  def elementSize: Int
+
   def get(idx: Long) : Option[T]
   def getMany(idxs: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
       idxs.map(idx => idx -> get(idx)).toMap
@@ -27,6 +32,10 @@ trait Column[T] {
 
 class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseIndexing,
                     converter: ByteConverter[T]) extends Column[T] {
+
+
+  def encode(value: T, out: ByteBuffer) = converter.toBytes(value, out)
+  def elementSize = converter.sizeOf
 
   def indexing = _indexing
   def blockFilename(shardNum: Int) = filePrefix + "." + shardNum
@@ -63,6 +72,10 @@ class CategoricalColumn(filePrefix: String, indexing: DatabaseIndexing, values: 
 
 class MySQLBackedColumn[T](tableName: String, columnName: String, _indexing: DatabaseIndexing,
                               vertexIdTranslate: VertexIdTranslate) extends Column[T] {
+
+  def encode(value: T, out: ByteBuffer) = throw new UnsupportedOperationException
+  def elementSize = throw new UnsupportedOperationException
+
 
   // TODO: temporary code
   val dbConnection = {

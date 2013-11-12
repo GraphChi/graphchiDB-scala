@@ -10,7 +10,7 @@ import java.io.File
 
 trait ByteConverter[T] {
   def fromBytes(bb: ByteBuffer) : T
-  def toBytes(v: T) : ByteBuffer
+  def toBytes(v: T, out: ByteBuffer) : Unit
   def sizeOf: Int
 }
 
@@ -19,10 +19,8 @@ object ByteConverters {
     override def fromBytes(bb: ByteBuffer) : Int = {
       bb.getInt
     }
-    override def toBytes(v: Int) : ByteBuffer = {
-      val bb = ByteBuffer.allocate(4)
+    override def toBytes(v: Int, bb: ByteBuffer) : Unit = {
       bb.putInt(v)
-      bb
     }
     override def sizeOf = 4
   }
@@ -31,10 +29,8 @@ object ByteConverters {
     override def fromBytes(bb: ByteBuffer) : Byte = {
       bb.get
     }
-    override def toBytes(v: Byte) : ByteBuffer = {
-      val bb = ByteBuffer.allocate(1)
+    override def toBytes(v: Byte, bb: ByteBuffer) : Unit = {
       bb.put(v)
-      bb
     }
     override def sizeOf = 1
   }
@@ -52,7 +48,9 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
   }
 
   def set(idx: Int, value: T)(implicit converter: ByteConverter[T]) : Unit = {
-    writeFromBuffer(idx, converter.toBytes(value))
+    val bb = ByteBuffer.allocate(converter.sizeOf)  // TODO reuse
+    converter.toBytes(value, bb)
+    writeFromBuffer(idx, bb)
   }
 
 }

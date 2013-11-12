@@ -104,14 +104,17 @@ public class QueryShard {
                     int n = (int) (VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(curPtr));
 
                     ArrayList<Long> res = new ArrayList<Long>(n);
+                    ArrayList<Long> resPointers = new ArrayList<Long>(n);
+
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
                     adjBuffer.position((int)adjOffset);
                     for(int i=0; i<n; i++) {
                         res.add(VertexIdTranslate.getVertexId(adjBuffer.get()));
+                        resPointers.add(PointerUtil.encodePointer(shardNum, (int)adjOffset + i));
                     }
-                    callback.receiveOutNeighbors(vertexId, res);
+                    callback.receiveOutNeighbors(vertexId, res, resPointers);
                 } else {
-                    callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0));
+                    callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Long>(0));
                 }
             }
         } catch (Exception err) {
@@ -179,6 +182,7 @@ public class QueryShard {
 
 
             ArrayList<Long> inNeighbors = new ArrayList<Long>(offsets.size());
+            ArrayList<Long> inNeighborsPtrs = new ArrayList<Long>(offsets.size());
 
             Iterator<Integer> offsetIterator = offsets.iterator();
             if (!offsets.isEmpty()) {
@@ -201,17 +205,18 @@ public class QueryShard {
                         ptr = pointerIdxBuffer.get();
                     }
                     inNeighbors.add(VertexIdTranslate.getVertexId(last));
+                    inNeighborsPtrs.add(PointerUtil.encodePointer(shardNum, off));
                 }
                 _timer2.stop();
 
             }
-            callback.receiveInNeighbors(queryId, inNeighbors);
+            callback.receiveInNeighbors(queryId, inNeighbors, inNeighborsPtrs);
 
 
         } catch (Exception err) {
             throw new RuntimeException(err);
         }
-        callback.receiveInNeighbors(queryId, new ArrayList<Long>(0));
+        callback.receiveInNeighbors(queryId, new ArrayList<Long>(0), new ArrayList<Long>(0));
     }
 
 
