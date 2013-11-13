@@ -7,6 +7,9 @@ import edu.cmu.graphchidb.GraphChiDatabase
 // Console
 import edu.cmu.akyrola.prototype.TwitterPrototypeDatabase._
 queryFollowersAndCountries("kyrpov")
+
+DB.queryOut(23682683)
+
 queryFollowersAndCountries("biz")
 
 

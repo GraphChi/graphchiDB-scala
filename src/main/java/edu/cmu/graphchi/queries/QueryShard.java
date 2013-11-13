@@ -81,6 +81,8 @@ public class QueryShard {
         pointerIdxBuffer = ptrFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, pointerFile.length()).asLongBuffer();
     }
 
+
+
     public synchronized void queryOut(Collection<Long> queryIds, QueryCallback callback) {
         try {
              /* Sort the ids because the index-entries will be in same order */

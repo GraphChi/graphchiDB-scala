@@ -7,10 +7,14 @@ import edu.cmu.graphchi.engine.VertexInterval
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
-import edu.cmu.graphchi.queries.{PointerUtil, VertexQuery, QueryShard}
-import scala.collection.parallel.mutable
+import edu.cmu.graphchi.queries.{QueryCallback, PointerUtil, VertexQuery, QueryShard}
+import edu.cmu.graphchidb.Util._
 import java.nio.ByteBuffer
 import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
+import edu.cmu.graphchidb.queries.QueryResult
+import java.{lang, util}
+import edu.cmu.graphchidb.queries.internal.QueryResultContainer
+import java.util.Collections
 
 
 object GraphChiDatabaseAdmin {
@@ -45,14 +49,19 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
   var intervals = ChiFilenames.loadIntervals(baseFilename, origNumShards).toIndexedSeq
 
+  /* Graph shards: persistent adjacency shard + buffered edges */
+  class GraphShard(shardIdx: Int) {
+     val persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
+     // val buffer
+  }
 
+  val shards = (0 until numShards).map{i => new GraphShard(i)}
 
   /* For columns associated with vertices */
   val vertexIndexing : DatabaseIndexing = new DatabaseIndexing {
     def shards = numShards
     def shardForIndex(idx: Long) =
       intervals.find(_.contains(idx)).getOrElse(throw new IllegalArgumentException("Vertex id not found")).getId
-
     def shardSize(idx: Long) =
       intervals.find(_.contains(idx)).getOrElse(throw new IllegalArgumentException("Vertex id not found")).length()
 
@@ -60,18 +69,13 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
       val interval = intervals(shardForIndex(idx))
       idx - interval.getFirstVertex
     }
-
-
   }
 
   /* For columns associated with edges */
   val edgeIndexing : DatabaseIndexing = new DatabaseIndexing {
     def shardForIndex(idx: Long) = PointerUtil.decodeShardNum(idx)
-
     def shardSize(idx: Long) = 1000 // FIXME
-
     def shards = numShards
-
     def globalToLocal(idx: Long) = PointerUtil.decodeShardPos(idx)
   }
 
@@ -105,48 +109,62 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
   def column(name: String, indexing: DatabaseIndexing) = columns(indexing).find(_._1 == name)
 
-  def numVertices = intervals.last.getLastVertex
 
-  var queryEngine = new VertexQuery(baseFilename, numShards)
-
+  /* Vertex id conversions */
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
   def internalToOriginalId(vertexId: Long) = vertexIdTranslate.backward(vertexId)
+  def numVertices = intervals.last.getLastVertex
 
 
-  def timed[R](blockName: String, block: => R): R = {
-    val t0 = System.nanoTime()
-    val result = block
-    val t1 = System.nanoTime()
-    println( blockName + " " +  (t1 - t0) / 1000000 + "ms")
-    result
-  }
-
+  /* Queries */
   def queryIn(internalId: Long) = {
-    timed ("query-in", { new QueryResult(vertexIndexing, queryEngine.queryInNeighbors(internalId).toSet) } )
-  }
+    timed ("query-in", {
 
-  def queryOut(internalId: Long) = {
-    timed ("query-out", {
-      new QueryResult(vertexIndexing, queryEngine.queryOutNeighbors(internalId).toSet)
+      val intervalAndIdx = intervals.zipWithIndex.find(_._1.contains(internalId)).get
+
+      val result = new QueryResultContainer(Set(internalId))
+      shards(intervalAndIdx._2).persistentAdjShard.queryIn(internalId, result)
+
+      new QueryResult(vertexIndexing, result.resultsFor(internalId))
     } )
   }
 
 
-  def edgeEncoderDecoder = {
+  def queryOut(internalId: Long) = {
+    timed ("query-out", {
 
+      val queryIds = Set(internalId.asInstanceOf[java.lang.Long])
+      val results = shards.par.map(shard => {
+        val resultContainer =  new QueryResultContainer(queryIds)
+        val javaQueryIds = Collections.singleton(internalId.asInstanceOf[java.lang.Long])   // is there a better way?
+        shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
+        resultContainer
+      })
+
+      println("Out query finished")
+
+      new QueryResult(vertexIndexing, results.map(r => r.resultsFor(internalId)).reduce(_+_))
+    } )
+  }
+
+
+  /**
+   * High-performance reusable object for encoding edges into bytes
+   */
+  def edgeEncoderDecoder = {
     val encoderSeq =  columns(edgeIndexing).map(m => (x: Any, bb: ByteBuffer) => m._2.encode(x, bb))
     val decoderSeq =  columns(edgeIndexing).map(m => (bb: ByteBuffer) => m._2.decode(bb))
 
     val _edgeSize = 8 * 2 + columns(edgeIndexing).map(_._2.elementSize).sum
-    val idxRange = (0 until encoderSeq.size)
+    val idxRange = 0 until encoderSeq.size
 
     new EdgeEncoderDecoder {
       // Encodes an edge and its values to a byte buffer. Note: all values must be present
       def encode(out: ByteBuffer, src: Long, dst: Long, values: Any*) = {
+        if (values.size != idxRange.size) throw new IllegalArgumentException("Number of inputs must match the encoder configuration")
         out.putLong(src)
         out.putLong(dst)
         idxRange.foreach(i => {
-           println("Encoding " + i + " = " + values(i) + ", " + encoderSeq(i))
            encoderSeq(i)(values(i), out)
         })
         _edgeSize
@@ -157,29 +175,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
       def edgeSize = _edgeSize
     }
   }
-  class QueryResult(indexing: DatabaseIndexing, rows: Set[java.lang.Long]) {
 
-    // TODO: multijoin
-    def join[T](column: Column[T]) = {
-      if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
-      val joins1 = column.getMany(rows)
-
-      joins1.keySet map {row => (row, joins1(row))}
-    }
-
-    def join[T, V](column: Column[T], column2: Column[V]) = {
-      if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
-      if (column2.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
-
-      val joins1 = timed("join1",  column.getMany(rows))
-      val rows2 = rows.intersect(joins1.keySet)
-      val joins2 = timed ("join2", column2.getMany(rows2) )
-      joins2.keySet map {row => (row, joins1(row), joins2(row))}
-    }
-
-    def getRows = rows
-
-  }
 }
 
 
