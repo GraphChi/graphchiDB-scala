@@ -19,6 +19,7 @@ import java.nio.ByteBuffer
 trait Column[T] {
 
   def encode(value: T, out: ByteBuffer) : Unit
+  def decode(in: ByteBuffer) : T
   def elementSize: Int
 
   def get(idx: Long) : Option[T]
@@ -35,6 +36,7 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
 
 
   def encode(value: T, out: ByteBuffer) = converter.toBytes(value, out)
+  def decode(in: ByteBuffer) = converter.fromBytes(in)
   def elementSize = converter.sizeOf
 
   def indexing = _indexing
@@ -60,10 +62,12 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
 class CategoricalColumn(filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String])
   extends FileColumn[Byte](filePrefix, sparse=false, indexing, ByteByteConverter) {
 
-  def categoryName(i: Int) = values(i)
-  def indexForName(name: String) = values.indexOf(name)
-
   def byteToInt(b: Byte) : Int = if (b < 0) 256 + b  else b
+
+  def categoryName(b: Byte) : String = values(byteToInt(b))
+  def categoryName(i: Int)  : String = values(i)
+  def indexForName(name: String) = values.indexOf(name).toByte
+
 
   def set(idx: Long, valueName: String) : Unit = super.set(idx, indexForName(valueName).toByte)
   override def getName(idx: Long) : Option[String] = get(idx).map( vidx => categoryName(byteToInt(vidx))).headOption
@@ -74,6 +78,7 @@ class MySQLBackedColumn[T](tableName: String, columnName: String, _indexing: Dat
                               vertexIdTranslate: VertexIdTranslate) extends Column[T] {
 
   def encode(value: T, out: ByteBuffer) = throw new UnsupportedOperationException
+  def decode(in: ByteBuffer) = throw new UnsupportedOperationException
   def elementSize = throw new UnsupportedOperationException
 
 

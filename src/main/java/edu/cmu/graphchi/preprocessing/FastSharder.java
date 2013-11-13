@@ -103,7 +103,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
                        VertexProcessor<VertexValueType> vertexProcessor,
                        EdgeProcessor<EdgeValueType> edgeProcessor,
-                       BytesToValueConverter<VertexValueType> vertexValConterter,
+                       BytesToValueConverter<VertexValueType> vertexValConverter,
                        BytesToValueConverter<EdgeValueType> edgeValConverter) throws IOException {
         this.baseFilename = baseFilename;
         this.numShards = numShards;
@@ -112,7 +112,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         this.edgeProcessor = edgeProcessor;
         this.vertexProcessor = vertexProcessor;
         this.edgeValueTypeBytesToValueConverter = edgeValConverter;
-        this.vertexValueTypeBytesToValueConverter = vertexValConterter;
+        this.vertexValueTypeBytesToValueConverter = vertexValConverter;
 
         /**
          * In the first phase of processing, the edges are "shoveled" to

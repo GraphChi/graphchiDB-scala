@@ -26,7 +26,7 @@ class TestDenseStorage {
       assertEquals(i * 2, x)
     }
     )
-
   }
+
 }
 
