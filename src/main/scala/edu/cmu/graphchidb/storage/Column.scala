@@ -42,7 +42,7 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
   def indexing = _indexing
   def blockFilename(shardNum: Int) = filePrefix + "." + shardNum
 
-  val blocks = (0 until indexing.shards).map {
+  val blocks = (0 until indexing.nShards).map {
     shard =>
       if (!sparse) {
         new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), indexing.shardSize(shard),

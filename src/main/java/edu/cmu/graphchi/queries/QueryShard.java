@@ -51,6 +51,7 @@ public class QueryShard {
     private final Timer inEdgePhase1Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase1"));
     private final Timer inEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase2"));
 
+    private int numEdges;
 
     public QueryShard(String fileName, int shardNum, int numShards) throws IOException {
         this.shardNum = shardNum;
@@ -60,6 +61,7 @@ public class QueryShard {
         this.interval = ChiFilenames.loadIntervals(fileName, numShards).get(shardNum);
 
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
+        numEdges = (int) (adjFile.length() / 8);
 
         adjBuffer = new java.io.RandomAccessFile(adjFile, "r").getChannel().map(FileChannel.MapMode.READ_ONLY, 0,
                     adjFile.length()).asLongBuffer();
@@ -67,6 +69,11 @@ public class QueryShard {
         index = new ShardIndex(adjFile);
         loadPointers();
         loadInEdgeStartBuffer();
+    }
+
+
+    public long getNumEdges()  {
+        return numEdges;
     }
 
     private void loadInEdgeStartBuffer() throws IOException {

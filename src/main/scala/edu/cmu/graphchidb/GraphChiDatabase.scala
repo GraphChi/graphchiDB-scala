@@ -53,17 +53,18 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
   class GraphShard(shardIdx: Int) {
      val persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
      // val buffer
+     def size = persistentAdjShard.getNumEdges // ++ buffer.size
   }
 
   val shards = (0 until numShards).map{i => new GraphShard(i)}
 
   /* For columns associated with vertices */
   val vertexIndexing : DatabaseIndexing = new DatabaseIndexing {
-    def shards = numShards
+    def nShards = numShards
     def shardForIndex(idx: Long) =
       intervals.find(_.contains(idx)).getOrElse(throw new IllegalArgumentException("Vertex id not found")).getId
-    def shardSize(idx: Long) =
-      intervals.find(_.contains(idx)).getOrElse(throw new IllegalArgumentException("Vertex id not found")).length()
+    def shardSize(idx: Int) =
+      intervals(idx).length()
 
     def globalToLocal(idx: Long) = {
       val interval = intervals(shardForIndex(idx))
@@ -74,8 +75,8 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
   /* For columns associated with edges */
   val edgeIndexing : DatabaseIndexing = new DatabaseIndexing {
     def shardForIndex(idx: Long) = PointerUtil.decodeShardNum(idx)
-    def shardSize(idx: Long) = 1000 // FIXME
-    def shards = numShards
+    def shardSize(idx: Int) = shards(idx).numEdges
+    def nShards = numShards
     def globalToLocal(idx: Long) = PointerUtil.decodeShardPos(idx)
   }
 
@@ -181,9 +182,9 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
 
 trait DatabaseIndexing {
-  def shards : Int
+  def nShards : Int
   def shardForIndex(idx: Long) : Int
-  def shardSize(idx: Long) : Long
+  def shardSize(shardIdx: Int) : Long
   def globalToLocal(idx: Long) : Long
 }
 
