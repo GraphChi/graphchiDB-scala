@@ -95,7 +95,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
      * @param numShards the number of shards to be created
      * @param vertexProcessor user-provided function for translating strings to vertex value type
      * @param edgeProcessor user-provided function for translating strings to edge value type
-     * @param vertexValConterter translator  byte-arrays to/from vertex-value
+     * @param vertexValConverter translator  byte-arrays to/from vertex-value
      * @param edgeValConverter   translator  byte-arrays to/from edge-value
      * @throws IOException  if problems reading the data
      */
@@ -683,6 +683,43 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
     private static Random random = new Random();
 
+
+    public static void createEmptyGraph(String baseFilename, int numShards, long maxVertexId) throws IOException {
+        /* Create empty shard files */
+        for(int shardNum=0; shardNum<numShards; shardNum++) {
+            File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
+            adjFile.createNewFile();
+            File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
+            ptrFile.createNewFile();
+            File indexFile = new File(adjFile.getAbsolutePath() + ".index");
+            indexFile.createNewFile();
+            File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
+            startIdxFile.createNewFile();
+        }
+
+        /* Degree file */
+        File degreeFile = new File(ChiFilenames.getFilenameOfDegreeData(baseFilename, false));
+        degreeFile.createNewFile();
+
+        /* Intervals */
+        VertexIdTranslate idTranslate = new VertexIdTranslate(maxVertexId / numShards, numShards);
+        FileWriter wr = new FileWriter(ChiFilenames.getFilenameIntervals(baseFilename, numShards));
+        for(long j=1; j<=numShards; j++) {
+            long a =(j * idTranslate.getVertexIntervalLength() -1);
+            if (a < 0) {
+                throw new RuntimeException("Overflow!" + a);
+            }
+            wr.write(a + "\n");
+            if (a > maxVertexId) {
+                maxVertexId = a;
+            }
+        }
+        wr.close();
+
+        wr = new FileWriter(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards));
+        wr.write(idTranslate.stringRepresentation());
+        wr.close();
+    }
 
 
     // http://www.algolist.net/Algorithms/Sorting/Quicksort

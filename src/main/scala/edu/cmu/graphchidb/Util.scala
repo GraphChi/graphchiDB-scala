@@ -14,4 +14,7 @@ object Util {
     result
   }
 
+  // http://www.jroller.com/vaclav/entry/asynchronous_methods_in_scala
+  def async(fn: => Unit): Unit = scala.actors.Actor.actor { fn }
+
 }

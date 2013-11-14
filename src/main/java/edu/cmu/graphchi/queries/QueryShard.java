@@ -139,6 +139,8 @@ public class QueryShard {
 
         assert(sparseIndexEntry.vertex <= vertexId);
 
+        if (pointerIdxBuffer.capacity() == 0) return -1;
+
         int vertexSeq = sparseIndexEntry.vertexSeq;
         long curvid = sparseIndexEntry.vertex;
         pointerIdxBuffer.position(vertexSeq);
@@ -162,6 +164,10 @@ public class QueryShard {
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
+        }
+
+        if (inEdgeStartBuffer.capacity() < (1 + queryId - interval.getFirstVertex())) {
+            return;
         }
 
         try {

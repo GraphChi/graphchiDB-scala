@@ -31,6 +31,7 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges) {
 
   def getRows = rows.ids
 
+  override def toString() = "Query result: %d rows".format(rows.ids.size)
 }
 
 

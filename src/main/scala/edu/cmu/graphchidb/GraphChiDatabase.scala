@@ -24,17 +24,7 @@ object GraphChiDatabaseAdmin {
 
   def createDatabase(baseFilename: String, numShards: Int) : Boolean= {
     // Temporary code!
-    val sharder = new FastSharder[Boolean, Boolean](baseFilename, numShards, new VertexProcessor[Boolean] {
-      def receiveVertexValue(vertexId: Long, token: String) = false
-    },
-      new EdgeProcessor[Boolean] {
-        def receiveEdge(from: Long, to: Long, token: String) = false
-      },
-      new BooleanConverter().asInstanceOf[BytesToValueConverter[Boolean]],
-      new BooleanConverter().asInstanceOf[BytesToValueConverter[Boolean]])
-    sharder.addEdge(0, 1, null)
-    sharder.addEdge(1, 0, null)
-    sharder.process()
+    FastSharder.createEmptyGraph(baseFilename, numShards, 1L<<33)
     true
   }
 
@@ -153,6 +143,11 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
     shardForEdge(src, dst).addEdge(src, dst, values:_*)
   }
 
+  def addEdgeOrigId(src:Long, dst:Long, values: Any*) {
+    addEdge(originalToInternalId(src), originalToInternalId(dst), values:_*)
+  }
+
+
   /* Vertex id conversions */
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
   def internalToOriginalId(vertexId: Long) = vertexIdTranslate.backward(vertexId)
@@ -187,19 +182,25 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
       val queryIds = Set(internalId.asInstanceOf[java.lang.Long])
       val results = shards.par.map(shard => {
-        val resultContainer =  new QueryResultContainer(queryIds)
-        val javaQueryIds = Collections.singleton(internalId.asInstanceOf[java.lang.Long])   // is there a better way?
-        shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
+        try {
+          val resultContainer =  new QueryResultContainer(queryIds)
+          val javaQueryIds = Collections.singleton(internalId.asInstanceOf[java.lang.Long])   // is there a better way?
+          shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
 
-        /* Look for buffers */
-        val bufferedResults = shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer)
-        resultContainer
-
+          /* Look for buffers */
+          shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer)
+          Some(resultContainer)
+        } catch {
+          case e: Exception  => {
+            e.printStackTrace()
+            None
+          }
+        }
       })
 
       println("Out query finished")
 
-      new QueryResult(vertexIndexing, results.map(r => r.resultsFor(internalId)).reduce(_+_))
+      new QueryResult(vertexIndexing, results.flatten.map(r => r.resultsFor(internalId)).reduce(_+_))
     } )
   }
 
