@@ -28,14 +28,14 @@ class TestEdgeEncoderDecoder {
 
       val eed = db.edgeEncoderDecoder
 
-      assertEquals(8 * 2 + 1 + 4 + 4, eed.edgeSize)
+      assertEquals(1 + 4 + 4, eed.edgeSize)
 
       val byteBuffer = ByteBuffer.allocate(eed.edgeSize)
       eed.encode(byteBuffer, 999, 7832742, catColumn.indexForName("b"), 10, 88888)
 
       byteBuffer.rewind
 
-      val decoded = eed.decode(byteBuffer)
+      val decoded = eed.decode(byteBuffer, 999, 7832742)
 
       println("decoded:" + decoded)
 

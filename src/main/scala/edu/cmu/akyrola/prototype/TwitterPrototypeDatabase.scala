@@ -8,7 +8,12 @@ import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.akyrola.prototype.TwitterPrototypeDatabase._
 queryFollowersAndCountries("kyrpov")
 
+DB.addEdge(23682683, 9999)
+DB.addEdge(9998, 23682683)
+
 DB.queryOut(23682683)
+val a = DB.queryIn(9999)
+a.getRows
 
 queryFollowersAndCountries("biz")
 
@@ -29,6 +34,7 @@ object TwitterPrototypeDatabase {
   val countries =  Locale.getISOCountries
   val countryColumn = DB.createCategoricalColumn("country", countries, DB.vertexIndexing)
   val nameColumn = DB.createMySQLColumn("twitter_names", "name", DB.vertexIndexing)
+  DB.initialize()
 
   def vertex(name: String) = {
     DB.internalToOriginalId(nameColumn.getByName(name).getOrElse(throw new RuntimeException(name + " not found")))

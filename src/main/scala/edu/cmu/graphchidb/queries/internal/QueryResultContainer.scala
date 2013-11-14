@@ -16,17 +16,25 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
     ResultEdges(IndexedSeq[java.lang.Long](), IndexedSeq[java.lang.Long]())).toMap
 
   def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], dataPointers: util.ArrayList[lang.Long]) = {
-     results(vertexId) += ResultEdges(neighborIds.toIndexedSeq[java.lang.Long], dataPointers.toIndexedSeq[java.lang.Long])
+    if (!neighborIds.isEmpty) {
+      this.synchronized {
+        results(vertexId) += ResultEdges(neighborIds.toIndexedSeq[java.lang.Long], dataPointers.toIndexedSeq[java.lang.Long])
+      }
+    }
   }
 
   def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], dataPointers: util.ArrayList[lang.Long])= {
-    results(vertexId) += ResultEdges(neighborIds.toIndexedSeq[java.lang.Long], dataPointers.toIndexedSeq[java.lang.Long])
+    if (!neighborIds.isEmpty) {
+      this.synchronized {
+        results(vertexId) += ResultEdges(neighborIds.toIndexedSeq[java.lang.Long], dataPointers.toIndexedSeq[java.lang.Long])
+      }
+    }
   }
 
   def resultsFor(queryId: Long) = results(queryId)
 }
 
 case class ResultEdges(ids: IndexedSeq[java.lang.Long], pointers: IndexedSeq[java.lang.Long]) {
-   def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, pointers ++ that.pointers)
-   def size = ids.size
+  def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, pointers ++ that.pointers)
+  def size = ids.size
 }

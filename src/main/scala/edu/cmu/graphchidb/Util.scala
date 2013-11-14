@@ -10,7 +10,7 @@ object Util {
     val t0 = System.nanoTime()
     val result = block
     val t1 = System.nanoTime()
-    println( blockName + " " +  (t1 - t0) / 1000000 + "ms")
+    println( blockName + " " +  (t1 - t0) / 1000000.0 + "ms")
     result
   }
 
