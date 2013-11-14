@@ -4,7 +4,7 @@ import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.ChiLogger;
 import edu.cmu.graphchi.datablocks.FloatConverter;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
-import edu.cmu.graphchi.queries.QueryShard;
+import edu.cmu.graphchi.shards.QueryShard;
 import edu.cmu.graphchi.queries.VertexQuery;
 import edu.cmu.graphchi.util.IdCount;
 import edu.cmu.graphchi.util.MultinomialSampler;

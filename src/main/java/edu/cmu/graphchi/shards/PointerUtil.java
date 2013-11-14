@@ -1,4 +1,4 @@
-package edu.cmu.graphchi.queries;
+package edu.cmu.graphchi.shards;
 
 /**
  * @author Aapo Kyrola

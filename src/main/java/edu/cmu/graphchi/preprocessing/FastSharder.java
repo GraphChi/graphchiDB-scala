@@ -9,6 +9,7 @@ import edu.cmu.graphchi.datablocks.DataBlockManager;
 import edu.cmu.graphchi.datablocks.IntConverter;
 import edu.cmu.graphchi.engine.auxdata.VertexData;
 import edu.cmu.graphchi.io.CompressedIO;
+import static edu.cmu.graphchi.util.Sorting.*;
 import edu.cmu.graphchi.shards.MemoryShard;
 import edu.cmu.graphchi.shards.SlidingShard;
 import nom.tam.util.BufferedDataInputStream;
@@ -531,9 +532,81 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         /* Delete the shovel-file */
         shovelFile.delete();
 
-        logger.info("Processing shovel " + shardNum + " ... sorting");
 
-        /* Sort the edges */
+
+        logger.info("Processing shovel " + shardNum + " ... sorting");
+        writeAdjacencyShard(baseFilename, shardNum, numShards, sizeOf, shoveled, shoveled2, edgeValues, minTarget, maxTarget);
+
+
+        /**
+         * Step 2: EDGE DATA
+         */
+
+        /* Create compressed edge data directories */
+        if (sizeOf > 0) {
+            int blockSize = ChiFilenames.getBlocksize(sizeOf);
+            String edataFileName = ChiFilenames.getFilenameShardEdata(baseFilename, new BytesToValueConverter() {
+                @Override
+                public int sizeOf() {
+                    return edgeValueTypeBytesToValueConverter.sizeOf();
+                }
+
+                @Override
+                public Object getValue(byte[] array) {
+                    return null;
+                }
+
+                @Override
+                public void setValue(byte[] array, Object val) {
+                }
+            }, shardNum, numShards);
+            File edgeDataSizeFile = new File(edataFileName + ".size");
+            File edgeDataDir = new File(ChiFilenames.getDirnameShardEdataBlock(edataFileName, blockSize));
+            if (!edgeDataDir.exists()) edgeDataDir.mkdir();
+
+            long edatasize = shoveled.length * edgeValueTypeBytesToValueConverter.sizeOf();
+            FileWriter sizeWr = new FileWriter(edgeDataSizeFile);
+            sizeWr.write(edatasize + "");
+            sizeWr.close();
+
+            /* Create compressed blocks */
+            int blockIdx = 0;
+            int edgeIdx= 0;
+            for(long idx=0; idx < edatasize; idx += blockSize) {
+                File blockFile = new File(ChiFilenames.getFilenameShardEdataBlock(edataFileName, blockIdx, blockSize));
+                OutputStream blockOs = (CompressedIO.isCompressionEnabled() ?
+                        new DeflaterOutputStream(new BufferedOutputStream(new FileOutputStream(blockFile))) :
+                        new FileOutputStream(blockFile));
+                long len = Math.min(blockSize, edatasize - idx);
+                byte[] block = new byte[(int)len];
+
+                System.arraycopy(edgeValues, edgeIdx * sizeOf, block, 0, block.length);
+                edgeIdx += len / sizeOf;
+
+                blockOs.write(block);
+                blockOs.close();
+                blockIdx++;
+            }
+
+        }
+    }
+
+    /**
+     * Temporarily static method. Note, after this the edgeValues are sorted.
+     * @param baseFilename
+     * @param shardNum
+     * @param numShards
+     * @param sizeOf
+     * @param shoveled
+     * @param shoveled2
+     * @param edgeValues
+     * @param minTarget
+     * @param maxTarget
+     * @throws IOException
+     */
+    public static  void writeAdjacencyShard(String baseFilename, int shardNum, int numShards, int
+            sizeOf, long[] shoveled, long[] shoveled2, byte[] edgeValues, long minTarget, long maxTarget) throws IOException {
+    /* Sort the edges */
         sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
 
         logger.info("Processing shovel " + shardNum + " ... writing shard");
@@ -607,16 +680,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                     edgeCounter++;
                 }
 
-                shoveledEdges += i - istart;
-
                 istart = i;
-
-                /* Optimization for very sparse vertex intervals */
-                if (useSparseDegrees && curvid - lastSparseSetEntry >= DEGCOUNT_SUBINTERVAL) {
-                    representedIntervals.add(curvid / DEGCOUNT_SUBINTERVAL);
-                    lastSparseSetEntry = curvid;
-                }
-
                 curvid = from;
             }
         }
@@ -627,58 +691,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         adjOut.close();
         indexOut.close();
         ptrOut.close();
-
-        /**
-         * Step 2: EDGE DATA
-         */
-
-        /* Create compressed edge data directories */
-        if (sizeOf > 0) {
-            int blockSize = ChiFilenames.getBlocksize(sizeOf);
-            String edataFileName = ChiFilenames.getFilenameShardEdata(baseFilename, new BytesToValueConverter() {
-                @Override
-                public int sizeOf() {
-                    return edgeValueTypeBytesToValueConverter.sizeOf();
-                }
-
-                @Override
-                public Object getValue(byte[] array) {
-                    return null;
-                }
-
-                @Override
-                public void setValue(byte[] array, Object val) {
-                }
-            }, shardNum, numShards);
-            File edgeDataSizeFile = new File(edataFileName + ".size");
-            File edgeDataDir = new File(ChiFilenames.getDirnameShardEdataBlock(edataFileName, blockSize));
-            if (!edgeDataDir.exists()) edgeDataDir.mkdir();
-
-            long edatasize = shoveled.length * edgeValueTypeBytesToValueConverter.sizeOf();
-            FileWriter sizeWr = new FileWriter(edgeDataSizeFile);
-            sizeWr.write(edatasize + "");
-            sizeWr.close();
-
-            /* Create compressed blocks */
-            int blockIdx = 0;
-            int edgeIdx= 0;
-            for(long idx=0; idx < edatasize; idx += blockSize) {
-                File blockFile = new File(ChiFilenames.getFilenameShardEdataBlock(edataFileName, blockIdx, blockSize));
-                OutputStream blockOs = (CompressedIO.isCompressionEnabled() ?
-                        new DeflaterOutputStream(new BufferedOutputStream(new FileOutputStream(blockFile))) :
-                        new FileOutputStream(blockFile));
-                long len = Math.min(blockSize, edatasize - idx);
-                byte[] block = new byte[(int)len];
-
-                System.arraycopy(edgeValues, edgeIdx * sizeOf, block, 0, block.length);
-                edgeIdx += len / sizeOf;
-
-                blockOs.write(block);
-                blockOs.close();
-                blockIdx++;
-            }
-
-        }
     }
 
     private static Random random = new Random();
@@ -721,107 +733,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         wr.close();
     }
 
-
-    // http://www.algolist.net/Algorithms/Sorting/Quicksort
-    // TODO: implement faster
-    private static int partition(long arr[], long arr2[], byte[] values, int sizeOf, int left, int right)
-    {
-        int i = left, j = right;
-        long tmp, tmp2;
-        int pivotidx = left + random.nextInt(right - left + 1);
-        long pivot1 = arr[pivotidx];
-        long pivot2 = arr2[pivotidx];
-        byte[] valueTemplate = new byte[sizeOf];
-
-        while (i <= j) {
-            while (arr[i] < pivot1 || (arr[i] == pivot1 && arr2[i] < pivot2))
-                i++;
-            while (arr[j] > pivot1 || (arr[j] == pivot1 && arr2[j] > pivot2))
-                j--;
-            if (i <= j) {
-                tmp = arr[i];
-                tmp2 = arr2[i];
-
-                /* Swap */
-                System.arraycopy(values, j * sizeOf, valueTemplate, 0, sizeOf);
-                System.arraycopy(values, i * sizeOf, values, j * sizeOf, sizeOf);
-                System.arraycopy(valueTemplate, 0, values, i * sizeOf, sizeOf);
-
-                arr[i] = arr[j];
-                arr[j] = tmp;
-                arr2[i] = arr2[j];
-                arr2[j] = tmp2;
-
-                i++;
-                j--;
-            }
-        }
-
-        return i;
-    }
-
-    private static int partition(long arr[],  byte[] values, int sizeOf, int left, int right)
-    {
-        int i = left, j = right;
-        long tmp;
-        int pivotidx = left + random.nextInt(right - left + 1);
-        long pivot1 = arr[pivotidx];
-        byte[] valueTemplate = new byte[sizeOf];
-
-        while (i <= j) {
-            while (arr[i] < pivot1)
-                i++;
-            while (arr[j] > pivot1)
-                j--;
-            if (i <= j) {
-                tmp = arr[i];
-
-                /* Swap */
-                System.arraycopy(values, j * sizeOf, valueTemplate, 0, sizeOf);
-                System.arraycopy(values, i * sizeOf, values, j * sizeOf, sizeOf);
-                System.arraycopy(valueTemplate, 0, values, i * sizeOf, sizeOf);
-
-                arr[i] = arr[j];
-                arr[j] = tmp;
-
-                i++;
-                j--;
-            }
-        }
-
-        return i;
-    }
-
-
-
-    static void quickSort(long arr[], long arr2[],  byte[] values, int sizeOf, int left, int right) {
-        if (left < right) {
-            int index = partition(arr, arr2, values, sizeOf, left, right);
-            if (left < index - 1)
-                quickSort(arr, arr2, values, sizeOf, left, index - 1);
-            if (index < right)
-                quickSort(arr, arr2, values, sizeOf, index, right);
-        }
-    }
-    static void quickSort(long arr[],  byte[] values, int sizeOf, int left, int right) {
-        if (left < right) {
-            int index = partition(arr, values, sizeOf, left, right);
-            if (left < index - 1)
-                quickSort(arr, values, sizeOf, left, index - 1);
-            if (index < right)
-                quickSort(arr,values, sizeOf, index, right);
-        }
-    }
-
-
-    public static void sortWithValues(long[] shoveled, long[] shoveled2, byte[] edgeValues, int sizeOf) {
-        quickSort(shoveled, shoveled2, edgeValues, sizeOf, 0, shoveled.length - 1);
-    }
-
-
-    public static void sortWithValues(long[] shoveled, byte[] edgeValues, int sizeOf) {
-        quickSort(shoveled, edgeValues, sizeOf, 0, shoveled.length - 1);
-    }
 
 
     /**
@@ -959,173 +870,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
      * vertex degrees in-memory.
      */
     private void computeVertexDegrees(boolean debugMode) {
-        long totalEdges = 0;
-        long emittedDegrees = 0;
-        long totalOutEdges = 0;
-        long totalInEdges = 0;
-
-        try {
-            logger.info("Use sparse degrees: " + useSparseDegrees);
-
-            DataOutputStream degreeOut = new DataOutputStream(new BufferedOutputStream(
-                    new FileOutputStream(ChiFilenames.getFilenameOfDegreeData(baseFilename, useSparseDegrees))));
-
-
-            SlidingShard[] slidingShards = new SlidingShard[numShards];
-            for(int p=0; p < numShards; p++) {
-                long intervalSt = p * finalIdTranslate.getVertexIntervalLength();
-                long intervalEn = (p + 1) * finalIdTranslate.getVertexIntervalLength() - 1;
-
-                slidingShards[p] = new SlidingShard(null, ChiFilenames.getFilenameShardsAdj(baseFilename, p, numShards),
-                        intervalSt, intervalEn);
-                slidingShards[p].setOnlyAdjacency(true);
-            }
-
-            ExecutorService parallelExecutor = Executors.newFixedThreadPool(4);
-
-            /* Efficiently handly only intervals that have any vertices */
-            long[] representedArray = new long[representedIntervals.size()];
-
-            int k = 0;
-            if (useSparseDegrees) {
-                for(Long l : representedIntervals) {
-                    representedArray[k++] = l;
-                }
-                Arrays.sort(representedArray);
-
-                for(int l=0; l<representedArray.length; l++) {
-                    logger.info("RepArr: " + l + " : " + representedArray[l] +
-                            " = " + representedArray[l] * DEGCOUNT_SUBINTERVAL);
-                }
-
-            }
-
-            k = 0;
-            long lastVertexId = -1;
-
-            for(int p=0; p < numShards; p++) {
-                long intervalSt = p * finalIdTranslate.getVertexIntervalLength();
-                long intervalEn = (Long.MAX_VALUE - intervalSt > finalIdTranslate.getVertexIntervalLength() ?
-                        (p + 1) * finalIdTranslate.getVertexIntervalLength() - 1 : Long.MAX_VALUE);
-                logger.info("Degree computation round " + p + " / " + numShards + " [[" + intervalSt + " -- " + intervalEn + "]]");
-
-                /* Hacky - TODO rewrite! */
-                if (useSparseDegrees) {
-                    k = 0;
-                    while (k < representedArray.length - 1 && representedArray[k] * DEGCOUNT_SUBINTERVAL <= intervalSt) {
-                        k++;
-                    }
-                }
-
-                MemoryShard<Float> memoryShard = new MemoryShard<Float>(null, ChiFilenames.getFilenameShardsAdj(baseFilename, p, numShards),
-                        intervalSt, intervalEn);
-                memoryShard.setOnlyAdjacency(true);
-
-
-                for(long subIntervalSt=intervalSt; subIntervalSt < intervalEn && subIntervalSt >= 0; ) {
-                    long subIntervalEn = subIntervalSt + DEGCOUNT_SUBINTERVAL - 1;
-                    if (subIntervalEn > intervalEn || subIntervalEn < 0) subIntervalEn = intervalEn;
-
-                    /* Do we have any vertices in this range? */
-
-                    logger.info("Degree computation: [[ " + subIntervalSt + " -- " + subIntervalEn + "]]");
-
-                    ChiVertex[] verts = new ChiVertex[(int) (subIntervalEn - subIntervalSt + 1)];
-                    for(int i=0; i < verts.length; i++) {
-                        verts[i] = new ChiVertex(i + subIntervalSt, null);
-                    }
-
-                    memoryShard.loadVertices(subIntervalSt, subIntervalEn, verts, false, parallelExecutor);
-                    for(int i=0; i < numShards; i++) {
-                        if (i != p) {
-                            try {
-                                slidingShards[i].readNextVertices(verts, subIntervalSt, true);
-                            } catch (Exception err) {
-                                System.err.println("Error when loading sliding shard " + i + " interval:" +
-                                        slidingShards[i].rangeStart + " -- " + slidingShards[i].rangeEnd);
-
-                                throw err;
-                            }
-
-                        }
-                    }
-
-                    for(int i=0; i < verts.length; i++) {
-                        totalEdges += verts[i].numEdges();
-                        totalInEdges += verts[i].numInEdges();
-                        totalOutEdges += verts[i].numOutEdges();
-
-                        if (debugMode) {
-                            if (verts[i].numInEdges() != inDegrees[(int)verts[i].getId()]) {
-                                System.err.println(verts[i].getId() + " indeg mismatch: " +
-                                        verts[i].numInEdges() + "/" +  inDegrees[(int)verts[i].getId()]);
-                            }
-                            if (verts[i].numOutEdges() != outDegrees[(int)verts[i].getId()]) {
-                                System.err.println(verts[i].getId() + " outdeg mismatch: " +
-                                        verts[i].numOutEdges() + "/" +  outDegrees[(int)verts[i].getId()]);
-                            }
-                        }
-
-                        if ((subIntervalSt + (long)i) > lastVertexId) {
-                            if (!useSparseDegrees) {
-                                degreeOut.writeInt(Integer.reverseBytes(verts[i].numInEdges()));
-                                degreeOut.writeInt(Integer.reverseBytes(verts[i].numOutEdges()));
-                            } else {
-
-                                if (verts[i].numEdges() > 0 ){
-                                    degreeOut.writeLong(Long.reverseBytes(subIntervalSt + (long)i));
-                                    degreeOut.writeInt(Integer.reverseBytes(verts[i].numInEdges()));
-                                    degreeOut.writeInt(Integer.reverseBytes(verts[i].numOutEdges()));
-                                    emittedDegrees++;
-                                }
-                            }
-                            lastVertexId = (subIntervalSt + (long)i);
-                        } else {
-                            logger.warning("Out-of-order degree computation: " + (subIntervalSt + (long)i) + "  <= " + lastVertexId);
-                        }
-                    }
-                    /* Jump to next interval that has any vertices */
-
-                    if (useSparseDegrees && k <= representedArray.length - 1) {
-                        subIntervalSt = representedArray[k] * DEGCOUNT_SUBINTERVAL;
-                        if (subIntervalSt < 0) {
-                            subIntervalSt = Long.MAX_VALUE; // Overflow;
-                        }
-                        if (subIntervalSt < intervalEn) {
-                            k++;
-                        }
-                        if (subIntervalSt < subIntervalEn) {
-                            subIntervalSt = subIntervalEn + 1;
-                        }
-                    } else {
-                        subIntervalSt += DEGCOUNT_SUBINTERVAL;
-                    }
-                }
-                if (memoryShard.isHasSetOffset()) {
-                    slidingShards[p].setOffset(memoryShard.getStreamingOffset(),
-                            memoryShard.getStreamingOffsetVid(), memoryShard.getStreamingOffsetEdgePtr(),
-                            memoryShard.getStreamingOffsetVertexSeq());
-                }
-            }
-            parallelExecutor.shutdown();
-            degreeOut.close();
-        } catch (Exception err) {
-            err.printStackTrace();
-            throw new RuntimeException(err);
-        }
-
-        if (useSparseDegrees) {
-            logger.info("Emitted " + emittedDegrees + " unique vertices.");
-            long degreeFileSizeShouldBe = emittedDegrees * (8L + 4L + 4L);
-            File f = new File(ChiFilenames.getFilenameOfDegreeData(baseFilename, useSparseDegrees));
-            if (f.length() != degreeFileSizeShouldBe) {
-                throw new IllegalStateException("Degree file size incorrect: " + f.length() + " != " + degreeFileSizeShouldBe);
-            }
-        }
-        if (shoveledEdges * 2 != totalEdges) {
-            logger.warning("In-edges: " + totalInEdges + ", out:" + totalOutEdges);
-            logger.warning("Mismatch in degree counting: shoveled " + shoveledEdges * 2 + " but counted  " + totalEdges);
-            assert(shoveledEdges == totalEdges);
-        }
+       throw new IllegalStateException("Not currently supported"); //
     }
 }

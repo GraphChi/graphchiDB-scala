@@ -8,6 +8,7 @@ import java.util.logging.Logger;
 import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.ChiLogger;
 import edu.cmu.graphchi.engine.VertexInterval;
+import edu.cmu.graphchi.shards.QueryShard;
 
 /**
  * Disk-based queries of out-edges of a vertex.
@@ -204,7 +205,7 @@ public class VertexQuery {
     }
 
 
-    static class Shard extends  QueryShard {
+    static class Shard extends QueryShard {
 
         private Shard(String fileName, int shardNum, int numShards) throws IOException {
             super(fileName, shardNum, numShards);

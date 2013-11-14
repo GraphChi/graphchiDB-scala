@@ -1,7 +1,5 @@
-package edu.cmu.graphchi.queries;
+package edu.cmu.graphchi.shards;
 
-import com.codahale.metrics.MetricRegistry;
-import static com.codahale.metrics.MetricRegistry.*;
 import static com.codahale.metrics.MetricRegistry.name;
 
 import com.codahale.metrics.Timer;
@@ -9,7 +7,7 @@ import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.engine.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
-import edu.cmu.graphchi.shards.ShardIndex;
+import edu.cmu.graphchi.queries.QueryCallback;
 
 
 import java.io.File;
@@ -17,16 +15,11 @@ import java.io.IOException;
 import java.nio.BufferUnderflowException;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.file.FileSystems;
-import java.nio.file.OpenOption;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Shard query support
@@ -53,12 +46,16 @@ public class QueryShard {
 
     private int numEdges;
 
-    public QueryShard(String fileName, int shardNum, int numShards) throws IOException {
+    public QueryShard(String filename, int shardNum, int numShards) throws IOException {
+        this(filename, shardNum, numShards, ChiFilenames.loadIntervals(filename, numShards).get(shardNum));
+    }
+
+    public QueryShard(String fileName, int shardNum, int numShards, VertexInterval interval) throws IOException {
         this.shardNum = shardNum;
         this.numShards = numShards;
         this.fileName = fileName;
 
-        this.interval = ChiFilenames.loadIntervals(fileName, numShards).get(shardNum);
+        this.interval = interval;
 
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
         numEdges = (int) (adjFile.length() / 8);
@@ -119,7 +116,7 @@ public class QueryShard {
                     adjBuffer.position((int)adjOffset);
                     for(int i=0; i<n; i++) {
                         res.add(VertexIdTranslate.getVertexId(adjBuffer.get()));
-                        resPointers.add(PointerUtil.encodePointer(shardNum, (int)adjOffset + i));
+                        resPointers.add(PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
                     }
                     callback.receiveOutNeighbors(vertexId, res, resPointers);
                 } else {
@@ -248,5 +245,44 @@ public class QueryShard {
         raf.read(tmp);
         raf.close();
         return new String(tmp) + "(" + vertexId + ")";
+    }
+
+    public EdgeIterator edgeIterator() {
+        final LongBuffer iterBuffer = adjBuffer.duplicate();
+        iterBuffer.position(0);
+        final LongBuffer iterPointerBuffer = pointerIdxBuffer.duplicate();
+        iterPointerBuffer.position(0);
+        return new EdgeIterator() {
+            int idx = (-1);
+            long ptr = (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
+            long nextPtr =  (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
+            long nextOff = VertexIdTranslate.getAux(nextPtr);
+            long curSrc = VertexIdTranslate.getVertexId(ptr);
+
+            @Override
+            public boolean hasNext() {
+                return idx < numEdges - 1;
+            }
+
+            @Override
+            public void next() {
+                idx++;
+                if (idx == nextOff) {
+                    curSrc = VertexIdTranslate.getVertexId(nextPtr);
+                    nextPtr = iterPointerBuffer.get();
+                    nextOff = VertexIdTranslate.getAux(nextPtr);
+                }
+            }
+
+            @Override
+            public long getSrc() {
+                return curSrc;
+            }
+
+            @Override
+            public long getDst() {
+                return VertexIdTranslate.getVertexId(iterBuffer.get());
+            }
+        };
     }
 }

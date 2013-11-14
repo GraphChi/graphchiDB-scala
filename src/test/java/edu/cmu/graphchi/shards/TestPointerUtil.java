@@ -1,5 +1,6 @@
-package edu.cmu.graphchi.queries;
+package edu.cmu.graphchi.shards;
 
+import edu.cmu.graphchi.shards.PointerUtil;
 import org.junit.Test;
 
 import java.util.Random;

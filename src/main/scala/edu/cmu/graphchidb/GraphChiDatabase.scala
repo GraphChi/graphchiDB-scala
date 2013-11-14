@@ -7,7 +7,7 @@ import edu.cmu.graphchi.engine.VertexInterval
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
-import edu.cmu.graphchi.queries.{QueryCallback, PointerUtil, VertexQuery, QueryShard}
+import edu.cmu.graphchi.queries.{QueryCallback, VertexQuery}
 import edu.cmu.graphchidb.Util._
 import java.nio.ByteBuffer
 import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
@@ -16,6 +16,7 @@ import java.{util, lang}
 import edu.cmu.graphchidb.queries.internal.QueryResultContainer
 import java.util.Collections
 import edu.cmu.graphchidb.storage.inmemory.EdgeBuffer
+import edu.cmu.graphchi.shards.{PointerUtil, QueryShard}
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -66,9 +67,20 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
     def addEdge(src: Long, dst:Long, values: Any*) : Unit = {
       // TODO: Handle if value outside of intervals
-      bufferFor(src).addEdge(src, dst, values:_*)
+      this.synchronized {
+        bufferFor(src).addEdge(src, dst, values:_*)
+      }
+    }
+
+    def mergeBuffers() = {
+       this.synchronized {
+
+       }
     }
   }
+
+
+
 
   val shards =  (0 until numShards).map{i => new GraphShard(i)}
 
