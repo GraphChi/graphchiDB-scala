@@ -17,6 +17,7 @@ import edu.cmu.graphchidb.queries.internal.QueryResultContainer
 import java.util.Collections
 import edu.cmu.graphchidb.storage.inmemory.EdgeBuffer
 import edu.cmu.graphchi.shards.{PointerUtil, QueryShard}
+import java.util.concurrent.atomic.AtomicLong
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -24,6 +25,7 @@ import edu.cmu.graphchi.shards.{PointerUtil, QueryShard}
 object GraphChiDatabaseAdmin {
 
   def createDatabase(baseFilename: String, numShards: Int) : Boolean= {
+
     // Temporary code!
     FastSharder.createEmptyGraph(baseFilename, numShards, 1L<<33)
     true
@@ -37,7 +39,7 @@ object GraphChiDatabaseAdmin {
  * Defines a sharded graphchi database.
  * @author Aapo Kyrola
  */
-class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
+class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : Int = 10000000) {
   var numShards = origNumShards
 
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
@@ -47,12 +49,11 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
   var initialized = false
 
-
   /* Graph shards: persistent adjacency shard + buffered edges */
   class GraphShard(shardIdx: Int) {
     case class EdgeBufferAndInterval(buffer: EdgeBuffer, interval: VertexInterval)
 
-    val persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
+    var persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
     // val buffer
     def numEdges = persistentAdjShard.getNumEdges // ++ buffer.size
 
@@ -72,15 +73,75 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
       }
     }
 
-    def mergeBuffers() = {
-       this.synchronized {
+    def bufferedEdges = buffers.map(_.buffer.numEdges).sum
 
-       }
+    def mergeBuffers() = {
+      timed("merge shard %d".format(shardIdx), {
+        this.synchronized {
+          val totalEdges = persistentAdjShard.getNumEdges + buffers.map(_.buffer.numEdges).sum
+          println("Shard %d: creating new shards with %d edges".format(shardIdx, totalEdges))
+
+          /* Create edgebuffer containing all edges.
+             TODO: take into account that the persistent shard edges are already sorted -- could merge
+             */
+          /*
+             TODO: split shard if too big
+           */
+          val allEdgesBuffer = new EdgeBuffer(edgeEncoderDecoder, totalEdges.toInt)
+          val edgeIterator = persistentAdjShard.edgeIterator()
+
+          val edgeColumns = columns(edgeIndexing)
+          val edgeSize = edgeEncoderDecoder.edgeSize
+          var idx = 0
+          val workBuffer = ByteBuffer.allocate(edgeSize)
+          while(edgeIterator.hasNext) {
+            edgeIterator.next()
+            workBuffer.rewind()
+            edgeColumns.foreach(c => c._2.readValueBytes(shardIdx, idx, workBuffer))
+            // TODO: write directly to buffer
+            allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+          }
+
+          // Now we can remove persistentshard from memory
+          persistentAdjShard = null
+
+          // Get edges from buffers
+          buffers.map( bufAndInt => {
+            val buffer = bufAndInt.buffer
+            val edgeIterator = buffer.edgeIterator
+            var i = 0
+            while(edgeIterator.hasNext) {
+              edgeIterator.next()
+              workBuffer.rewind()
+              buffer.readEdgeIntoBuffer(i, workBuffer)
+              // TODO: write directly to buffer
+              allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+              i += 1
+            }
+          })
+
+          assert(allEdgesBuffer.numEdges == totalEdges)
+          println("Read %d edges into buffer".format(allEdgesBuffer.numEdges))
+
+          // Write shard
+          FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, allEdgesBuffer.srcArray,
+            allEdgesBuffer.dstArray, allEdgesBuffer.byteArray, intervals(shardIdx).getFirstVertex, intervals(shardIdx).getLastVertex)
+
+
+          // TODO: write data columns...
+
+          // empty buffers
+          init()
+
+          // Initialize newly recreated shard
+          persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
+
+        } }) // timed
     }
   }
 
 
-
+  def totalBufferedEdges = shards.map(_.bufferedEdges).sum
 
   val shards =  (0 until numShards).map{i => new GraphShard(i)}
 
@@ -149,10 +210,23 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
 
   /* Adding edges */
   // TODO: bulk version
+  var counter = new AtomicLong(0)
+
   def addEdge(src: Long, dst: Long, values: Any*) = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     shardForEdge(src, dst).addEdge(src, dst, values:_*)
+
+    if (counter.incrementAndGet() % bufferLimit == 0) {
+      synchronized {
+        println("Purging buffers to half")
+        while (totalBufferedEdges > bufferLimit / 2) {
+          val biggestBufferShard = shards.zipWithIndex.maxBy(_._1.bufferedEdges)._1
+          biggestBufferShard.mergeBuffers()
+        }
+      }
+
+    }
   }
 
   def addEdgeOrigId(src:Long, dst:Long, values: Any*) {
@@ -173,15 +247,18 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
       val intervalAndIdx = intervals.find(_.contains(internalId)).get
 
       val result = new QueryResultContainer(Set(internalId))
-      shards(intervalAndIdx.getId).persistentAdjShard.queryIn(internalId, result)
+      val shard = shards(intervalAndIdx.getId)
 
-      /* Look for buffers (in parallel, of course) -- TODO: profile if really a good idea */
-      shards(intervalAndIdx.getId).buffers.par.foreach(
-        buf => {
-          buf.buffer.findInNeighborsCallback(internalId, result)
-        }
-      )
+      shard.synchronized {
+        shard.persistentAdjShard.queryIn(internalId, result)
 
+        /* Look for buffers (in parallel, of course) -- TODO: profile if really a good idea */
+        shard.buffers.par.foreach(
+          buf => {
+            buf.buffer.findInNeighborsCallback(internalId, result)
+          }
+        )
+      }
       new QueryResult(vertexIndexing, result.resultsFor(internalId))
     } )
   }
@@ -197,10 +274,13 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int) {
         try {
           val resultContainer =  new QueryResultContainer(queryIds)
           val javaQueryIds = Collections.singleton(internalId.asInstanceOf[java.lang.Long])   // is there a better way?
-          shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
 
-          /* Look for buffers */
-          shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer)
+          shard.synchronized {
+            shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
+
+            /* Look for buffers */
+            shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer)
+          }
           Some(resultContainer)
         } catch {
           case e: Exception  => {

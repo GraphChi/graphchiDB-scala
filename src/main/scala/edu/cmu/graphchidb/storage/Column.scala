@@ -29,6 +29,9 @@ trait Column[T] {
   def getName(idx: Long) : Option[String]
   def set(idx: Long, value: T) : Unit
   def indexing: DatabaseIndexing
+
+  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit
+
 }
 
 class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseIndexing,
@@ -52,6 +55,8 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
       }
   }
 
+  /* Internal call */
+  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = blocks(shardNum).readIntoBuffer(idx, buf)
   def get(idx: Long) =  blocks(indexing.shardForIndex(idx)).get(indexing.globalToLocal(idx).toInt)(converter)
   def getName(idx: Long) = get(idx).map(a => a.toString).headOption
 
@@ -81,6 +86,8 @@ class MySQLBackedColumn[T](tableName: String, columnName: String, _indexing: Dat
   def decode(in: ByteBuffer) = throw new UnsupportedOperationException
   def elementSize = throw new UnsupportedOperationException
 
+
+  override  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = throw new UnsupportedOperationException
 
   // TODO: temporary code
   val dbConnection = {

@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import edu.cmu.graphchi.queries.QueryCallback
 import java.util
+import edu.cmu.graphchi.shards.EdgeIterator
 
 /**
  * Memory-efficient, but unsorted, in-memory edge buffer allowing for fast searches.
@@ -27,14 +28,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   }
 
 
-  def addEdge(src: Long, dst: Long, values: Any*) = {
-    tmpBuffer.rewind()
-    encoderDecoder.encode(tmpBuffer, values:_*)
-    srcArray(counter) = src
-    dstArray(counter) = dst
-    counter += 1
-    buffer.write(tmpBuffer.array())
-
+  def addEdge(src: Long, dst: Long, valueBytes: Array[Byte]) : Unit = {
     // Expand array. Maybe better to use scala's buffers, but not sure if they have the
     // optimization for primitives.
     if (counter == srcArray.size) {
@@ -45,12 +39,30 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
       srcArray = newSrcArray
       dstArray = newDstArray
     }
+    srcArray(counter) = src
+    dstArray(counter) = dst
+    counter += 1
+    buffer.write(valueBytes)
+  }
+
+  def addEdge(src: Long, dst: Long, values: Any*) : Unit  = {
+    tmpBuffer.rewind()
+    encoderDecoder.encode(tmpBuffer, values:_*)
+    addEdge(src, dst, tmpBuffer.array())
   }
 
   private def edgeAtPos(idx: Int) = {
     val buf = ByteBuffer.wrap(buffer.currentBuf, idx * edgeSize, edgeSize)
     encoderDecoder.decode(buf, srcArray(idx), dstArray(idx))
   }
+
+  def readEdgeIntoBuffer(idx: Int, buf: ByteBuffer) : Unit = {
+      buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
+  }
+
+  // Only for internal use..
+  def byteArray: Array[Byte] = buffer.currentBuf
+
 
   def findOutNeighborsEdges(src: Long) = {
     val n = numEdges
@@ -118,5 +130,16 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
 
   def numEdges = counter
+
+  def edgeIterator = new EdgeIterator {
+    var i = (-1)
+    def next() : Unit = { i += 1}
+
+    def hasNext = i < numEdges - 1
+
+    def getDst = dstArray(i)
+
+    def getSrc = srcArray(i)
+  }
 
 }

@@ -607,9 +607,24 @@ public class FastSharder <VertexValueType, EdgeValueType> {
     public static  void writeAdjacencyShard(String baseFilename, int shardNum, int numShards, int
             sizeOf, long[] shoveled, long[] shoveled2, byte[] edgeValues, long minTarget, long maxTarget) throws IOException {
     /* Sort the edges */
+
+        if (shoveled.length != shoveled2.length) {
+            throw new IllegalStateException("src and dst array lengths differ:" + shoveled.length + "/" + shoveled2.length);
+        }
+        if (shoveled.length != edgeValues.length / sizeOf) {
+            throw new IllegalStateException("Mismatch in array size: expected " + shoveled.length + " / got: " +
+                    (edgeValues.length / sizeOf) + "; sizeof=" + sizeOf);
+        }
         sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
 
+
         logger.info("Processing shovel " + shardNum + " ... writing shard");
+
+        /* Find actual maxTarget */
+        maxTarget = minTarget;
+        for(long v: shoveled2) {
+            if (v > maxTarget) maxTarget = v;
+        }
 
         /* Compute links */
         int[] nexts = new int[(int) (1 + maxTarget - minTarget)];
@@ -697,6 +712,15 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
 
     public static void createEmptyGraph(String baseFilename, int numShards, long maxVertexId) throws IOException {
+        /* Delete files */
+        File baseFile = new File(baseFilename);
+        File parentDir = baseFile.getParentFile();
+        for(File f : parentDir.listFiles()) {
+            if (f.getName().startsWith(baseFile.getName())) {
+                f.delete();
+            }
+        }
+
         /* Create empty shard files */
         for(int shardNum=0; shardNum<numShards; shardNum++) {
             File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
