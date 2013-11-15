@@ -41,6 +41,13 @@ class TestDenseStorage {
 
      (0 until 1000).foreach(i => assertEquals(i, newStorage.get(i).get))
 
+     /* Test it fails */
+     try {
+        newStorage.get(1000)
+        fail ("Should fail")
+     } catch {
+       case e:Exception => println("Ok")
+     }
   }
 
 }

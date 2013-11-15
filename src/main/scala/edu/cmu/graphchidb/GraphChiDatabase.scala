@@ -127,11 +127,15 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
           FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, allEdgesBuffer.srcArray,
             allEdgesBuffer.dstArray, allEdgesBuffer.byteArray, intervals(shardIdx).getFirstVertex, intervals(shardIdx).getLastVertex)
 
-
-          // TODO: write data columns...
-
           // empty buffers
           init()
+
+          // Write data columns, i.e replace the column shard with new data
+          (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+              val columnBuffer = ByteBuffer.allocate(totalEdges.toInt * edgeEncoderDecoder.columnLength(columnIdx))
+              allEdgesBuffer.projectColumnToBuffer(columnIdx, columnBuffer)
+              columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardIdx, columnBuffer.array())
+          })
 
           // Initialize newly recreated shard
           persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
@@ -142,6 +146,8 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
 
 
   def totalBufferedEdges = shards.map(_.bufferedEdges).sum
+
+  def commitAllToDisk = shards.foreach(_.mergeBuffers())
 
   val shards =  (0 until numShards).map{i => new GraphShard(i)}
 
@@ -217,7 +223,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
 
     shardForEdge(src, dst).addEdge(src, dst, values:_*)
 
-    if (counter.incrementAndGet() % bufferLimit / 2 == 0) {
+    if (counter.incrementAndGet() % (bufferLimit / 2) == 0) {
       synchronized {
         println("Purging buffers to half of limit. Currently buffered: %d".format(totalBufferedEdges))
         while (totalBufferedEdges > bufferLimit / 2) {
