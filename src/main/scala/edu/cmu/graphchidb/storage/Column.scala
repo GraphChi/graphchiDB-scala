@@ -24,13 +24,15 @@ trait Column[T] {
 
   def get(idx: Long) : Option[T]
   def getMany(idxs: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
-      idxs.map(idx => idx -> get(idx)).toMap
+    idxs.map(idx => idx -> get(idx)).toMap
   }
   def getName(idx: Long) : Option[String]
   def set(idx: Long, value: T) : Unit
   def indexing: DatabaseIndexing
 
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit
+
+  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit
 
 }
 
@@ -45,15 +47,17 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
   def indexing = _indexing
   def blockFilename(shardNum: Int) = filePrefix + "." + shardNum
 
-  val blocks = (0 until indexing.nShards).map {
-    shard =>
-      if (!sparse) {
-        new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), indexing.shardSize(shard),
-          converter.sizeOf) with DataBlock[T]
-      } else {
-        throw new NotImplementedException()
-      }
-  }
+
+  var blocks = (0 until indexing.nShards).map {
+      shard =>
+        if (!sparse) {
+          new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), indexing.shardSize(shard),
+            converter.sizeOf) with DataBlock[T]
+        } else {
+          throw new NotImplementedException()
+        }
+    }.toArray
+
 
   /* Internal call */
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = blocks(shardNum).readIntoBuffer(idx, buf)
@@ -62,6 +66,10 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
 
   def set(idx: Long, value: T) : Unit = blocks(indexing.shardForIndex(idx)).set(indexing.globalToLocal(idx).toInt, value)(converter)
 
+  /* Create data from scratch */
+  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit = {
+    blocks(shardNum) = blocks(shardNum).createNew[T](data)
+  }
 }
 
 class CategoricalColumn(filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String])
@@ -80,7 +88,7 @@ class CategoricalColumn(filePrefix: String, indexing: DatabaseIndexing, values: 
 }
 
 class MySQLBackedColumn[T](tableName: String, columnName: String, _indexing: DatabaseIndexing,
-                              vertexIdTranslate: VertexIdTranslate) extends Column[T] {
+                           vertexIdTranslate: VertexIdTranslate) extends Column[T] {
 
   def encode(value: T, out: ByteBuffer) = throw new UnsupportedOperationException
   def decode(in: ByteBuffer) = throw new UnsupportedOperationException
@@ -112,11 +120,11 @@ class MySQLBackedColumn[T](tableName: String, columnName: String, _indexing: Dat
 
 
   override def getMany(_idxs: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
-     val idxs = new Array[Long](_idxs.size)
-     _idxs.zipWithIndex.foreach { tp=> { idxs(tp._2) = vertexIdTranslate.backward(tp._1) } }
+    val idxs = new Array[Long](_idxs.size)
+    _idxs.zipWithIndex.foreach { tp=> { idxs(tp._2) = vertexIdTranslate.backward(tp._1) } }
 
     val pstmt = dbConnection.prepareStatement("select id, %s from %s where id in (%s)".format(columnName, tableName,
-        idxs.mkString(",")))
+      idxs.mkString(",")))
     try {
       val rs = pstmt.executeQuery()
 
@@ -143,15 +151,17 @@ class MySQLBackedColumn[T](tableName: String, columnName: String, _indexing: Dat
   }
 
   def getByName(name: String) : Option[Long] = {
-     val pstmt = dbConnection.prepareStatement("select id from %s where %s=?".format(tableName, columnName))
-     try {
-        pstmt.setString(1, name)
-        val rs = pstmt.executeQuery()
-        if (rs.next) Some(vertexIdTranslate.forward(rs.getLong(1))) else None
-     } finally {
-       if (pstmt != null) pstmt.close()
-     }
+    val pstmt = dbConnection.prepareStatement("select id from %s where %s=?".format(tableName, columnName))
+    try {
+      pstmt.setString(1, name)
+      val rs = pstmt.executeQuery()
+      if (rs.next) Some(vertexIdTranslate.forward(rs.getLong(1))) else None
+    } finally {
+      if (pstmt != null) pstmt.close()
+    }
   }
 
   def indexing = _indexing
+
+  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit= throw new NotImplementedException
 }

@@ -217,9 +217,9 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
 
     shardForEdge(src, dst).addEdge(src, dst, values:_*)
 
-    if (counter.incrementAndGet() % bufferLimit == 0) {
+    if (counter.incrementAndGet() % bufferLimit / 2 == 0) {
       synchronized {
-        println("Purging buffers to half")
+        println("Purging buffers to half of limit. Currently buffered: %d".format(totalBufferedEdges))
         while (totalBufferedEdges > bufferLimit / 2) {
           val biggestBufferShard = shards.zipWithIndex.maxBy(_._1.bufferedEdges)._1
           biggestBufferShard.mergeBuffers()
@@ -304,6 +304,8 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
     val encoderSeq =  columns(edgeIndexing).map(m => (x: Any, bb: ByteBuffer) => m._2.encode(x, bb))
     val decoderSeq =  columns(edgeIndexing).map(m => (bb: ByteBuffer) => m._2.decode(bb))
 
+    val columnLengths = columns(edgeIndexing).map(_._2.elementSize).toIndexedSeq
+    val columnOffsets = columnLengths.scan(0)(_+_).toIndexedSeq
     val _edgeSize = columns(edgeIndexing).map(_._2.elementSize).sum
     val idxRange = 0 until encoderSeq.size
 
@@ -320,7 +322,15 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
 
       def decode(buf: ByteBuffer, src: Long, dst: Long) = DecodedEdge(src, dst, decoderSeq.map(dec => dec(buf)))
 
+      def readIthColumn(buf: ByteBuffer, columnIdx: Int, out: ByteBuffer, workArray: Array[Byte]) = {
+          buf.position(buf.position() + columnOffsets(columnIdx))
+          val l = columnLengths(columnIdx)
+          buf.get(workArray, 0, l)
+          out.put(workArray, 0, l)
+      }
+
       def edgeSize = _edgeSize
+      def columnLength(columnIdx: Int) = columnLengths(columnIdx)
     }
   }
 
@@ -347,6 +357,11 @@ trait EdgeEncoderDecoder {
   def decode(buf: ByteBuffer, src: Long, dst: Long) : DecodedEdge
 
   def edgeSize: Int
+
+  // For making fast projections. Writes ith column to out
+  def readIthColumn(buf: ByteBuffer, columnIdx: Int, out: ByteBuffer, workArray: Array[Byte])
+
+  def columnLength(columnIdx: Int) : Int
 }
 
 case class DecodedEdge(src: Long, dst:Long, values: Seq[Any])

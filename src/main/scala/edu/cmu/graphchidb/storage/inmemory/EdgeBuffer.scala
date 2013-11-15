@@ -60,6 +60,31 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
       buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
   }
 
+  /**
+   * Projects the buffer into a column. Will rewind after projection.
+   * @param columnIdx
+   * @param out
+   */
+  def projectColumnToBuffer(columnIdx: Int, out: ByteBuffer): Unit = {
+    val n = numEdges
+    val columnLength = encoderDecoder.columnLength(columnIdx)
+
+    if (out.limit() != n * columnLength) {
+        throw new IllegalArgumentException("Column buffer not right size: %d != %d".format(out.limit(),
+          columnLength * n))
+      }
+      var i = 0
+      val workArray = new Array[Byte](encoderDecoder.columnLength(columnIdx))
+      val readBuf = ByteBuffer.wrap(buffer.currentBuf)
+      while(i < n) {
+          readBuf.position(i * edgeSize)
+          encoderDecoder.readIthColumn(readBuf, columnIdx, out, workArray)
+          i += 1
+      }
+    out.rewind()
+  }
+
+
   // Only for internal use..
   def byteArray: Array[Byte] = buffer.currentBuf
 
@@ -69,7 +94,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     val results = scala.collection.mutable.ArrayBuffer[DecodedEdge]()
     // Not the most functional way, but should be faster
     var i = 0
-    while( i < n) {      // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
+    while(i < n) {      // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
       if (srcArray(i) == src) {
         results += edgeAtPos(i)
       }

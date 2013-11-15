@@ -7,7 +7,7 @@ import java.nio.ByteBuffer
 /**
  * @author Aapo Kyrola
  */
-class MemoryMappedDenseByteStorageBlock(file: File, size: Long, elementSize: Int) extends IndexedByteStorageBlock {
+class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: Int) extends IndexedByteStorageBlock {
 
   /** If file exists and is of proper size, do nothing - otherwise initialize */
   if (!file.exists()) {
@@ -15,7 +15,7 @@ class MemoryMappedDenseByteStorageBlock(file: File, size: Long, elementSize: Int
     if (!success) throw new IllegalAccessException("Could not create file: " + file.getAbsolutePath)
   }
   // Ensure size
-  val expectedSize = elementSize.toLong * size.toLong
+  private val expectedSize = elementSize.toLong * _size
 
   if (expectedSize > Int.MaxValue)
     throw new IllegalStateException("Data block size too big: " + expectedSize + ", file=" + file.getName)
@@ -40,5 +40,18 @@ class MemoryMappedDenseByteStorageBlock(file: File, size: Long, elementSize: Int
   def writeFromBuffer(idx: Int, in: ByteBuffer) = {
     byteBuffer.position(idx * elementSize)
     byteBuffer.put(in.array())
+  }
+
+  def size = byteBuffer.capacity() / elementSize
+
+  /* Creates replacement block with new data. Previous one is invalid after this.
+   * TODO: questionable design.
+   */
+  def createNew[T](data: Array[Byte]) : MemoryMappedDenseByteStorageBlock with DataBlock[T] = {
+     file.delete() // Delete file
+     val newBlock = new MemoryMappedDenseByteStorageBlock(file, data.size / elementSize, elementSize) with DataBlock[T]
+     /* Set data */
+     newBlock.byteBuffer.put(data)
+     newBlock
   }
 }

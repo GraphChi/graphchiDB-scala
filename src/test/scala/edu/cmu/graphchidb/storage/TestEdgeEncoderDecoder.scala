@@ -31,7 +31,7 @@ class TestEdgeEncoderDecoder {
       assertEquals(1 + 4 + 4, eed.edgeSize)
 
       val byteBuffer = ByteBuffer.allocate(eed.edgeSize)
-      eed.encode(byteBuffer, 999, 7832742, catColumn.indexForName("b"), 10, 88888)
+      eed.encode(byteBuffer, catColumn.indexForName("b"), 10, 88888)
 
       byteBuffer.rewind
 

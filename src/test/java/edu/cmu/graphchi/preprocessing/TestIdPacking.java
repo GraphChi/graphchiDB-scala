@@ -1,6 +1,7 @@
 package edu.cmu.graphchi.preprocessing;
 
 import edu.cmu.graphchi.datablocks.FloatConverter;
+import edu.cmu.graphchi.util.Sorting;
 import org.junit.Test;
 
 import java.util.Random;
@@ -28,7 +29,7 @@ public class TestIdPacking {
             System.arraycopy(tmp, 0, valuedat, i * 4, 4);
         }
 
-        FastSharder.sortWithValues(ids, valuedat, 4);
+        Sorting.sortWithValues(ids, valuedat, 4);
 
         for(int i=0; i < valuef.length; i++) {
              byte[] tmp = new byte[4];
