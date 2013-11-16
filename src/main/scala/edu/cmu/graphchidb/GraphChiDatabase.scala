@@ -2,22 +2,23 @@ package edu.cmu.graphchidb
 
 import edu.cmu.graphchi.ChiFilenames
 import edu.cmu.graphchi.preprocessing.{EdgeProcessor, VertexProcessor, FastSharder, VertexIdTranslate}
-import java.io.File
+import java.io.{FileOutputStream, File}
 import edu.cmu.graphchi.engine.VertexInterval
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
 import edu.cmu.graphchi.queries.{QueryCallback, VertexQuery}
-import edu.cmu.graphchidb.Util._
+import edu.cmu.graphchidb.Util.async
 import java.nio.ByteBuffer
 import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
 import edu.cmu.graphchidb.queries.QueryResult
 import java.{util, lang}
 import edu.cmu.graphchidb.queries.internal.QueryResultContainer
-import java.util.Collections
+import java.util.{Date, Collections}
 import edu.cmu.graphchidb.storage.inmemory.EdgeBuffer
 import edu.cmu.graphchi.shards.{PointerUtil, QueryShard}
 import java.util.concurrent.atomic.AtomicLong
+import java.text.SimpleDateFormat
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -48,6 +49,25 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
   def intervalContaining(dst: Long) = intervals.find(_.contains(dst))
 
   var initialized = false
+
+  val debugFile = new FileOutputStream(new File(baseFilename + ".debug.txt"))
+  val format = new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
+
+  /* Debug log */
+  def log(msg: String) = {
+      val str = format.format(new Date()) + "\t" + msg + "\n"
+      debugFile.write(str.getBytes())
+      debugFile.flush()
+  }
+
+  def timed[R](blockName: String, block: => R): R = {
+    val t0 = System.nanoTime()
+    val result = block
+    val t1 = System.nanoTime()
+    log(blockName + " " +  (t1 - t0) / 1000000.0 + "ms")
+    result
+  }
+
 
   /* Graph shards: persistent adjacency shard + buffered edges */
   class GraphShard(shardIdx: Int) {
@@ -80,7 +100,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
         timed("merge shard %d".format(shardIdx), {
           this.synchronized {
             val totalEdges = persistentAdjShard.getNumEdges + buffers.map(_.buffer.numEdges).sum
-            println("Shard %d: creating new shards with %d edges".format(shardIdx, totalEdges))
+            log("Shard %d: creating new shards with %d edges".format(shardIdx, totalEdges))
 
             /* Create edgebuffer containing all edges.
                TODO: take into account that the persistent shard edges are already sorted -- could merge
@@ -122,7 +142,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
             })
 
             assert(allEdgesBuffer.numEdges == totalEdges)
-            println("Read %d edges into buffer".format(allEdgesBuffer.numEdges))
+            log("Read %d edges into buffer".format(allEdgesBuffer.numEdges))
 
             // Write shard
             FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, allEdgesBuffer.srcArray,
@@ -225,10 +245,10 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
 
     shardForEdge(src, dst).addEdge(src, dst, values:_*)
 
-    if (counter.incrementAndGet() % (bufferLimit / 2) == 0) {
+    if (counter.incrementAndGet() % 100000 == 0) {
       synchronized {
-        println("Purging buffers to half of limit. Currently buffered: %d".format(totalBufferedEdges))
-        while (totalBufferedEdges > bufferLimit / 2) {
+        log("Purging buffers. Currently buffered: %d".format(totalBufferedEdges))
+        while (totalBufferedEdges >= bufferLimit) {
           val biggestBufferShard = shards.zipWithIndex.maxBy(_._1.bufferedEdges)._1
           biggestBufferShard.mergeBuffers()
         }
@@ -298,7 +318,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
         }
       })
 
-      println("Out query finished")
+      log("Out query finished")
 
       new QueryResult(vertexIndexing, results.flatten.map(r => r.resultsFor(internalId)).reduce(_+_))
     } )
@@ -330,7 +350,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
         }
       })
 
-      println("Out query finished")
+      log("Out query finished")
 
       new QueryResult(vertexIndexing, results.flatten.map(r => r.combinedResults()).reduce(_+_))
     } )

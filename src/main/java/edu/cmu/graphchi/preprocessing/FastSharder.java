@@ -534,7 +534,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
 
 
-        logger.info("Processing shovel " + shardNum + " ... sorting");
         writeAdjacencyShard(baseFilename, shardNum, numShards, sizeOf, shoveled, shoveled2, edgeValues, minTarget, maxTarget);
 
 
@@ -617,8 +616,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         }
         sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
 
-
-        logger.info("Processing shovel " + shardNum + " ... writing shard");
 
         /* Find actual maxTarget */
         maxTarget = minTarget;

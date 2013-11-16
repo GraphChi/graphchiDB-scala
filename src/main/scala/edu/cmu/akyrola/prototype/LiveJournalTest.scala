@@ -18,6 +18,7 @@ object LiveJournalTest {
   startIngest
 
     DB.queryOut(DB.originalToInternalId(8737))
+           DB.queryIn(DB.originalToInternalId(8737))
 
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(8737))(DB)
