@@ -77,12 +77,14 @@ public class QueryShard {
         File inEdgeStartBufferFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(adjFile.getAbsolutePath()));
         FileChannel inEdgeStartChannel = new java.io.RandomAccessFile(inEdgeStartBufferFile, "r").getChannel();
         inEdgeStartBuffer = inEdgeStartChannel.map(FileChannel.MapMode.READ_ONLY, 0, inEdgeStartBufferFile.length()).asIntBuffer();
+        inEdgeStartChannel.close();
     }
 
     void loadPointers() throws IOException {
         File pointerFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
         FileChannel ptrFileChannel = new java.io.RandomAccessFile(pointerFile, "r").getChannel();
         pointerIdxBuffer = ptrFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, pointerFile.length()).asLongBuffer();
+        ptrFileChannel.close();
     }
 
 

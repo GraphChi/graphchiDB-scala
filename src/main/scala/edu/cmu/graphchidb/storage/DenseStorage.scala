@@ -27,7 +27,13 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
     fileChannel.close()
   }
 
-  val byteBuffer = new RandomAccessFile(file, "rw").getChannel.map(FileChannel.MapMode.READ_WRITE, 0, expectedSize)
+  val byteBuffer = {
+    val channel = new RandomAccessFile(file, "rw").getChannel
+    val bb = channel.map(FileChannel.MapMode.READ_WRITE, 0, expectedSize)
+    channel.close
+    bb
+  }
+
 
   def valueLength = elementSize
 

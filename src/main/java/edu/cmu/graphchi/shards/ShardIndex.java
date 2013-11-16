@@ -41,6 +41,7 @@ public class ShardIndex {
             vertexSeq[i] = dis.readInt();
             i++;
         }
+        dis.close();
     }
 
     /**
