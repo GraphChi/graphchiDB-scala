@@ -266,13 +266,18 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
   val counter = new AtomicLong(0)
   val pendingBufferFlushes = new AtomicInteger(0)
 
-  def addEdge(src: Long, dst: Long, values: Any*) = {
+  def addEdge(src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     shardForEdge(src, dst).addEdge(src, dst, values:_*)
 
     if (counter.incrementAndGet() % 100000 == 0) {
       if (totalBufferedEdges > bufferLimit * 0.9) {
+        if (pendingBufferFlushes.get() > 0) {
+          if (totalBufferedEdges < bufferLimit) {
+            return
+          }
+        }
         while(pendingBufferFlushes.get() > 0) {
           log("Waiting for pending flush")
           Thread.sleep(50)
@@ -281,7 +286,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
         pendingBufferFlushes.incrementAndGet()
         async {
           log("Purging buffers. Currently buffered: %d".format(totalBufferedEdges))
-          while (totalBufferedEdges >= bufferLimit * 0.9) {
+          while (totalBufferedEdges >= bufferLimit * 0.8) {
             val biggestBufferShard = shards.zipWithIndex.maxBy(_._1.bufferedEdges)._1
             biggestBufferShard.mergeBuffers()
           }
