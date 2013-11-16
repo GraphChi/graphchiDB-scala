@@ -45,7 +45,7 @@ object TwitterIngest {
     async {
       var i = 0
       val r = new Random
-
+      val t = System.currentTimeMillis
       val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
 
 
@@ -60,7 +60,8 @@ object TwitterIngest {
               typeColumn.indexForName(edgeType))
             i += 1
             if (i % 1000 == 0) ingestMeter.mark(1000)
-            if (i % 1000000 == 0) println("Processed: %d".format(i) + " ;" + ingestMeter.getOneMinuteRate + " / min")
+            if (i % 1000000 == 0) println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(i) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
+                + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
           }
         })
       })
