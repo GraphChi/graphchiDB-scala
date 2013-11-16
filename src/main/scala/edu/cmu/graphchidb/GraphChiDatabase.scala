@@ -76,71 +76,73 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
     def bufferedEdges = buffers.map(_.buffer.numEdges).sum
 
     def mergeBuffers() = {
-      timed("merge shard %d".format(shardIdx), {
-        this.synchronized {
-          val totalEdges = persistentAdjShard.getNumEdges + buffers.map(_.buffer.numEdges).sum
-          println("Shard %d: creating new shards with %d edges".format(shardIdx, totalEdges))
+      if (bufferedEdges > 0) {
+        timed("merge shard %d".format(shardIdx), {
+          this.synchronized {
+            val totalEdges = persistentAdjShard.getNumEdges + buffers.map(_.buffer.numEdges).sum
+            println("Shard %d: creating new shards with %d edges".format(shardIdx, totalEdges))
 
-          /* Create edgebuffer containing all edges.
-             TODO: take into account that the persistent shard edges are already sorted -- could merge
+            /* Create edgebuffer containing all edges.
+               TODO: take into account that the persistent shard edges are already sorted -- could merge
+               */
+            /*
+               TODO: split shard if too big
              */
-          /*
-             TODO: split shard if too big
-           */
-          val allEdgesBuffer = new EdgeBuffer(edgeEncoderDecoder, totalEdges.toInt)
-          val edgeIterator = persistentAdjShard.edgeIterator()
+            val allEdgesBuffer = new EdgeBuffer(edgeEncoderDecoder, totalEdges.toInt)
+            val edgeIterator = persistentAdjShard.edgeIterator()
 
-          val edgeColumns = columns(edgeIndexing)
-          val edgeSize = edgeEncoderDecoder.edgeSize
-          var idx = 0
-          val workBuffer = ByteBuffer.allocate(edgeSize)
-          while(edgeIterator.hasNext) {
-            edgeIterator.next()
-            workBuffer.rewind()
-            edgeColumns.foreach(c => c._2.readValueBytes(shardIdx, idx, workBuffer))
-            // TODO: write directly to buffer
-            allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
-          }
-
-          // Now we can remove persistentshard from memory
-          persistentAdjShard = null
-
-          // Get edges from buffers
-          buffers.map( bufAndInt => {
-            val buffer = bufAndInt.buffer
-            val edgeIterator = buffer.edgeIterator
-            var i = 0
+            val edgeColumns = columns(edgeIndexing)
+            val edgeSize = edgeEncoderDecoder.edgeSize
+            var idx = 0
+            val workBuffer = ByteBuffer.allocate(edgeSize)
             while(edgeIterator.hasNext) {
               edgeIterator.next()
               workBuffer.rewind()
-              buffer.readEdgeIntoBuffer(i, workBuffer)
+              edgeColumns.foreach(c => c._2.readValueBytes(shardIdx, idx, workBuffer))
               // TODO: write directly to buffer
               allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
-              i += 1
             }
-          })
 
-          assert(allEdgesBuffer.numEdges == totalEdges)
-          println("Read %d edges into buffer".format(allEdgesBuffer.numEdges))
+            // Now we can remove persistentshard from memory
+            persistentAdjShard = null
 
-          // Write shard
-          FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, allEdgesBuffer.srcArray,
-            allEdgesBuffer.dstArray, allEdgesBuffer.byteArray, intervals(shardIdx).getFirstVertex, intervals(shardIdx).getLastVertex)
+            // Get edges from buffers
+            buffers.map( bufAndInt => {
+              val buffer = bufAndInt.buffer
+              val edgeIterator = buffer.edgeIterator
+              var i = 0
+              while(edgeIterator.hasNext) {
+                edgeIterator.next()
+                workBuffer.rewind()
+                buffer.readEdgeIntoBuffer(i, workBuffer)
+                // TODO: write directly to buffer
+                allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+                i += 1
+              }
+            })
 
-          // empty buffers
-          init()
+            assert(allEdgesBuffer.numEdges == totalEdges)
+            println("Read %d edges into buffer".format(allEdgesBuffer.numEdges))
 
-          // Write data columns, i.e replace the column shard with new data
-          (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+            // Write shard
+            FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, allEdgesBuffer.srcArray,
+              allEdgesBuffer.dstArray, allEdgesBuffer.byteArray, intervals(shardIdx).getFirstVertex, intervals(shardIdx).getLastVertex)
+
+            // empty buffers
+            init()
+
+            // Write data columns, i.e replace the column shard with new data
+            (0 until columns(edgeIndexing).size).foreach(columnIdx => {
               val columnBuffer = ByteBuffer.allocate(totalEdges.toInt * edgeEncoderDecoder.columnLength(columnIdx))
               allEdgesBuffer.projectColumnToBuffer(columnIdx, columnBuffer)
               columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardIdx, columnBuffer.array())
-          })
+            })
 
-          // Initialize newly recreated shard
-          persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
+            // Initialize newly recreated shard
+            persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
 
-        } }) // timed
+          } }) // timed
+      }
     }
   }
 
@@ -303,6 +305,38 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
   }
 
 
+  def queryOutMultiple(javaQueryIds: Set[java.lang.Long])  = {
+    if (!initialized) throw new IllegalStateException("You need to initialize first!")
+
+    timed ("query-out-multiple", {
+      // TODO: fix this java-scala long mapping
+      val results = shards.par.map(shard => {
+        try {
+          val resultContainer =  new QueryResultContainer(javaQueryIds)
+
+          shard.synchronized {
+            shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
+
+            /* Look for buffers */
+            javaQueryIds.par.foreach(internalId =>
+              shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer))
+          }
+          Some(resultContainer)
+        } catch {
+          case e: Exception  => {
+            e.printStackTrace()
+            None
+          }
+        }
+      })
+
+      println("Out query finished")
+
+      new QueryResult(vertexIndexing, results.flatten.map(r => r.combinedResults()).reduce(_+_))
+    } )
+  }
+  def queryOutMultiple(internalIds: Seq[Long]) : QueryResult = queryOutMultiple(internalIds.map(_.asInstanceOf[java.lang.Long]).toSet)
+
   /**
    * High-performance reusable object for encoding edges into bytes
    */
@@ -329,10 +363,10 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
       def decode(buf: ByteBuffer, src: Long, dst: Long) = DecodedEdge(src, dst, decoderSeq.map(dec => dec(buf)))
 
       def readIthColumn(buf: ByteBuffer, columnIdx: Int, out: ByteBuffer, workArray: Array[Byte]) = {
-          buf.position(buf.position() + columnOffsets(columnIdx))
-          val l = columnLengths(columnIdx)
-          buf.get(workArray, 0, l)
-          out.put(workArray, 0, l)
+        buf.position(buf.position() + columnOffsets(columnIdx))
+        val l = columnLengths(columnIdx)
+        buf.get(workArray, 0, l)
+        out.put(workArray, 0, l)
       }
 
       def edgeSize = _edgeSize

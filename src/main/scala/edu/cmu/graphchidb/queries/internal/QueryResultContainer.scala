@@ -32,6 +32,8 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
   }
 
   def resultsFor(queryId: Long) = results(queryId)
+
+  def combinedResults() = results.values.reduce(_+_)
 }
 
 case class ResultEdges(ids: IndexedSeq[java.lang.Long], pointers: IndexedSeq[java.lang.Long]) {
