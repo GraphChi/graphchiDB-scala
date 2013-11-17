@@ -60,8 +60,10 @@ public class QueryShard {
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
         numEdges = (int) (adjFile.length() / 8);
 
-        adjBuffer = new java.io.RandomAccessFile(adjFile, "r").getChannel().map(FileChannel.MapMode.READ_ONLY, 0,
+        FileChannel channel = new java.io.RandomAccessFile(adjFile, "r").getChannel();
+        adjBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0,
                     adjFile.length()).asLongBuffer();
+        channel.close();
 
         index = new ShardIndex(adjFile);
         loadPointers();

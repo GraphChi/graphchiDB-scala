@@ -69,7 +69,7 @@ object TwitterIngest {
   }
 
   def main(args: Array[String]) {
-    println("Initialized...")
+     startIngest()
   }
 
 }
