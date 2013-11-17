@@ -24,7 +24,7 @@ object TwitterIngest {
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(20))(DB)
     */
-  val numShards = 256
+  val numShards = 128
 
   val source =  "/Users/akyrola/graphs/twitter_rv.net"
 

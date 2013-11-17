@@ -48,7 +48,15 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
   var intervals = ChiFilenames.loadIntervals(baseFilename, origNumShards).toIndexedSeq
 
-  def intervalContaining(dst: Long) = intervals.find(_.contains(dst))
+  def intervalContaining(dst: Long) = {
+    val firstTry = intervals((dst / vertexIdTranslate.getVertexIntervalLength).toInt)
+    if (firstTry.contains(dst)) {
+      Some(firstTry)
+    } else {
+      println("Full interval scan...")
+      intervals.find(_.contains(dst))
+    }
+  }
 
   var initialized = false
 
@@ -86,7 +94,14 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
     }
 
     /* Buffer if chosen by src (shard is chosen by dst) */
-    def bufferFor(src:Long) = buffers.find(_.interval.contains(src)).get.buffer
+    def bufferFor(src:Long) = {
+      val firstTry = (src / vertexIdTranslate.getVertexIntervalLength).toInt
+      if (buffers(firstTry).interval.contains(src)) {    // TODO: make smarter
+         buffers(firstTry).buffer
+      } else {
+         buffers.find(_.interval.contains(src)).get.buffer
+      }
+    }
 
     val bufferLock = new ReentrantReadWriteLock()
     val persistentShardLock = new ReentrantReadWriteLock()
@@ -205,6 +220,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
 
   def shardForEdge(src: Long, dst: Long) = {
     // TODO: handle case where the current intervals don't cover the new id
+
     shards(intervalContaining(dst).get.getId)
   }
 

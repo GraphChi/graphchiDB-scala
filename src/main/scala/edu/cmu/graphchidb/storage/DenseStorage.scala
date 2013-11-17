@@ -27,7 +27,7 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
     fileChannel.close()
   }
 
-  val byteBuffer = {
+  var byteBuffer = {
     val channel = new RandomAccessFile(file, "rw").getChannel
     val bb = channel.map(FileChannel.MapMode.READ_WRITE, 0, expectedSize)
     channel.close
@@ -54,7 +54,8 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
    * TODO: questionable design.
    */
   def createNew[T](data: Array[Byte]) : MemoryMappedDenseByteStorageBlock with DataBlock[T] = {
-     file.delete() // Delete file
+     byteBuffer = null
+     file.delete() // Delete file     // TODO: think if better way
      val newBlock = new MemoryMappedDenseByteStorageBlock(file, data.size / elementSize, elementSize) with DataBlock[T]
      /* Set data */
      newBlock.byteBuffer.put(data)
