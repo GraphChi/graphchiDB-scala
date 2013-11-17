@@ -534,7 +534,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
 
 
-        writeAdjacencyShard(baseFilename, shardNum, numShards, sizeOf, shoveled, shoveled2, edgeValues, minTarget, maxTarget);
+        writeAdjacencyShard(baseFilename, shardNum, numShards, sizeOf, shoveled, shoveled2, edgeValues, minTarget, maxTarget, false);
 
 
         /**
@@ -604,7 +604,8 @@ public class FastSharder <VertexValueType, EdgeValueType> {
      * @throws IOException
      */
     public static  void writeAdjacencyShard(String baseFilename, int shardNum, int numShards, int
-            sizeOf, long[] shoveled, long[] shoveled2, byte[] edgeValues, long minTarget, long maxTarget) throws IOException {
+            sizeOf, long[] shoveled, long[] shoveled2, byte[] edgeValues, long minTarget, long maxTarget,
+                                                boolean alreadySorted) throws IOException {
     /* Sort the edges */
 
         if (shoveled.length != shoveled2.length) {
@@ -614,8 +615,10 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             throw new IllegalStateException("Mismatch in array size: expected " + shoveled.length + " / got: " +
                     (edgeValues.length / sizeOf) + "; sizeof=" + sizeOf);
         }
-        sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
 
+        if (!alreadySorted) {
+            sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
+        }
 
         /* Find actual maxTarget */
         maxTarget = minTarget;
@@ -676,6 +679,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             long from = (i < shoveled.length ? shoveled[i] : -1);
 
             if (from != curvid) {
+                if (from > 0 && from < curvid) throw new IllegalStateException("List of edges not in correct order!");
                 /* Write index */
                 if (edgeCounter - lastIndexFlush >= edgesPerIndexEntry) {
                     indexOut.writeLong(curvid);

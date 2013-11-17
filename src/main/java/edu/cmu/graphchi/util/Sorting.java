@@ -110,4 +110,41 @@ public class Sorting {
         quickSort(shoveled, edgeValues, sizeOf, 0, shoveled.length - 1);
     }
 
+    public static void mergeWithValues(long[] s1a, long[] s1b, byte[] values1, long[] s2a, long[] s2b, byte[] values2,
+                                       long[] mergeda, long[] mergedb, byte[] mergedvalues, int sizeOf) {
+        int idx1 = 0;
+        int idx2 = 0;
+
+
+        long x1 = (s1a.length > 0 ?  s1a[0] : Long.MAX_VALUE);
+        long x2 = (s2a.length > 0 ? s2a[0] : Long.MAX_VALUE);
+
+        if (mergeda.length != s1a.length + s2a.length) throw new IllegalArgumentException("Arrays passed to merge wrong length");
+
+        int l1last = s1a.length - 1;
+        int l2last = s2a.length - 1;
+
+
+        for(int mergeidx=0; mergeidx < mergeda.length; mergeidx++) {
+
+            if (x1 <= x2) {
+                mergeda[mergeidx] = s1a[idx1];
+                mergedb[mergeidx] = s1b[idx1];
+                /* Data */
+                System.arraycopy(values1,  idx1 * sizeOf, mergedvalues, mergeidx * sizeOf, sizeOf);
+                if (idx1 < l1last) x1 = s1a[++idx1];
+                else x1 = Long.MAX_VALUE;
+            } else {
+                mergeda[mergeidx] = s2a[idx2];
+                mergedb[mergeidx] = s2b[idx2];
+                /* Data */
+                System.arraycopy(values2,  idx2 * sizeOf, mergedvalues, mergeidx * sizeOf, sizeOf);
+
+                if (idx2 < l2last) x2 = s2a[++idx2];
+                else x2 = Long.MAX_VALUE;
+
+            }
+        }
+    }
+
 }

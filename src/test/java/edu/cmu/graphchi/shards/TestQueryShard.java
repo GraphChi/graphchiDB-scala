@@ -20,7 +20,7 @@ public class TestQueryShard {
         long[] srcs = new long[]{100, 99, 98, 97, 10, 0};
         long[] dsts = new long[]{1, 2, 3, 4, 5, 6};
 
-        FastSharder.writeAdjacencyShard(baseFilename, 0, 1, 1, srcs, dsts, new byte[srcs.length], 0, 101);
+        FastSharder.writeAdjacencyShard(baseFilename, 0, 1, 1, srcs, dsts, new byte[srcs.length], 0, 101, false);
 
         QueryShard shards = new QueryShard(baseFilename, 0, 1, new VertexInterval(0, 101, 0));
 

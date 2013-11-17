@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import java.text.SimpleDateFormat
 import java.util.concurrent.locks.ReadWriteLock
 import scala.actors.threadpool.locks.ReentrantReadWriteLock
+import edu.cmu.graphchi.util.Sorting
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -97,9 +98,9 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
     def bufferFor(src:Long) = {
       val firstTry = (src / vertexIdTranslate.getVertexIntervalLength).toInt
       if (buffers(firstTry).interval.contains(src)) {    // TODO: make smarter
-         buffers(firstTry).buffer
+        buffers(firstTry).buffer
       } else {
-         buffers.find(_.interval.contains(src)).get.buffer
+        buffers.find(_.interval.contains(src)).get.buffer
       }
     }
 
@@ -127,7 +128,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
           var idx = 0
           val workBuffer = ByteBuffer.allocate(edgeSize)
 
-          val (allEdgesBuffer, totalEdges) = {
+          val (combinedBufferBuffer, totalEdges) = {
             bufferLock.writeLock().lock()
             try {
               val totalEdges = persistentAdjShard.getNumEdges + buffers.map(_.buffer.numEdges).sum
@@ -140,7 +141,7 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
                  TODO: split shard if too big
                */
 
-              val allEdgesBuffer = new EdgeBuffer(edgeEncoderDecoder, totalEdges.toInt)
+              val combinedBufferBuffer = new EdgeBuffer(edgeEncoderDecoder, buffers.map(_.buffer.numEdges).sum.toInt)
 
               // Get edges from buffers
               buffers.map( bufAndInt => {
@@ -152,40 +153,61 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
                   workBuffer.rewind()
                   buffer.readEdgeIntoBuffer(i, workBuffer)
                   // TODO: write directly to buffer
-                  allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+                  combinedBufferBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
                   i += 1
                 }
               })
 
+
               // empty buffers
               init()
 
-              (allEdgesBuffer, totalEdges)
+              (combinedBufferBuffer, totalEdges)
             } finally {
               bufferLock.writeLock().unlock()
             }
           }
 
-          /* Get edges from persistent shard */
-          val edgeIterator = persistentAdjShard.edgeIterator()
-          while(edgeIterator.hasNext) {
-            edgeIterator.next()
-            workBuffer.rewind()
-            edgeColumns.foreach(c => c._2.readValueBytes(shardIdx, idx, workBuffer))
-            // TODO: write directly to buffer
-            allEdgesBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
-          }
+          // Sort buffered edges
+          Sorting.sortWithValues(combinedBufferBuffer.srcArray, combinedBufferBuffer.dstArray, combinedBufferBuffer.byteArray, edgeSize)
 
+          persistentShardLock.readLock().lock()
+          val persistentBuffer = new EdgeBuffer(edgeEncoderDecoder, persistentAdjShard.getNumEdges.toInt)
+
+          try {
+            /* Get edges from persistent shard */
+            val edgeIterator = persistentAdjShard.edgeIterator()
+            while(edgeIterator.hasNext) {
+              edgeIterator.next()
+              workBuffer.rewind()
+              edgeColumns.foreach(c => c._2.readValueBytes(shardIdx, idx, workBuffer))
+              // TODO: write directly to buffer
+              persistentBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+            }
+          } finally {
+            persistentShardLock.readLock().unlock()
+          }
           // Now we can remove persistentshard from memory
           persistentShardLock.writeLock().lock()
+          val combinedSrc = new Array[Long](totalEdges.toInt)
+          val combinedDst = new Array[Long](totalEdges.toInt)
+          val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
+
           try {
             persistentAdjShard = null
 
-            log("Read %d edges into buffer".format(allEdgesBuffer.numEdges))
+            /* Merge */
+            Sorting.mergeWithValues(combinedBufferBuffer.srcArray, combinedBufferBuffer.dstArray, combinedBufferBuffer.byteArray,
+              persistentBuffer.srcArray, persistentBuffer.dstArray, persistentBuffer.byteArray,
+              combinedSrc, combinedDst, combinedValues, edgeSize)
+
+
+            log("Merge %d edges".format(totalEdges))
 
             // Write shard
-            FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, allEdgesBuffer.srcArray,
-              allEdgesBuffer.dstArray, allEdgesBuffer.byteArray, intervals(shardIdx).getFirstVertex, intervals(shardIdx).getLastVertex)
+            FastSharder.writeAdjacencyShard(baseFilename, shardIdx, numShards, edgeSize, combinedSrc,
+              combinedDst, combinedValues, intervals(shardIdx).getFirstVertex,
+              intervals(shardIdx).getLastVertex, true)
             // Initialize newly recreated shard
             persistentAdjShard = new QueryShard(baseFilename, shardIdx, numShards)
           } finally {
@@ -195,11 +217,9 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
           // Write data columns, i.e replace the column shard with new data
           (0 until columns(edgeIndexing).size).foreach(columnIdx => {
             val columnBuffer = ByteBuffer.allocate(totalEdges.toInt * edgeEncoderDecoder.columnLength(columnIdx))
-            allEdgesBuffer.projectColumnToBuffer(columnIdx, columnBuffer)
+            EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, combinedValues, totalEdges.toInt)
             columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardIdx, columnBuffer.array())
           })
-
-
 
         }) // timed
       }

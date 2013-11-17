@@ -57,7 +57,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   }
 
   def readEdgeIntoBuffer(idx: Int, buf: ByteBuffer) : Unit = {
-      buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
+    buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
   }
 
   /**
@@ -66,22 +66,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
    * @param out
    */
   def projectColumnToBuffer(columnIdx: Int, out: ByteBuffer): Unit = {
-    val n = numEdges
-    val columnLength = encoderDecoder.columnLength(columnIdx)
-
-    if (out.limit() != n * columnLength) {
-        throw new IllegalArgumentException("Column buffer not right size: %d != %d".format(out.limit(),
-          columnLength * n))
-      }
-      var i = 0
-      val workArray = new Array[Byte](encoderDecoder.columnLength(columnIdx))
-      val readBuf = ByteBuffer.wrap(buffer.currentBuf)
-      while(i < n) {
-          readBuf.position(i * edgeSize)
-          encoderDecoder.readIthColumn(readBuf, columnIdx, out, workArray)
-          i += 1
-      }
-    out.rewind()
+       EdgeBuffer.projectColumnToBuffer(columnIdx, out, encoderDecoder, buffer.currentBuf, numEdges)
   }
 
 
@@ -167,4 +152,28 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     def getSrc = srcArray(i)
   }
 
+}
+
+object EdgeBuffer {
+  def projectColumnToBuffer(columnIdx: Int, out: ByteBuffer, encoderDecoder: EdgeEncoderDecoder, dataArray: Array[Byte],
+                            numEdges: Int): Unit = {
+
+    val edgeSize = encoderDecoder.edgeSize
+    val n = numEdges
+    val columnLength = encoderDecoder.columnLength(columnIdx)
+
+    if (out.limit() != n * columnLength) {
+      throw new IllegalArgumentException("Column buffer not right size: %d != %d".format(out.limit(),
+        columnLength * n))
+    }
+    var i = 0
+    val workArray = new Array[Byte](encoderDecoder.columnLength(columnIdx))
+    val readBuf = ByteBuffer.wrap(dataArray)
+    while(i < n) {
+      readBuf.position(i * edgeSize)
+      encoderDecoder.readIthColumn(readBuf, columnIdx, out, workArray)
+      i += 1
+    }
+    out.rewind()
+  }
 }
