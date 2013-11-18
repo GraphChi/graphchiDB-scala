@@ -132,11 +132,10 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
             bufferLock.writeLock().lock()
             try {
               val totalEdges = persistentAdjShard.getNumEdges + buffers.map(_.buffer.numEdges).sum
-              log("Shard %d: creating new shards with %d edges".format(shardIdx, totalEdges))
+              log("Shard %d: creating new shards with %d edges, %f percent buffered".format(shardIdx, totalEdges,
+                (100.0 *buffers.map(_.buffer.numEdges).sum) / totalEdges ))
 
-              /* Create edgebuffer containing all edges.
-                 TODO: take into account that the persistent shard edges are already sorted -- could merge
-                 */
+
               /*
                  TODO: split shard if too big
                */
@@ -316,18 +315,21 @@ class GraphChiDatabase(baseFilename: String, origNumShards: Int, bufferLimit : I
         }
         while(pendingBufferFlushes.get() > 0) {
           log("Waiting for pending flush")
-          Thread.sleep(50)
+          Thread.sleep(200)
         }
 
-        pendingBufferFlushes.incrementAndGet()
-        async {
-          log("Purging buffers. Currently buffered: %d".format(totalBufferedEdges))
-          while (totalBufferedEdges >= bufferLimit * 0.8) {
-            val biggestBufferShard = shards.zipWithIndex.maxBy(_._1.bufferedEdges)._1
-            biggestBufferShard.mergeBuffers()
+        /* Temporary dirty hack -- run four flushers */
+        (0 until 4).foreach(flushIdx => {
+          pendingBufferFlushes.incrementAndGet()
+          async {
+            val biggestBufferShard = shards.zipWithIndex.filter(_._2 % 4 == flushIdx).maxBy(_._1.bufferedEdges)._1
+
+            if (biggestBufferShard.bufferedEdges > bufferLimit / numShards)
+               biggestBufferShard.mergeBuffers()
+
+            pendingBufferFlushes.decrementAndGet()
           }
-          pendingBufferFlushes.decrementAndGet()
-        }
+        })
       }
 
     }
