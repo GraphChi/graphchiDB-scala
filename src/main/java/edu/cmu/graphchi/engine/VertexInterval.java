@@ -1,5 +1,8 @@
 package edu.cmu.graphchi.engine;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Copyright [2012] [Aapo Kyrola, Guy Blelloch, Carlos Guestrin / Carnegie Mellon University]
  *
@@ -46,6 +49,19 @@ public class VertexInterval {
 
     public long getLastVertex() {
         return lastVertex;
+    }
+
+    public static List<VertexInterval> createIntervals(long lastId, int numIntervals) {
+        long length  = (1 + lastId) / numIntervals + ((lastId + 1) % numIntervals == 0 ? 0 : 1);
+
+        ArrayList<VertexInterval> intervals = new ArrayList<VertexInterval>(numIntervals);
+        for(long i=0; i<numIntervals; i++) {
+            long first = i * length;
+            long last = (i + 1) * length - 1;
+            if (i == numIntervals - 1) last = lastId;
+            intervals.add(new VertexInterval(first, last, (int)i));
+        }
+        return intervals;
     }
 
 
