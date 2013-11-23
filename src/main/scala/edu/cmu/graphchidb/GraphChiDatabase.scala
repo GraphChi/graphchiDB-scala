@@ -434,38 +434,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out", {
-
-      val queryIds = Set(internalId.asInstanceOf[java.lang.Long])
-      val results = shards.par.map(shard => {
-        try {
-          val resultContainer =  new QueryResultContainer(queryIds)
-          val javaQueryIds = Collections.singleton(internalId.asInstanceOf[java.lang.Long])   // is there a better way?
-
-          shard.persistentShardLock.readLock().lock()
-          try {
-            shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
-          } finally {
-            shard.persistentShardLock.readLock().unlock()
-          }
-          /* Look for buffers */
-          shard.bufferLock.readLock().lock()
-          try {
-            shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer)
-          } finally {
-            shard.bufferLock.readLock().unlock()
-          }
-          Some(resultContainer)
-        } catch {
-          case e: Exception  => {
-            e.printStackTrace()
-            None
-          }
-        }
-      })
-
-      log("Out query finished")
-
-      new QueryResult(vertexIndexing, results.flatten.map(r => r.resultsFor(internalId)).reduce(_+_))
+      queryOutMultiple(Set[java.lang.Long](internalId))
     } )
   }
 
@@ -482,18 +451,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
           shard.persistentShardLock.readLock().lock()
           try {
-            shard.persistentAdjShard.queryOut(javaQueryIds, resultContainer)
+            shard.persistentShard.queryOut(javaQueryIds, resultContainer)
           } finally {
             shard.persistentShardLock.readLock().unlock()
           }
-          /* Look for buffers */
-          shard.bufferLock.readLock().lock()
-          try {
-            javaQueryIds.par.foreach(internalId =>
-              shard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer))
-          } finally {
-            shard.bufferLock.readLock().unlock()
-          }
+
         } catch {
           case e: Exception  => {
             e.printStackTrace()
@@ -501,6 +463,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         }
       })
 
+      bufferShards.par.foreach(bufferShard => {
+        /* Look for buffers */
+        bufferShard.bufferLock.readLock().lock()
+        try {
+          javaQueryIds.par.foreach(internalId =>
+            bufferShard.bufferFor(internalId).findOutNeighborsCallback(internalId, resultContainer))
+        } finally {
+          bufferShard.bufferLock.readLock().unlock()
+        }
+      })
       log("Out query finished")
 
       new QueryResult(vertexIndexing, resultContainer.combinedResults())
