@@ -724,14 +724,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
         /* Create empty shard files */
         for(int shardNum=0; shardNum<numShards; shardNum++) {
-            File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
-            adjFile.createNewFile();
-            File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
-            ptrFile.createNewFile();
-            File indexFile = new File(adjFile.getAbsolutePath() + ".index");
-            indexFile.createNewFile();
-            File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
-            startIdxFile.createNewFile();
+            createEmptyShard(baseFilename, numShards, shardNum);
         }
 
         /* Degree file */
@@ -758,6 +751,16 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         wr.close();
     }
 
+    public static void createEmptyShard(String baseFilename, int numShards, int shardNum) throws IOException {
+        File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
+        adjFile.createNewFile();
+        File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
+        ptrFile.createNewFile();
+        File indexFile = new File(adjFile.getAbsolutePath() + ".index");
+        indexFile.createNewFile();
+        File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
+        startIdxFile.createNewFile();
+    }
 
 
     /**

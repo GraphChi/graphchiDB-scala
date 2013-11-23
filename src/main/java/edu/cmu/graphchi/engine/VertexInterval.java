@@ -63,6 +63,11 @@ public class VertexInterval {
         }
         return intervals;
     }
+    public boolean intersects(VertexInterval interval) {
+        return ((interval.getLastVertex() >= getLastVertex() && interval.getFirstVertex() <= getLastVertex()) || (
+                  interval.getFirstVertex() <= getFirstVertex() && interval.getLastVertex() >= interval.getFirstVertex()
+                ));
+    }
 
 
     public String toString() {

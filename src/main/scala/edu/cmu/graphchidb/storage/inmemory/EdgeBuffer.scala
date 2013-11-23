@@ -25,6 +25,11 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   /* Create special byteArrayOutStream that allows direct access */
   private val buffer = new ByteArrayOutputStream(initialCapacityNumEdges * encoderDecoder.edgeSize) {
     def currentBuf = buf
+    def compact : Unit = {
+       val newCurrentBuf = new Array[Byte](counter)
+       Array.copy(currentBuf, 0, newCurrentBuf, 0, counter)
+       buf = newCurrentBuf
+    }
   }
 
 
@@ -58,6 +63,20 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
   def readEdgeIntoBuffer(idx: Int, buf: ByteBuffer) : Unit = {
     buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
+  }
+
+  /**
+   * Sets the arrays to the size of the buffer
+   */
+  def compact : EdgeBuffer = {
+      val newSrcArray = new Array[Long](counter)
+      val newDstArray = new Array[Long](counter)
+      Array.copy(srcArray, 0, newSrcArray, 0, counter)
+      Array.copy(dstArray, 0, newDstArray, 0, counter)
+      srcArray = newSrcArray
+      dstArray = newDstArray
+      buffer.compact
+      this
   }
 
   /**
