@@ -21,7 +21,7 @@ class TestEdgeBuffer {
 
   val testDb = "/tmp/graphchidbtest/test1"
 
-  GraphChiDatabaseAdmin.createDatabase(testDb, 2)
+  GraphChiDatabaseAdmin.createDatabase(testDb)
 
   case class TestEdge(src: Long, dst: Long, col1: String, col2: Int, col3: Int) {
      def isValid =  (col2 == (src + dst) % 10000) && (col3 == (src - dst) % 333 && col1 == "c")

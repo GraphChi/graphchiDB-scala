@@ -26,8 +26,8 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   private val buffer = new ByteArrayOutputStream(initialCapacityNumEdges * encoderDecoder.edgeSize) {
     def currentBuf = buf
     def compact : Unit = {
-       val newCurrentBuf = new Array[Byte](counter)
-       Array.copy(currentBuf, 0, newCurrentBuf, 0, counter)
+       val newCurrentBuf = new Array[Byte](counter * encoderDecoder.edgeSize)
+       Array.copy(currentBuf, 0, newCurrentBuf, 0, newCurrentBuf.length)
        buf = newCurrentBuf
     }
   }

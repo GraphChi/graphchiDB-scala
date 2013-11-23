@@ -631,6 +631,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         for(int j=0; j<nexts.length; j++) {
             nexts[j] = (1<<30) - 1;
         }
+        System.out.println("Nexts length:" + nexts.length);
 
         for(int j=shoveled.length-1; j>=0; j--) {
             long vid = shoveled2[j];
@@ -647,7 +648,10 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
         DataOutputStream startOutFile = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(startIdxFile)));
         for(int i=0; i<nexts.length; i++) {
-            startOutFile.writeInt(nexts[i]);
+            if (nexts[i] != (1<<30) - 1) {
+                startOutFile.writeInt(i);
+                startOutFile.writeInt(nexts[i]);
+            }
         }
         startOutFile.close();
 

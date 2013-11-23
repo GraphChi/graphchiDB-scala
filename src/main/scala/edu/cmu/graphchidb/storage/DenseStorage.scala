@@ -2,7 +2,7 @@ package edu.cmu.graphchidb.storage
 
 import java.io.{RandomAccessFile, FileOutputStream, File}
 import java.nio.channels.FileChannel
-import java.nio.ByteBuffer
+import java.nio.{BufferUnderflowException, ByteBuffer}
 
 /**
  * @author Aapo Kyrola
@@ -39,7 +39,8 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
 
   def readIntoBuffer(idx: Int, out: ByteBuffer) = {
       byteBuffer.position(idx * elementSize)
-      byteBuffer.get(out.array())
+      var i = 0
+      while (i < elementSize) { out.put(byteBuffer.get()); i+=1}
       true
   }
 

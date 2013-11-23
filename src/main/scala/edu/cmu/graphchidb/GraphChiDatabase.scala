@@ -2,14 +2,14 @@ package edu.cmu.graphchidb
 
 import edu.cmu.graphchi.ChiFilenames
 import edu.cmu.graphchi.preprocessing.{EdgeProcessor, VertexProcessor, FastSharder, VertexIdTranslate}
-import java.io.{FileOutputStream, File}
+import java.io.{IOException, FileOutputStream, File}
 import edu.cmu.graphchi.engine.VertexInterval
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
 import edu.cmu.graphchi.queries.{QueryCallback, VertexQuery}
 import edu.cmu.graphchidb.Util.async
-import java.nio.ByteBuffer
+import java.nio.{BufferUnderflowException, ByteBuffer}
 import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
 import edu.cmu.graphchidb.queries.QueryResult
 import java.{util, lang}
@@ -28,10 +28,10 @@ import edu.cmu.graphchi.util.Sorting
 
 object GraphChiDatabaseAdmin {
 
-  def createDatabase(baseFilename: String, numShards: Int) : Boolean= {
+  def createDatabase(baseFilename: String) : Boolean= {
 
     // Temporary code!
-    FastSharder.createEmptyGraph(baseFilename, numShards, 1L<<33)
+    FastSharder.createEmptyGraph(baseFilename, 256, 1L<<33)
     true
   }
 
@@ -79,18 +79,43 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     result
   }
 
+  // TODO: hardcoded
+  val shardSizeLimit = 2000000000L / 256L
+
 
   class DiskShard(levelIdx: Int,  _shardId : Int, splitIntervals: Seq[VertexInterval], parentShards: Seq[DiskShard]) {
     val persistentShardLock = new ReentrantReadWriteLock()
     val shardId = _shardId
 
     val myInterval = splitIntervals(levelIdx)
-    var persistentShard = new QueryShard(baseFilename, shardId, numShards)
+
+
+    var persistentShard = {
+      try {
+        new QueryShard(baseFilename, shardId, numShards, myInterval)
+      } catch {
+        case ioe: IOException => {
+          // TODO: improve
+          FastSharder.createEmptyShard(baseFilename, numShards, shardId)
+          new QueryShard(baseFilename, shardId, numShards, myInterval)
+        }
+      }
+    }
 
     def numEdges = persistentShard.getNumEdges
 
     def reset : Unit = {
-      persistentShard = new QueryShard(baseFilename, shardId, numShards)
+      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
+
+      if (persistentShard.getNumEdges > shardSizeLimit && !parentShards.isEmpty) {
+        persistentShardLock.writeLock().lock()
+        try {
+          log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
+          mergeToAndClear(parentShards)
+        } finally {
+          persistentShardLock.writeLock().unlock()
+        }
+      }
     }
 
     def readIntoBuffer(destInterval: VertexInterval): EdgeBuffer = {
@@ -100,13 +125,21 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       val thisBuffer =  new EdgeBuffer(edgeEncoderDecoder, persistentShard.getNumEdges.toInt / 2)
       val edgeIterator = persistentShard.edgeIterator()
       var i = 0
-      while(edgeIterator.hasNext) {
-        if (destInterval.contains(edgeIterator.getDst)) {
-          workBuffer.rewind()
-          edgeColumns.foreach(c => c._2.readValueBytes(shardId, i, workBuffer))
-          thisBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+      try {
+        while(edgeIterator.hasNext) {
+          edgeIterator.next
+          if (destInterval.contains(edgeIterator.getDst)) {
+            workBuffer.rewind()
+            edgeColumns.foreach(c => c._2.readValueBytes(shardId, i, workBuffer))
+            thisBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+          }
+          i += 1
         }
-        i += 1
+      } catch {
+        case be : BufferUnderflowException => {
+          println("Buffer underflow: idx = " + i + ", shardId=" + shardId)
+          throw new RuntimeException(be)
+        }
       }
       thisBuffer.compact
     }
@@ -115,37 +148,44 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       var totalMergedEdges = 0
       val edgeSize = edgeEncoderDecoder.edgeSize
 
-      val destEdges = destShards.map(_.numEdges).sum
-      destShards.foreach( destShard => {
-        val myEdges = readIntoBuffer(destShard.myInterval)
-        val destEdges = destShard.readIntoBuffer(destShard.myInterval)
+      try {
+        persistentShardLock.writeLock().lock()
 
-        val totalEdges = myEdges.numEdges + destEdges.numEdges
-        totalMergedEdges += totalEdges
-        val combinedSrc = new Array[Long](totalEdges.toInt)
-        val combinedDst = new Array[Long](totalEdges.toInt)
-        val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
+        destShards.foreach( destShard => {
+          val myEdges = readIntoBuffer(destShard.myInterval)
+          val destEdges = destShard.readIntoBuffer(destShard.myInterval)
+
+          val totalEdges = myEdges.numEdges + destEdges.numEdges
+          totalMergedEdges += totalEdges
+          val combinedSrc = new Array[Long](totalEdges.toInt)
+          val combinedDst = new Array[Long](totalEdges.toInt)
+          val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
 
 
-        Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray,
-          destEdges.srcArray, destEdges.dstArray, destEdges.byteArray,
-          combinedSrc, combinedDst, combinedValues, edgeSize)
+          Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray,
+            destEdges.srcArray, destEdges.dstArray, destEdges.byteArray,
+            combinedSrc, combinedDst, combinedValues, edgeSize)
 
-        log("Merging %d -> %d (%d edges)".format(shardId, destShard.shardId, totalEdges))
+          log("Merging %d -> %d (%d edges)".format(shardId, destShard.shardId, totalEdges))
 
-        // Write shard
-        FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
-          combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
-          destShard.myInterval.getLastVertex, true)
-        destShard.reset
-      })
-      if (totalMergedEdges != numEdges + destEdges) {
-        throw new IllegalStateException("Mismatch in merging: %d != %d".format(numEdges, totalMergedEdges))
+          // Write shard
+          destShard.persistentShardLock.writeLock().lock()
+          try {
+            FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
+              combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
+              destShard.myInterval.getLastVertex, true)
+            destShard.reset
+          } finally {
+            destShard.persistentShardLock.writeLock().unlock()
+          }
+        })
+
+        // Empty my shard
+        FastSharder.createEmptyShard(baseFilename, numShards, shardId)
+        reset
+      } finally {
+        persistentShardLock.writeLock().unlock()
       }
-
-      // Empty my shard
-      FastSharder.createEmptyShard(baseFilename, shardId, numShards)
-      reset
     }
   }
 
@@ -187,59 +227,98 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
     def mergeToAndClear(destShards: Seq[DiskShard]) : Unit = {
       var totalMergedEdges = 0
+
       val edgeSize = edgeEncoderDecoder.edgeSize
 
-      destShards.foreach( destShard => {
-
-        val myEdges = new EdgeBuffer(edgeEncoderDecoder, numEdges / 2)
+      timed("mergeToAndClear %d".format(bufferId), {
         bufferLock.writeLock().lock()
         try {
-          // Get edges from buffers
-          buffers.foreach( bufAndInt => {
-            val buffer = bufAndInt.buffer
-            val edgeIterator = buffer.edgeIterator
-            var i = 0
-            val workBuffer = ByteBuffer.allocate(edgeSize)
+          val numEdgesToMerge = numEdges
+          destShards.foreach( destShard => {
 
-            while(edgeIterator.hasNext) {
-              edgeIterator.next()
-              workBuffer.rewind()
-              if (destShard.myInterval.contains(edgeIterator.getDst)) {
-                buffer.readEdgeIntoBuffer(i, workBuffer)
-                // TODO: write directly to buffer
-                myEdges.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+            val myEdges = new EdgeBuffer(edgeEncoderDecoder, numEdges / 2)
+            // Get edges from buffers
+            timed("Edges from buffers", {
+              buffers.foreach( bufAndInt => {
+                val buffer = bufAndInt.buffer
+                val edgeIterator = buffer.edgeIterator
+                var i = 0
+                val workBuffer = ByteBuffer.allocate(edgeSize)
+
+                while(edgeIterator.hasNext) {
+                  edgeIterator.next()
+                  workBuffer.rewind()
+                  if (destShard.myInterval.contains(edgeIterator.getDst)) {
+                    buffer.readEdgeIntoBuffer(i, workBuffer)
+                    // TODO: write directly to buffer
+                    myEdges.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+                  }
+                  i += 1
+                }
+              })
+              myEdges.compact
+            })
+
+            timed("sortEdges", {
+              Sorting.sortWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray, edgeSize)
+
+            })
+
+            val destEdges =  timed("destShard.readIntoBuffer", {
+              destShard.readIntoBuffer(destShard.myInterval)
+            })
+
+            val totalEdges = myEdges.numEdges + destEdges.numEdges
+            totalMergedEdges +=  myEdges.numEdges
+            val combinedSrc = new Array[Long](totalEdges.toInt)
+            val combinedDst = new Array[Long](totalEdges.toInt)
+            val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
+
+            timed("buffermerge-sort", {
+              Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray,
+                destEdges.srcArray, destEdges.dstArray, destEdges.byteArray,
+                combinedSrc, combinedDst, combinedValues, edgeSize)
+            })
+
+            log("Merging buffer %d -> %d (%d edges)".format(bufferId, destShard.shardId, totalEdges))
+
+            // Write shard
+            timed("buffermerge-writeshard", {
+              destShard.persistentShardLock.writeLock().lock()
+              try {
+                FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
+                  combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
+                  destShard.myInterval.getLastVertex, true)
+              } finally {
+                destShard.persistentShardLock.writeLock().unlock()
               }
-              i += 1
-            }
-          })
+            })
+
+            timed("buffermerge-reset", {
+              destShard.reset
+            })
+
+            // TODO: consider synchronization
+            // Write data columns, i.e replace the column shard with new data
+            (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+              val columnBuffer = ByteBuffer.allocate(totalEdges.toInt * edgeEncoderDecoder.columnLength(columnIdx))
+              EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, combinedValues, totalEdges.toInt)
+              columns(edgeIndexing)(columnIdx)._2.recreateWithData(destShard.shardId, columnBuffer.array())
+            })
+          }
+          )
+          if (totalMergedEdges != numEdgesToMerge) {
+            throw new IllegalStateException("Mismatch in merging: %d != %d".format(numEdgesToMerge, totalMergedEdges))
+          }
+          init()
+
+        } catch {
+          case e : Exception => throw new RuntimeException(e)
         } finally {
           bufferLock.writeLock().unlock()
         }
-        myEdges.compact
-        val destEdges = destShard.readIntoBuffer(destShard.myInterval)
 
-        val totalEdges = numEdges + destEdges.numEdges
-        totalMergedEdges += totalEdges
-        val combinedSrc = new Array[Long](totalEdges.toInt)
-        val combinedDst = new Array[Long](totalEdges.toInt)
-        val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
-
-
-        Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray,
-          destEdges.srcArray, destEdges.dstArray, destEdges.byteArray,
-          combinedSrc, combinedDst, combinedValues, edgeSize)
-
-        log("Merging buffer %d -> %d (%d edges)".format(bufferId, destShard.shardId, totalEdges))
-
-        // Write shard
-        FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
-          combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
-          destShard.myInterval.getLastVertex, true)
-        destShard.reset
       })
-      if (totalMergedEdges != numEdges) {
-        throw new IllegalStateException("Mismatch in merging: %d != %d".format(numEdges, totalMergedEdges))
-      }
     }
 
   }
@@ -251,8 +330,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   def createShards(numShards: Int, idStart: Int, upperLevel: Seq[DiskShard]) : Seq[DiskShard] = {
     val levelIntervals = VertexInterval.createIntervals(intervals.last.getLastVertex, numShards).toIndexedSeq
-    (0 until numShards).toIndexedSeq.map(i => new DiskShard(i, i + idStart, levelIntervals,
-      upperLevel.filter(_.myInterval.intersects(levelIntervals(i)))))
+    (0 until numShards).map(i => new DiskShard(i, i + idStart, levelIntervals,
+      upperLevel.filter(_.myInterval.intersects(levelIntervals(i))))).toIndexedSeq
   }
 
   // Create a tree of shards... think about more elegant way
@@ -269,7 +348,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   val bufferIntervals = VertexInterval.createIntervals(intervals.last.getLastVertex, 4)
   val bufferShards = (0 until numBufferShards).map(i => new BufferShard(i, bufferIntervals.toIndexedSeq))
-
 
 
   def initialize() : Unit = {
@@ -342,9 +420,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   val pendingBufferFlushes = new AtomicInteger(0)
 
 
+  val bufferIntervalLength = bufferShards(0).myInterval.length()
+
   def bufferForEdge(src:Long, dst:Long) : BufferShard = {
-    // TODO: optimize
-    bufferShards.find(_.myInterval.contains(dst)).get
+    bufferShards((dst / bufferIntervalLength).toInt)
   }
 
   def totalBufferedEdges = bufferShards.map(_.numEdges).sum
@@ -369,13 +448,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         /* Temporary dirty hack -- run four flushers */
         pendingBufferFlushes.incrementAndGet()
         async {
-          bufferShards.foreach(bufferShard => {
-            if (bufferShard.numEdges > bufferLimit / bufferShards.size / 2) {
-              val destShards = shardTree.last.filter(_.myInterval.intersects(bufferShard.myInterval))
-              bufferShard.mergeToAndClear(destShards)
-
-            }
-          })
+          val maxBuffer = bufferShards.maxBy(_.numEdges)
+          if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
+            val destShards = shardTree.last.filter(_.myInterval.intersects(maxBuffer.myInterval))
+            maxBuffer.mergeToAndClear(destShards)
+          }
 
           pendingBufferFlushes.decrementAndGet()
         }

@@ -166,6 +166,7 @@ public class QueryShard {
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
         }
+           if (true)         throw new RuntimeException("Sparse start idx not implemented yet!");
 
         if (inEdgeStartBuffer.capacity() < (1 + queryId - interval.getFirstVertex())) {
             return;
@@ -262,6 +263,8 @@ public class QueryShard {
             long nextPtr =  (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
             long nextOff = VertexIdTranslate.getAux(nextPtr);
             long curSrc = VertexIdTranslate.getVertexId(ptr);
+            long curDst;
+
 
             @Override
             public boolean hasNext() {
@@ -276,6 +279,7 @@ public class QueryShard {
                     nextPtr = iterPointerBuffer.get();
                     nextOff = VertexIdTranslate.getAux(nextPtr);
                 }
+                curDst = VertexIdTranslate.getVertexId(iterBuffer.get());
             }
 
             @Override
@@ -285,7 +289,7 @@ public class QueryShard {
 
             @Override
             public long getDst() {
-                return VertexIdTranslate.getVertexId(iterBuffer.get());
+                return curDst;
             }
         };
     }
