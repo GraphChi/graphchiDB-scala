@@ -46,11 +46,11 @@ public class TestSorting {
         Random r = new Random(260379);
 
         for(int i=0; i<N; i++) {
-            a[i] = r.nextLong() % (N / 4);
+            a[i] = Math.abs(r.nextLong() % (N / 4));
         }
 
         long st = System.currentTimeMillis();
-        int[] b = Sorting.quickSortWithIndex(a);
+        int[] b = Sorting.radixSortWithIndex(a);
         System.out.println("Java sorting took: " + (System.currentTimeMillis() - st) + " ms");
 
         long idxsum = 0;
@@ -71,7 +71,7 @@ public class TestSorting {
         Random r = new Random(260379);
 
         for(int i=0; i<N; i++) {
-            a[i] = r.nextLong() % (N / 4);
+            a[i] =  Math.abs(r.nextLong() % (N / 4));
         }
 
         long st = System.currentTimeMillis();

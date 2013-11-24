@@ -3,13 +3,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <sys/time.h>
+#include <assert.h>
 
-/**
-  * IDEA: Make faster by doing the range in C++ and 
-  * and instead of having two arrays use struct {id, idx} to improve
-  * locality.
-  */
-
+#include "radixSort.h"
+ 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 int partition(jlong * arr, jint * arr2,  int left, int right)
@@ -181,6 +178,7 @@ int partition(long_with_index * arr, int left, int right)
 }
 
 
+
 void quickSort(long_with_index * arr,  int left, int right) {
     
     if (left < right) {
@@ -197,7 +195,15 @@ void quickSort(long_with_index * arr,  int left, int right) {
     }
 }
 
-JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSortWithIndex
+/** RADIX **/
+ struct long_with_index_extract {
+     jlong cofactor;
+     long_with_index_extract(jlong cofactor) : cofactor(cofactor) {}
+     inline size_t operator() (long_with_index a) {return a.val * cofactor + a.idx;}
+};
+
+
+JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithIndex
 (JNIEnv * env, jclass cl, jlongArray arr_) {
     jboolean is_copy1;
     jboolean is_copy2;
@@ -205,14 +211,18 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSortWithInde
     jlong * arr = env->GetLongArrayElements(arr_, &is_copy1);
     
     long_with_index * tmp = new long_with_index[n];
+    jlong maxid = 0;
     for(int i=0; i<n; i++) {
         tmp[i] = long_with_index(arr[i], i);
+        if (arr[i] > maxid) maxid = arr[i];
+        assert(arr[i] >= 0);
     }
      
-    quickSort(tmp, 0, n - 1);
-         
+    iSort(tmp, (intT)n, intT(maxid)*n+n, long_with_index_extract(n));
+    
     for(int i=0; i<n; i++) {
         arr[i] = tmp[i].val;
+        if (i < n - 1) assert(tmp[i] < tmp[i+1]);
     }
     
     if (is_copy1) {

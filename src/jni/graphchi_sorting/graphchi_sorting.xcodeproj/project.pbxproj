@@ -15,6 +15,7 @@
 		5F2CC1C91842A52900B55AE1 /* libgraphchi_sorting.dylib */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; path = libgraphchi_sorting.dylib; sourceTree = BUILT_PRODUCTS_DIR; };
 		5F2CC1D01842A53D00B55AE1 /* edu_cmu_graphchi_util_Sorting.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = edu_cmu_graphchi_util_Sorting.cpp; path = ../edu_cmu_graphchi_util_Sorting.cpp; sourceTree = "<group>"; };
 		5F2CC1D11842A53D00B55AE1 /* edu_cmu_graphchi_util_Sorting.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = edu_cmu_graphchi_util_Sorting.h; path = ../edu_cmu_graphchi_util_Sorting.h; sourceTree = "<group>"; };
+		5F2CC1D41842B68100B55AE1 /* radixSort.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = radixSort.h; path = ../radixSort.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -31,6 +32,7 @@
 		5F2CC1C01842A52900B55AE1 = {
 			isa = PBXGroup;
 			children = (
+				5F2CC1D41842B68100B55AE1 /* radixSort.h */,
 				5F2CC1D01842A53D00B55AE1 /* edu_cmu_graphchi_util_Sorting.cpp */,
 				5F2CC1D11842A53D00B55AE1 /* edu_cmu_graphchi_util_Sorting.h */,
 				5F2CC1CA1842A52900B55AE1 /* Products */,
@@ -208,6 +210,7 @@
 				5F2CC1CF1842A52900B55AE1 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};

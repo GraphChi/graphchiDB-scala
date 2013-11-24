@@ -626,7 +626,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
         long t1 = System.currentTimeMillis();
         // TODO: use JNI?
-        int[] indices =  quickSortWithIndex(shoveled2);
+        int[] indices =  radixSortWithIndex(shoveled2);
 
         long t1a = System.currentTimeMillis();
 

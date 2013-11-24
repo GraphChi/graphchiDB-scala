@@ -15,7 +15,7 @@ extern "C" {
 JNIEXPORT void JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSort
   (JNIEnv *, jclass, jlongArray, jintArray);
 
-JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSortWithIndex
+JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithIndex
     (JNIEnv *, jclass, jlongArray);
     
 #ifdef __cplusplus

@@ -146,7 +146,7 @@ public class Sorting {
 
     public static native void quickSort(long arr[], int arr2[]);
 
-    public static native int[] quickSortWithIndex(long arr[]);
+    public static native int[] radixSortWithIndex(long arr[]);
 
     public static void quickSortJava(long arr[], int arr2[], int left, int right) {
         if (left < right) {
