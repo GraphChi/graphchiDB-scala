@@ -620,40 +620,55 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
         }
 
-        /* Find actual maxTarget */
-        maxTarget = minTarget;
-        for(long v: shoveled2) {
-            if (v > maxTarget) maxTarget = v;
-        }
+        /* Compute links and write start idx file */
+        long t = System.currentTimeMillis();
 
-        /* Compute links */
-        int[] nexts = new int[(int) (1 + maxTarget - minTarget)];
-        for(int j=0; j<nexts.length; j++) {
-            nexts[j] = (1<<30) - 1;
-        }
-        System.out.println("Nexts length:" + nexts.length);
+        int[] indices = range(shoveled.length);
 
-        for(int j=shoveled.length-1; j>=0; j--) {
-            long vid = shoveled2[j];
-            int a = (int) (vid - minTarget);
-            long link = (long) nexts[a];
+        long t1 = System.currentTimeMillis();
+        // TODO: use JNI?
+        quickSort(shoveled2, indices);
 
-            shoveled2[j] = VertexIdTranslate.encodeVertexPacket(vid, link);
-            nexts[a] = j;
+        long t1a = System.currentTimeMillis();
 
-            assert(j < (1<<30));
-        }
-
-        /* Write start indices */
         File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
         DataOutputStream startOutFile = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(startIdxFile)));
-        for(int i=0; i<nexts.length; i++) {
-            if (nexts[i] != (1<<30) - 1) {
-                startOutFile.writeInt(i);
-                startOutFile.writeInt(nexts[i]);
+
+        long t2 = System.currentTimeMillis();
+        long prev = -1;
+        int c = shoveled2.length - 1;
+        for(int i=0; i<c; i++) {
+            long curr = shoveled2[i];
+            long next = shoveled2[i + 1];
+            if (curr == next)  {
+                shoveled2[i] = VertexIdTranslate.encodeVertexPacket(curr, indices[i + 1]);
+            } else {
+                shoveled2[i] = VertexIdTranslate.encodeVertexPacket(curr, (1<<30) - 1);
             }
+            if (curr != prev) {
+                // First
+                startOutFile.writeInt((int) (curr - minTarget));
+                startOutFile.writeInt(indices[i]);
+            }
+            prev = curr;
         }
+
         startOutFile.close();
+
+        long t3 = System.currentTimeMillis();
+        // Sort back
+        long[] tmpshoveled2 = new long[shoveled2.length];
+        for(int j=0; j<shoveled2.length; j++) {
+            tmpshoveled2[indices[j]] = shoveled2[j];
+        }
+        shoveled2 = tmpshoveled2;
+
+
+        System.out.println("In-edge link building took " + (System.currentTimeMillis() - t) + " ms (" + indices.length + " edges)");
+        System.out.println("Phase a: " + (t1 - t) + ", b: " + (t1a-t1));
+        System.out.println("phase 1: " + (t2 - t) + " phase 2: " + (t3 - t2) + ", phase3: " + (System.currentTimeMillis() - t3));
+
+
 
         /*
          Now write the final shard in a compact form. Note that there is separate shard

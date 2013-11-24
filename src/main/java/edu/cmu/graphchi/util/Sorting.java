@@ -47,6 +47,91 @@ public class Sorting {
         return i;
     }
 
+    private static int partition(long arr[], int arr2[],  int left, int right)
+    {
+        int i = left, j = right;
+        long tmp;
+        int tmp2;
+        int len = right - left + 1;
+        int pivotidx1  = left + len / 4;
+        int pivotidx2 = Math.min(left + 2 * len / 4, right - 1);
+        int pivotidx3 = Math.min(left + 3 * len / 4, right - 1);
+
+        // Take median
+        long p1 = arr[pivotidx1];
+        long p2 = arr[pivotidx2];
+        long p3 = arr[pivotidx3];
+
+        int pivotidx = pivotidx1;
+        if (p1 <= p2 && p2 <= p3) {
+            pivotidx = pivotidx2;
+        } else if (p3 <= p2 && p2 <= p1) {
+            pivotidx = pivotidx2;
+        } else if (p2 <= p1 && p1 <= p3) {
+            pivotidx = pivotidx1;
+        } else if (p3 <= p1 && p1 <= p2) {
+            pivotidx = pivotidx1;
+        } else pivotidx = pivotidx3;
+
+
+        long pivot1 = arr[pivotidx];
+        int pivot2 = arr2[pivotidx];
+
+        while (i <= j) {
+            while (arr[i] < pivot1 || (arr[i] == pivot1 && arr2[i] < pivot2))
+                i++;
+            while (arr[j] > pivot1 || (arr[j] == pivot1 && arr2[j] > pivot2))
+                j--;
+            if (i <= j) {
+                tmp = arr[i];
+                tmp2 = arr2[i];
+
+                /* Swap */
+                arr[i] = arr[j];
+                arr[j] = tmp;
+                arr2[i] = arr2[j];
+                arr2[j] = tmp2;
+
+                i++;
+                j--;
+            }
+        }
+
+        return i;
+    }
+
+    private static int partition(int arr[], long arr2[],  int left, int right)
+    {
+        int i = left, j = right;
+        int tmp;
+        long tmp2;
+        int pivotidx = left + random.nextInt(right - left + 1);
+        long pivot1 = arr[pivotidx];
+        long pivot2 = arr2[pivotidx];
+
+        while (i <= j) {
+            while (arr[i] < pivot1 || (arr[i] == pivot1 && arr2[i] < pivot2))
+                i++;
+            while (arr[j] > pivot1 || (arr[j] == pivot1 && arr2[j] > pivot2))
+                j--;
+            if (i <= j) {
+                tmp = arr[i];
+                tmp2 = arr2[i];
+
+                /* Swap */
+                arr[i] = arr[j];
+                arr[j] = tmp;
+                arr2[i] = arr2[j];
+                arr2[j] = tmp2;
+
+                i++;
+                j--;
+            }
+        }
+
+        return i;
+    }
+
     private static int partition(long arr[],  byte[] values, int sizeOf, int left, int right)
     {
         int i = left, j = right;
@@ -80,8 +165,43 @@ public class Sorting {
     }
 
 
+    public static int[] range(int until) {
+        int[] a = new int[until];
+        for(int i=0; i<until; i++) a[i] = i;
+        return a;
+    }
 
-    static void quickSort(long arr[], long arr2[],  byte[] values, int sizeOf, int left, int right) {
+    static void quickSort(long arr[], int arr2[],  int left, int right) {
+        if (left < right) {
+            int index = partition(arr, arr2,  left, right);
+            if (left < index - 1)
+                quickSort(arr, arr2,  left, index - 1);
+            if (index < right)
+                quickSort(arr, arr2, index, right);
+        }
+    }
+
+    public static void quickSort(long[] arr, int arr2[]) {
+        quickSort(arr, arr2, 0, arr.length - 1);
+    }
+
+    public static void quickSort(int arr[], long arr2[]) {
+        quickSort(arr, arr2, 0, arr.length - 1);
+    }
+
+    static void quickSort(int arr[], long arr2[],  int left, int right) {
+        if (left < right) {
+            int index = partition(arr, arr2,  left, right);
+            if (left < index - 1)
+                quickSort(arr, arr2,  left, index - 1);
+            if (index < right)
+                quickSort(arr, arr2, index, right);
+        }
+    }
+
+
+
+        public static void quickSort(long arr[], long arr2[],  byte[] values, int sizeOf, int left, int right) {
         if (left < right) {
             int index = partition(arr, arr2, values, sizeOf, left, right);
             if (left < index - 1)
@@ -99,6 +219,8 @@ public class Sorting {
                 quickSort(arr,values, sizeOf, index, right);
         }
     }
+
+
 
 
     public static void sortWithValues(long[] shoveled, long[] shoveled2, byte[] edgeValues, int sizeOf) {
