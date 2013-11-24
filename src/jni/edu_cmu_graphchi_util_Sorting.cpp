@@ -1,6 +1,6 @@
 
 #include "edu_cmu_graphchi_util_Sorting.h"
-
+#include <cstdlib>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -57,13 +57,38 @@ int partition(jlong * arr, jint * arr2,  int left, int right)
     return i;
 }
 
+#define INSERTION_SORT_LIMIT 64
+
+// Adapted from Pbbs's insertion sort by Guy Blelloch et al.
+void insertionSort(jlong * A1, jint * A2, int n) {
+    for (int i=0; i < n; i++) {
+        jlong v = A1[i];
+        jint v2 = A2[i];
+        jlong* B1 = A1 + i - 1;
+        jint* B2 = A2 + i - 1;
+        while (B1 >= A1 && (v < *B1 || (v == *B1 && v2 < *B2))) {
+           *(B1+1) = *B1;
+           *(B2+1) = *B2;
+            B1--; B2--;
+        }
+        *(B1+1) = v;
+        *(B2+1) = v2;
+    }
+}
+
 void quickSort(jlong * arr, jint * arr2, int left, int right) {
+    
     if (left < right) {
-        int index = partition(arr, arr2,  left, right);
-        if (left < index - 1)
-            quickSort(arr, arr2,  left, index - 1);
-        if (index < right)
-            quickSort(arr, arr2, index, right);
+        if (right - left  <= INSERTION_SORT_LIMIT) {
+            insertionSort(arr + left, arr2 + left, (right - left) + 1);
+        } else {
+        
+            int index = partition(arr, arr2,  left, right);
+            if (left < index - 1)
+                quickSort(arr, arr2,  left, index - 1);
+            if (index < right)
+                quickSort(arr, arr2, index, right);
+            }
     }
 }
 
@@ -77,4 +102,14 @@ JNIEXPORT void JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSort
       jint * arr2 = env->GetIntArrayElements(arr2_, &is_copy2);
       
       quickSort(arr, arr2, 0, n - 1);
+      
+      if (is_copy1) {
+          env->SetLongArrayRegion(arr_, 0, n, arr);
+      }
+      if (is_copy2) {
+          env->SetIntArrayRegion(arr2_, 0, n, arr2);
+      }
+      env->ReleaseLongArrayElements(arr_, arr, 0);
+      env->ReleaseIntArrayElements(arr2_, arr2, 0);
+      
   }

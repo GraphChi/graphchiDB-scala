@@ -4,6 +4,8 @@ import edu.cmu.graphchi.datablocks.FloatConverter;
 import edu.cmu.graphchi.datablocks.IntConverter;
 import org.junit.Test;
 
+import java.util.Random;
+
 import static junit.framework.Assert.assertEquals;
 import static junit.framework.Assert.assertTrue;
 
@@ -35,6 +37,52 @@ public class TestSorting {
             assertTrue(i == 0 || ids[i] > ids[i-1]);
         }
     }
+
+    @Test
+    public void testLongIntSort() {
+        int N = 10000000;
+        long[] a = new long[N];
+        int[] b = new int[N];
+
+        Random r = new Random(260379);
+
+        for(int i=0; i<N; i++) {
+            a[i] = r.nextLong() % (N / 4);
+            b[i] = r.nextInt();
+        }
+
+        long st = System.currentTimeMillis();
+        Sorting.quickSort(a, b);
+        System.out.println("Native sorting took: " + (System.currentTimeMillis() - st) + " ms");
+
+        for(int i=0; i<N-1; i++) {
+            assertTrue((a[i] < a[i+1]) || (a[i] == a[i+1] && b[i] <= b[i + 1]));
+        }
+    }
+
+    @Test
+    public void testLongIntSortJava() {
+        int N = 10000000;
+        long[] a = new long[N];
+        int[] b = new int[N];
+
+        Random r = new Random(260379);
+
+        for(int i=0; i<N; i++) {
+            a[i] = r.nextLong() % (N / 4);
+            b[i] = r.nextInt();
+        }
+
+        long st = System.currentTimeMillis();
+        Sorting.quickSortJava(a, b, 0, a.length - 1);
+        System.out.println("Java sorting took: " + (System.currentTimeMillis() - st) + " ms");
+
+        for(int i=0; i<N-1; i++) {
+            assertTrue((a[i] < a[i+1]) || (a[i] == a[i+1] && b[i] <= b[i + 1]));
+        }
+    }
+
+
 
     @Test
     public void testMerge2WithValues() {

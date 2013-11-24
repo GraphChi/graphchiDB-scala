@@ -100,37 +100,6 @@ public class Sorting {
         return i;
     }
 
-    private static int partition(int arr[], long arr2[],  int left, int right)
-    {
-        int i = left, j = right;
-        int tmp;
-        long tmp2;
-        int pivotidx = left + random.nextInt(right - left + 1);
-        long pivot1 = arr[pivotidx];
-        long pivot2 = arr2[pivotidx];
-
-        while (i <= j) {
-            while (arr[i] < pivot1 || (arr[i] == pivot1 && arr2[i] < pivot2))
-                i++;
-            while (arr[j] > pivot1 || (arr[j] == pivot1 && arr2[j] > pivot2))
-                j--;
-            if (i <= j) {
-                tmp = arr[i];
-                tmp2 = arr2[i];
-
-                /* Swap */
-                arr[i] = arr[j];
-                arr[j] = tmp;
-                arr2[i] = arr2[j];
-                arr2[j] = tmp2;
-
-                i++;
-                j--;
-            }
-        }
-
-        return i;
-    }
 
     private static int partition(long arr[],  byte[] values, int sizeOf, int left, int right)
     {
@@ -171,37 +140,29 @@ public class Sorting {
         return a;
     }
 
-    static void quickSort(long arr[], int arr2[],  int left, int right) {
+    static {
+        System.loadLibrary("graphchi_sorting");
+    }
+
+    public static native void quickSort(long arr[], int arr2[]);
+
+    public static void quickSortJava(long arr[], int arr2[], int left, int right) {
         if (left < right) {
             int index = partition(arr, arr2,  left, right);
             if (left < index - 1)
-                quickSort(arr, arr2,  left, index - 1);
+                quickSortJava(arr, arr2,  left, index - 1);
             if (index < right)
-                quickSort(arr, arr2, index, right);
-        }
-    }
-
-    public static void quickSort(long[] arr, int arr2[]) {
-        quickSort(arr, arr2, 0, arr.length - 1);
-    }
-
-    public static void quickSort(int arr[], long arr2[]) {
-        quickSort(arr, arr2, 0, arr.length - 1);
-    }
-
-    static void quickSort(int arr[], long arr2[],  int left, int right) {
-        if (left < right) {
-            int index = partition(arr, arr2,  left, right);
-            if (left < index - 1)
-                quickSort(arr, arr2,  left, index - 1);
-            if (index < right)
-                quickSort(arr, arr2, index, right);
+                quickSortJava(arr, arr2, index, right);
         }
     }
 
 
 
-        public static void quickSort(long arr[], long arr2[],  byte[] values, int sizeOf, int left, int right) {
+
+
+
+
+    public static void quickSort(long arr[], long arr2[],  byte[] values, int sizeOf, int left, int right) {
         if (left < right) {
             int index = partition(arr, arr2, values, sizeOf, left, right);
             if (left < index - 1)
