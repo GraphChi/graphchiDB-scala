@@ -166,18 +166,38 @@ public class QueryShard {
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
         }
-           if (true)         throw new RuntimeException("Sparse start idx not implemented yet!");
-
-        if (inEdgeStartBuffer.capacity() < (1 + queryId - interval.getFirstVertex())) {
-            return;
-        }
 
         try {
             /* Step 1: collect adj file offsets for the in-edges */
             final Timer.Context _timer1 = inEdgePhase1Timer.time();
             ArrayList<Integer> offsets = new ArrayList<Integer>();
             int END = (1<<30) - 1;
-            int off = inEdgeStartBuffer.get((int) (queryId - interval.getFirstVertex()));
+
+            // Binary search to find the start of the vertex
+            int n = inEdgeStartBuffer.capacity() / 2;
+            int low = 0;
+            int high = n-1;
+            int off = -1;
+            int queryRelative = (int) (queryId - interval.getFirstVertex());
+            while(low <= high) {
+                int idx = ((high + low) / 2);
+                int v = inEdgeStartBuffer.get(idx * 2);
+                System.out.println(idx + ", " + n + ", low=" + low + " hi=" + high + " v=" + v + "queryRel=" + queryRelative);
+                if (v == queryRelative) {
+                    off = inEdgeStartBuffer.get(idx * 2 + 1);
+                    break;
+                }
+                if (v < queryRelative) {
+                    low = idx + 1;
+                } else {
+                    high = idx - 1;
+                }
+            }
+
+            if (off == (-1)) {
+                System.err.println("Cannot find any in-edges for: " + queryId);
+                return;
+            }
 
             while(off != END) {
                 offsets.add(off);

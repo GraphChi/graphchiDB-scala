@@ -488,7 +488,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       targetShards.par.foreach(shard => {
         shard.persistentShardLock.readLock().lock()
         try {
-          shard.persistentShard.queryIn(internalId, result)
+          try {
+            shard.persistentShard.queryIn(internalId, result)
+          } catch {
+            case e: Exception => e.printStackTrace()
+          }
         } finally {
           shard.persistentShardLock.readLock().unlock()
         }
@@ -500,7 +504,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         try {
           bufferShard.buffers.par.foreach(
             buf => {
-              buf.buffer.findInNeighborsCallback(internalId, result)
+              try {
+                buf.buffer.findInNeighborsCallback(internalId, result)
+              } catch {
+                case e: Exception => e.printStackTrace()
+              }
             }
           )
         } finally {
