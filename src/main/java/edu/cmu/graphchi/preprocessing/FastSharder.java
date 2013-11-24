@@ -772,12 +772,16 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
     public static void createEmptyShard(String baseFilename, int numShards, int shardNum) throws IOException {
         File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
+        if (adjFile.exists()) adjFile.delete();
         adjFile.createNewFile();
         File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
+        if (ptrFile.exists()) ptrFile.delete();
         ptrFile.createNewFile();
         File indexFile = new File(adjFile.getAbsolutePath() + ".index");
+        if (indexFile.exists()) indexFile.delete();
         indexFile.createNewFile();
         File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
+        if (startIdxFile.exists()) startIdxFile.delete();
         startIdxFile.createNewFile();
     }
 

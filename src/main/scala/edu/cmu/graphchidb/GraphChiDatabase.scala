@@ -111,7 +111,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         persistentShardLock.writeLock().lock()
         try {
           log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
-          mergeToAndClear(parentShards)
+          mergeToParents
         } finally {
           persistentShardLock.writeLock().unlock()
         }
@@ -168,6 +168,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
               destShard.myInterval.getLastVertex, true)
             destShard.reset
+
+            // TODO: consider synchronization
+            // Write data columns, i.e replace the column shard with new data
+            (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+              val columnBuffer = ByteBuffer.allocate(totalEdges.toInt * edgeEncoderDecoder.columnLength(columnIdx))
+              EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, combinedValues, totalEdges.toInt)
+              columns(edgeIndexing)(columnIdx)._2.recreateWithData(destShard.shardId, columnBuffer.array())
+            })
           } finally {
             destShard.persistentShardLock.writeLock().unlock()
           }
@@ -175,11 +183,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
         // Empty my shard
         FastSharder.createEmptyShard(baseFilename, numShards, shardId)
+        (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+          columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardId, new Array[Byte](0)) // Empty
+        })
         reset
       } finally {
         persistentShardLock.writeLock().unlock()
       }
     }
+
+    def mergeToParents = mergeToAndClear(parentShards)
   }
 
   case class EdgeBufferAndInterval(buffer: EdgeBuffer, interval: VertexInterval)
