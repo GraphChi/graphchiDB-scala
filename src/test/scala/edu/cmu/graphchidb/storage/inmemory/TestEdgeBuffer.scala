@@ -35,7 +35,7 @@ class TestEdgeBuffer {
   val eed = db.edgeEncoderDecoder
 
   /* Create edge buffer */
-  val edgeBuffer = new EdgeBuffer(eed, 1000)
+  val edgeBuffer = new EdgeBuffer(eed, 1000, bufferId=(-1))
 
   /* Create test set of edges */
 

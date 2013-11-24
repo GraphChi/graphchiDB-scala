@@ -5,7 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import edu.cmu.graphchi.queries.QueryCallback
 import java.util
-import edu.cmu.graphchi.shards.EdgeIterator
+import edu.cmu.graphchi.shards.{PointerUtil, EdgeIterator}
 
 /**
  * Memory-efficient, but unsorted, in-memory edge buffer allowing for fast searches.
@@ -13,7 +13,7 @@ import edu.cmu.graphchi.shards.EdgeIterator
  * Note: not thread-safe.
  * @author Aapo Kyrola
  */
-class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: Int = 1024) {
+class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: Int = 1024, bufferId: Int) {
 
   val edgeSize = encoderDecoder.edgeSize
   val tmpBuffer = ByteBuffer.allocate(edgeSize)
@@ -117,7 +117,8 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     while( i < n) {      // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
       if (srcArray(i) == src) {
         ids.add(dstArray(i))
-        pointers.add(i)   // TODO: encode edge buffer pointers
+        pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
+
 
       }
       i += 1
@@ -150,7 +151,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     while(i < n) {   // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
       if (dstArray(i) == dst) {
         ids.add(srcArray(i))
-        pointers.add(i)
+        pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
       }
       i += 1
     }

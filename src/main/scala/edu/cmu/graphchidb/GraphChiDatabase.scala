@@ -122,7 +122,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       val edgeSize = edgeEncoderDecoder.edgeSize
       val edgeColumns = columns(edgeIndexing)
       val workBuffer = ByteBuffer.allocate(edgeSize)
-      val thisBuffer =  new EdgeBuffer(edgeEncoderDecoder, persistentShard.getNumEdges.toInt / 2)
+      val thisBuffer =  new EdgeBuffer(edgeEncoderDecoder, persistentShard.getNumEdges.toInt / 2, bufferId=(-1))
       val edgeIterator = persistentShard.edgeIterator()
       var i = 0
       while(edgeIterator.hasNext) {
@@ -197,13 +197,23 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   case class EdgeBufferAndInterval(buffer: EdgeBuffer, interval: VertexInterval)
 
-  class BufferShard(bufferId: Int, splitIntervals: Seq[VertexInterval]) {
+  case class BufferRef(bufferShardId: Int, nthBuffer: Int)
+
+  def edgeBufferId(bufferShardId: Int, nthBuffer: Int) = {
+    assert(nthBuffer < intervals.size)
+    intervals.size * bufferShardId + nthBuffer
+  }
+  def bufferReference(bufferId: Int) = BufferRef((bufferId / intervals.size), bufferId % intervals.size)
+
+
+  class BufferShard(bufferShardId: Int, splitIntervals: Seq[VertexInterval]) {
     var buffers = Seq[EdgeBufferAndInterval]()
 
-    val myInterval = splitIntervals(bufferId)
+    val myInterval = splitIntervals(bufferShardId)
 
     def init() : Unit = {
-      buffers = intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder), interval))
+      buffers = intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
+        bufferId=edgeBufferId(bufferShardId, interval.getId)), interval))
     }
 
 
@@ -236,7 +246,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
       val edgeSize = edgeEncoderDecoder.edgeSize
 
-      timed("mergeToAndClear %d".format(bufferId), {
+      timed("mergeToAndClear %d".format(bufferShardId), {
         bufferLock.writeLock().lock()
         val oldBuffers = buffers
         val numEdgesToMerge = oldBuffers.map(_.buffer.numEdges).sum
@@ -253,7 +263,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
             destShard.persistentShardLock.writeLock().lock()
 
             try {
-              val myEdges = new EdgeBuffer(edgeEncoderDecoder, numEdgesToMerge / 2)
+              val myEdges = new EdgeBuffer(edgeEncoderDecoder, numEdgesToMerge / 2, bufferId=(-1))
               // Get edges from buffers
               timed("Edges from buffers", {
                 oldBuffers.foreach( bufAndInt => {
@@ -299,7 +309,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                   combinedSrc, combinedDst, combinedValues, edgeSize)
               })
 
-              log("Merging buffer %d -> %d (%d edges)".format(bufferId, destShard.shardId, totalEdges))
+              log("Merging buffer %d -> %d (%d edges)".format(bufferShardId, destShard.shardId, totalEdges))
 
               // Write shard
               timed("buffermerge-writeshard", {
@@ -490,6 +500,30 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   def numVertices = intervals.last.getLastVertex
 
 
+  /* Column value lookups */
+  def columnValues[T](column: Column[T], pointers: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
+    val persistentPointers = pointers.filter(ptr => !PointerUtil.isBufferPointer(ptr))
+    val bufferPointers = pointers.filter(ptr => PointerUtil.isBufferPointer(ptr))
+
+    val columnIdx = columns(column.indexing).indexOf(column)
+    val persistentResults = column.getMany(persistentPointers)
+    val buf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
+    val bufferResults = bufferPointers.map(ptr => {
+      val bufferId = PointerUtil.decodeBufferNum(ptr)
+      val bufferIdx = PointerUtil.decodeBufferPos(ptr)
+      val bufferRef = bufferReference(bufferId)
+      // NOTE: buffer reference may be invalid!!! TODO
+
+      buf.rewind
+      bufferShards(bufferRef.bufferShardId).buffers(bufferRef.nthBuffer).buffer.readEdgeIntoBuffer(bufferIdx, buf)
+      // TODO: read ony necessary column
+      val vals = edgeEncoderDecoder.decode(buf, -1, -1)
+      ptr -> Some(vals.values(columnIdx).asInstanceOf[T])
+    }).toMap
+    println("Retrieved %d buffer results, %d persistent", bufferPointers.size, persistentPointers.size)
+    persistentResults ++ bufferResults
+  }
+
   /* Queries */
   def queryIn(internalId: Long) = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
@@ -528,7 +562,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           bufferShard.bufferLock.readLock().unlock()
         }
       })
-      new QueryResult(vertexIndexing, result.resultsFor(internalId))
+      new QueryResult(vertexIndexing, result.resultsFor(internalId), this)
     } )
   }
 
@@ -582,7 +616,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       })
       log("Out query finished")
 
-      new QueryResult(vertexIndexing, resultContainer.combinedResults())
+      new QueryResult(vertexIndexing, resultContainer.combinedResults(), this)
     } )
   }
   def queryOutMultiple(internalIds: Seq[Long]) : QueryResult = queryOutMultiple(internalIds.map(_.asInstanceOf[java.lang.Long]).toSet)

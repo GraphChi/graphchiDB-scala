@@ -39,4 +39,5 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
 case class ResultEdges(ids: IndexedSeq[java.lang.Long], pointers: IndexedSeq[java.lang.Long]) {
   def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, pointers ++ that.pointers)
   def size = ids.size
+  def idForPointer(pointer: java.lang.Long) = ids(pointers.indexOf(pointer)) // Note, optimize for large result sets!
 }

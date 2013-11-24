@@ -17,8 +17,9 @@ object LiveJournalTest {
   import edu.cmu.akyrola.prototype.LiveJournalTest._
   startIngest
 
-    DB.queryOut(DB.originalToInternalId(8737))
-           DB.queryIn(DB.originalToInternalId(8737))
+    DB.queryOut(DB.originalToInternalId(8737)).join(timestampColumn)
+
+  DB.queryIn(DB.originalToInternalId(8737))
 
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(8737))(DB)
@@ -34,7 +35,7 @@ object LiveJournalTest {
   val DB = new GraphChiDatabase(baseFilename)
 
   /* Create columns */
-  DB.createIntegerColumn("timestamp", DB.edgeIndexing)
+  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
   val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
 
   DB.initialize()
@@ -50,7 +51,7 @@ object LiveJournalTest {
             val from = Integer.parseInt(toks(0))
             val to = Integer.parseInt(toks(1))
             val edgeType = if ((from + to) % 3 == 0) "follow" else "like"
-            DB.addEdgeOrigId(from, to, (System.currentTimeMillis() / 1000 - r.nextInt(24 * 3600 * 365 * 5)).toInt,
+            DB.addEdgeOrigId(from, to, (from + to),
               typeColumn.indexForName(edgeType))
             i += 1
             if (i % 1000000 == 0) println("Processed: %d".format(i))
