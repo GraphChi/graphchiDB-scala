@@ -146,6 +146,8 @@ public class Sorting {
 
     public static native void quickSort(long arr[], int arr2[]);
 
+    public static native int[] quickSortWithIndex(long arr[]);
+
     public static void quickSortJava(long arr[], int arr2[], int left, int right) {
         if (left < right) {
             int index = partition(arr, arr2,  left, right);
@@ -154,6 +156,12 @@ public class Sorting {
             if (index < right)
                 quickSortJava(arr, arr2, index, right);
         }
+    }
+
+    public static int[] quickSortWithIndexJava(long[] arr) {
+        int[] arr2 =range(arr.length);
+        quickSortJava(arr, arr2, 0, arr.length - 1);
+        return arr2;
     }
 
 

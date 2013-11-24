@@ -42,44 +42,50 @@ public class TestSorting {
     public void testLongIntSort() {
         int N = 10000000;
         long[] a = new long[N];
-        int[] b = new int[N];
 
         Random r = new Random(260379);
 
         for(int i=0; i<N; i++) {
             a[i] = r.nextLong() % (N / 4);
-            b[i] = r.nextInt();
         }
 
         long st = System.currentTimeMillis();
-        Sorting.quickSort(a, b);
-        System.out.println("Native sorting took: " + (System.currentTimeMillis() - st) + " ms");
+        int[] b = Sorting.quickSortWithIndex(a);
+        System.out.println("Java sorting took: " + (System.currentTimeMillis() - st) + " ms");
 
+        long idxsum = 0;
         for(int i=0; i<N-1; i++) {
             assertTrue((a[i] < a[i+1]) || (a[i] == a[i+1] && b[i] <= b[i + 1]));
+            assertTrue(b[i] >= 0 && b[i] < a.length);
+            idxsum += b[i];
         }
+        idxsum += b[N - 1];
+        assertEquals((long)N*((long)N-1) / 2, idxsum);
     }
 
     @Test
-    public void testLongIntSortJava() {
+    public void testLongIntSortJavaWithIndex() {
         int N = 10000000;
         long[] a = new long[N];
-        int[] b = new int[N];
 
         Random r = new Random(260379);
 
         for(int i=0; i<N; i++) {
             a[i] = r.nextLong() % (N / 4);
-            b[i] = r.nextInt();
         }
 
         long st = System.currentTimeMillis();
-        Sorting.quickSortJava(a, b, 0, a.length - 1);
+        int[] b = Sorting.quickSortWithIndexJava(a);
         System.out.println("Java sorting took: " + (System.currentTimeMillis() - st) + " ms");
 
+        long idxsum = 0;
         for(int i=0; i<N-1; i++) {
             assertTrue((a[i] < a[i+1]) || (a[i] == a[i+1] && b[i] <= b[i + 1]));
+            assertTrue(b[i] >= 0 && b[i] < a.length);
+            idxsum += b[i];
         }
+        idxsum += b[N - 1];
+        assertEquals((long)N*((long)N-1) / 2, idxsum);
     }
 
 

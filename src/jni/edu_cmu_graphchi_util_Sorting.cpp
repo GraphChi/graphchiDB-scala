@@ -1,6 +1,14 @@
 
 #include "edu_cmu_graphchi_util_Sorting.h"
 #include <cstdlib>
+#include <iostream>
+#include <sys/time.h>
+
+/**
+  * IDEA: Make faster by doing the range in C++ and 
+  * and instead of having two arrays use struct {id, idx} to improve
+  * locality.
+  */
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -91,6 +99,140 @@ void quickSort(jlong * arr, jint * arr2, int left, int right) {
             }
     }
 }
+
+struct long_with_index {
+    jlong val;
+    jint idx;
+    long_with_index() {}
+    long_with_index(jlong val, jint idx) : val(val), idx(idx) {}
+    
+   
+};
+
+inline bool operator< (long_with_index &a, long_with_index &b)
+{
+    return (a.val < b.val) || (a.val == b.val && a.idx < b.idx);
+}
+
+inline bool operator> (long_with_index &a, long_with_index &b)
+{
+    return (a.val > b.val) || (a.val == b.val && a.idx > b.idx);
+}
+
+void insertionSort(long_with_index * A1, int n) {
+    for (int i=0; i < n; i++) {
+        long_with_index v = A1[i];
+        long_with_index* B1 = A1 + i - 1;
+         while (B1 >= A1 && (v < *B1)) {
+            *(B1+1) = *B1;
+            B1--; 
+        }
+        *(B1+1) = v;
+    }
+}
+
+
+int partition(long_with_index * arr, int left, int right)
+{
+    int i = left, j = right;
+    long_with_index tmp;
+    int len = right - left + 1;
+    int pivotidx1  = left + len / 4;
+    int pivotidx2 = MIN(left + 2 * len / 4, right - 1);
+    int pivotidx3 = MIN(left + 3 * len / 4, right - 1);
+    
+    // Take median
+    long_with_index p1 = arr[pivotidx1];
+    long_with_index p2 = arr[pivotidx2];
+    long_with_index p3 = arr[pivotidx3];
+    
+    int pivotidx = pivotidx1;
+    if (p1 < p2 && p2 < p3) {
+        pivotidx = pivotidx2;
+    } else if (p3 < p2 && p2 < p1) {
+        pivotidx = pivotidx2;
+    } else if (p2 < p1 && p1 < p3) {
+        pivotidx = pivotidx1;
+    } else if (p3 < p1 && p1 < p2) {
+        pivotidx = pivotidx1;
+    } else pivotidx = pivotidx3;
+    
+    
+    long_with_index pivot1 = arr[pivotidx];
+    
+    while (i <= j) {
+        while (arr[i] < pivot1)
+            i++;
+        while (arr[j] > pivot1)
+            j--;
+        if (i <= j) {
+            tmp = arr[i];
+            
+            /* Swap */
+            arr[i] = arr[j];
+            arr[j] = tmp;
+            
+            i++;
+            j--;
+        }
+    }
+    
+    return i;
+}
+
+
+void quickSort(long_with_index * arr,  int left, int right) {
+    
+    if (left < right) {
+        if (right - left  <= INSERTION_SORT_LIMIT) {
+            insertionSort(arr + left, (right - left) + 1);
+        } else {
+            
+            int index = partition(arr,left, right);
+            if (left < index - 1)
+                quickSort(arr, left, index - 1);
+            if (index < right)
+                quickSort(arr, index, right);
+        }
+    }
+}
+
+JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSortWithIndex
+(JNIEnv * env, jclass cl, jlongArray arr_) {
+    jboolean is_copy1;
+    jboolean is_copy2;
+    int n = env->GetArrayLength(arr_);
+    jlong * arr = env->GetLongArrayElements(arr_, &is_copy1);
+    
+    long_with_index * tmp = new long_with_index[n];
+    for(int i=0; i<n; i++) {
+        tmp[i] = long_with_index(arr[i], i);
+    }
+     
+    quickSort(tmp, 0, n - 1);
+         
+    for(int i=0; i<n; i++) {
+        arr[i] = tmp[i].val;
+    }
+    
+    if (is_copy1) {
+        env->SetLongArrayRegion(arr_, 0, n, arr);
+    }
+    env->ReleaseLongArrayElements(arr_, arr, 0);
+    
+    jintArray ret = env->NewIntArray(n);
+    jint * arr2 = env->GetIntArrayElements(ret, &is_copy2);
+    for(int i=0; i<n; i++) {
+        arr2[i] = tmp[i].idx;
+    }
+    
+    free(tmp);
+    
+    if (is_copy2) {
+        env->SetIntArrayRegion(ret, 0, n, arr2);
+    }
+    return ret;
+ }
 
 
 JNIEXPORT void JNICALL Java_edu_cmu_graphchi_util_Sorting_quickSort

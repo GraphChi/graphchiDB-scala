@@ -623,11 +623,10 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         /* Compute links and write start idx file */
         long t = System.currentTimeMillis();
 
-        int[] indices = range(shoveled.length);
 
         long t1 = System.currentTimeMillis();
         // TODO: use JNI?
-        quickSort(shoveled2, indices);
+        int[] indices =  quickSortWithIndex(shoveled2);
 
         long t1a = System.currentTimeMillis();
 
