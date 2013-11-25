@@ -11,7 +11,7 @@ import edu.cmu.graphchi.GraphChiEnvironment
  * Ingest a full live journal graph from scratch
  * @author Aapo Kyrola
  */
-object TwitterIngest {
+object TwitterIngest  {
 
   /**
 
@@ -24,6 +24,7 @@ object TwitterIngest {
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(20))(DB)
     */
+
 
   val source =  "/Users/akyrola/graphs/twitter_rv.net"
 

@@ -182,7 +182,6 @@ public class QueryShard {
             while(low <= high) {
                 int idx = ((high + low) / 2);
                 int v = inEdgeStartBuffer.get(idx * 2);
-                System.out.println(idx + ", " + n + ", low=" + low + " hi=" + high + " v=" + v + "queryRel=" + queryRelative);
                 if (v == queryRelative) {
                     off = inEdgeStartBuffer.get(idx * 2 + 1);
                     break;

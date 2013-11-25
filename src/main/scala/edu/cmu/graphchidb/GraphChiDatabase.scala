@@ -109,16 +109,22 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     def numEdges = persistentShard.getNumEdges
 
     def reset : Unit = {
-      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
+      persistentShardLock.writeLock().lock()
+      try {
+        persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
 
-      if (persistentShard.getNumEdges > shardSizeLimit && !parentShards.isEmpty) {
-        persistentShardLock.writeLock().lock()
-        try {
+        if (persistentShard.getNumEdges > shardSizeLimit && !parentShards.isEmpty) {
+
           log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
           mergeToParents
-        } finally {
-          persistentShardLock.writeLock().unlock()
+
         }
+      } catch {
+        case e: Exception => {
+          e.printStackTrace()
+          throw e }
+      } finally {
+        persistentShardLock.writeLock().unlock()
       }
     }
 
@@ -147,7 +153,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
       try {
         persistentShardLock.writeLock().lock()
-
+        // Note: not parallel in order to not use too much memory (buffer flush is parallel)
         destShards.foreach( destShard => {
           val myEdges = readIntoBuffer(destShard.myInterval)
           val destEdges = destShard.readIntoBuffer(destShard.myInterval)
@@ -181,7 +187,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               columns(edgeIndexing)(columnIdx)._2.recreateWithData(destShard.shardId, columnBuffer.array())
             })
             destShard.reset
-
+          } catch {
+            case  e:Exception => {
+              e.printStackTrace()
+              throw e
+            }
           } finally {
             destShard.persistentShardLock.writeLock().unlock()
           }
@@ -195,6 +205,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           })
         })
         reset
+      } catch {
+        case  e:Exception => {
+          e.printStackTrace()
+          throw e
+        }
       } finally {
         persistentShardLock.writeLock().unlock()
       }

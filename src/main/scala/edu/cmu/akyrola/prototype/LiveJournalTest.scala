@@ -10,7 +10,7 @@ import scala.util.Random
  * Ingest a full live journal graph from scratch
  * @author Aapo Kyrola
  */
-object LiveJournalTest {
+object LiveJournalTest  {
 
   /**
 

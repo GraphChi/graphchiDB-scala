@@ -236,11 +236,12 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithInde
         arr2[i] = tmp[i].idx;
     }
     
-    free(tmp);
+    delete[] tmp;
     
     if (is_copy2) {
         env->SetIntArrayRegion(ret, 0, n, arr2);
     }
+    env->ReleaseIntArrayElements(ret, arr2, 0);
     return ret;
  }
 
