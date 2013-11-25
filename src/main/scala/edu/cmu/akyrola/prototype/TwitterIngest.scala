@@ -23,6 +23,9 @@ object TwitterIngest  {
 
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(20))(DB)
+
+    DB.shardTree.map( shs => (shs.size, shs.map(_.numEdges).sum) )
+
     */
 
 
@@ -36,7 +39,7 @@ object TwitterIngest  {
   val DB = new GraphChiDatabase(baseFilename)
 
   /* Create columns */
-  DB.createIntegerColumn("timestamp", DB.edgeIndexing)
+  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
   val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
 
   DB.initialize()

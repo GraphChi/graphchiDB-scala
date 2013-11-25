@@ -196,10 +196,8 @@ void quickSort(long_with_index * arr,  int left, int right) {
 }
 
 /** RADIX **/
- struct long_with_index_extract {
-     jlong cofactor;
-     long_with_index_extract(jlong cofactor) : cofactor(cofactor) {}
-     inline size_t operator() (long_with_index a) {return a.val * cofactor + a.idx;}
+ struct long_with_index_extract { 
+     inline size_t operator() (jlong a) {return a;}
 };
 
 
@@ -209,18 +207,18 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithInde
     int n = env->GetArrayLength(arr_);
     jlong * arr = env->GetLongArrayElements(arr_, &is_copy1);
     
-    long_with_index * tmp = new long_with_index[n];
+    jlong * tmp = new jlong[n];
     jlong maxid = 0;
     for(int i=0; i<n; i++) {
-        tmp[i] = long_with_index(arr[i], i);
+        tmp[i] = arr[i] * n + i;
         if (arr[i] > maxid) maxid = arr[i];
         assert(arr[i] >= 0);
     }
      
-    iSort(tmp, (intT)n, intT(maxid)*n+n, long_with_index_extract(n));
+    iSort(tmp, (intT)n, intT(maxid)*n+n, long_with_index_extract());
     
     for(int i=0; i<n; i++) {
-        arr[i] = tmp[i].val;
+        arr[i] = tmp[i] / n;
         if (i < n - 1) assert(tmp[i] < tmp[i+1]);
     }
     
@@ -236,7 +234,7 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithInde
     }
     jint * arr2 = new jint[n];
     for(int i=0; i<n; i++) {
-        arr2[i] = tmp[i].idx;
+        arr2[i] = tmp[i] % n;
     }
     
     delete[] tmp;

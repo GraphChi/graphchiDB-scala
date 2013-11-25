@@ -65,6 +65,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   val format = new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
 
 
+  val diskShardPurgeLock = new Object()
 
   /* Debug log */
   def log(msg: String) = {
@@ -122,8 +123,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
       try {
         if (persistentShard.getNumEdges > shardSizeLimit && !parentShards.isEmpty) {
-          log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
-          mergeToParents
+          persistentShardLock.writeLock().unlock()
+          // Release lock so reads can continue while we wait for purge.
+          // NOTE: there is slight change that this shard becomes even larger.
+          diskShardPurgeLock.synchronized {
+            persistentShardLock.writeLock().lock()
+            if (persistentShard.getNumEdges > shardSizeLimit) {
+              log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
+              mergeToParents
+            }
+          }
         }
       } catch {
         case e: Exception => {
@@ -220,8 +229,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         persistentShardLock.writeLock().unlock()
       }
 
-      // Check if upstream shards are too big  -- not in parallel
-      destShards.foreach(destShard => destShard.checkSize)
+      // Check if upstream shards are too big  -- not in parallel but in background thread
+      // (lock guarantees that only one purge takes place at once)
+      async  {
+        destShards.foreach(destShard => destShard.checkSize)
+      }
     }
 
     def mergeToParents = mergeToAndClear(parentShards)
@@ -381,7 +393,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
       })
       /* Check if upstream shards too big - not in parallel to limit memory consumption */
-      destShards.foreach(destShard => destShard.checkSize)
+      async  {
+        destShards.foreach(destShard => destShard.checkSize)
+      }
     }
 
   }
@@ -505,21 +519,25 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
             return
           }
         }
-        while(pendingBufferFlushes.get() > 0) {
+        while(pendingBufferFlushes.get() > 0 && totalBufferedEdges > bufferLimit * 0.9) {
           log("Waiting for pending flush")
           Thread.sleep(200)
         }
 
-        /* Temporary dirty hack -- run four flushers */
-        pendingBufferFlushes.incrementAndGet()
-        async {
-          val maxBuffer = bufferShards.maxBy(_.numEdges)
-          if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
-            val destShards = shardTree.last.filter(_.myInterval.intersects(maxBuffer.myInterval))
-            maxBuffer.mergeToAndClear(destShards)
-          }
+        /* TODO: rethink... */
+        if (totalBufferedEdges > bufferLimit * 0.5) {
+          pendingBufferFlushes.incrementAndGet()
+          async {
+            val maxBuffer = bufferShards.maxBy(_.numEdges)
+            if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
+              val destShards = shardTree.last.filter(_.myInterval.intersects(maxBuffer.myInterval))
+              maxBuffer.mergeToAndClear(destShards)
+            }
 
-          pendingBufferFlushes.decrementAndGet()
+            pendingBufferFlushes.decrementAndGet()
+          }
+        } else {
+          log("Already drained enough ...");
         }
       }
 

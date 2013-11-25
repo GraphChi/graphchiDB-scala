@@ -45,8 +45,10 @@ public class TestSorting {
 
         Random r = new Random(260379);
 
+        long achecksum = 0;
         for(int i=0; i<N; i++) {
             a[i] = Math.abs(r.nextLong() % (N / 4));
+            achecksum += a[i];
         }
 
         long st = System.currentTimeMillis();
@@ -54,12 +56,16 @@ public class TestSorting {
         System.out.println("Java sorting took: " + (System.currentTimeMillis() - st) + " ms");
 
         long idxsum = 0;
+        long asum = 0;
         for(int i=0; i<N-1; i++) {
             assertTrue((a[i] < a[i+1]) || (a[i] == a[i+1] && b[i] <= b[i + 1]));
             assertTrue(b[i] >= 0 && b[i] < a.length);
             idxsum += b[i];
+            asum += a[i];
         }
+        asum += a[N-1];
         idxsum += b[N - 1];
+        assertEquals(achecksum, asum);
         assertEquals((long)N*((long)N-1) / 2, idxsum);
     }
 
