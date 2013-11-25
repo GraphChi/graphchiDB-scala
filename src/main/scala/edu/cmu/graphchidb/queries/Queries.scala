@@ -10,10 +10,10 @@ object Queries {
 
   def twoHopOut(internalId: Long)(implicit DB: GraphChiDatabase) = {
       val firstHop = DB.queryOut(internalId)
-      val secondHop = DB.queryOutMultiple(firstHop.getRows.toSet)
+      val secondHop = DB.queryOutMultiple(firstHop.getInternalIds.toSet)
 
       /* Group by */
-     secondHop.getRows.groupBy(identity).mapValues(_.size)
+     secondHop.getVertices.groupBy(identity).mapValues(_.size)
   }
 
 

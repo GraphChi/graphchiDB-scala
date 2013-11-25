@@ -5,6 +5,9 @@ import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
 import edu.cmu.graphchidb.Util.timed
 import edu.cmu.graphchidb.queries.internal.ResultEdges
 
+
+case class VertexId(originalId: Long, internalId: Long)
+
 /**
  * @author Aapo Kyrola
  */
@@ -16,11 +19,14 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
     column.indexing match {
       case database.edgeIndexing => {
         val joins1 = database.edgeColumnValues(column, rows.pointers.toSet)
-        joins1.keySet map {row => (rows.idForPointer(row), joins1(row))}
+        joins1.keySet map {row => {
+          val internalId = rows.idForPointer(row)
+          (VertexId(database.internalToOriginalId(internalId), internalId), joins1(row))
+        }}
       }
       case database.vertexIndexing => {
         val joins1 = column.getMany(rows.ids.toSet)
-        joins1.keySet map {row => (row, joins1(row))}
+        joins1.keySet map {row => (VertexId(database.internalToOriginalId(row), row), joins1(row))}
       }
     }
   }
@@ -36,12 +42,14 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
     joins2.keySet map {row => (rows.idForPointer(row), joins1(row), joins2(row))}
   }
 
-  def getRows = rows.ids
+  def getVertices = rows.ids.map(vid => VertexId(database.originalToInternalId(vid), vid))
+
+  def getInternalIds = rows.ids
 
   override def toString() = "Query result: %d rows".format(rows.ids.size)
 
   def withIndexing(desiredIndexing: DatabaseIndexing) = {
-      new QueryResult(desiredIndexing, rows, database)
+    new QueryResult(desiredIndexing, rows, database)
   }
 }
 
