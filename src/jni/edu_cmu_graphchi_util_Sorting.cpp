@@ -207,25 +207,15 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithInde
     int n = env->GetArrayLength(arr_);
     jlong * arr = env->GetLongArrayElements(arr_, &is_copy1);
     
-    jlong * tmp = new jlong[n];
-    jlong maxid = 0;
+     jlong maxid = 0;
     for(int i=0; i<n; i++) {
-        tmp[i] = arr[i] * n + i;
         if (arr[i] > maxid) maxid = arr[i];
         assert(arr[i] >= 0);
+        arr[i] = arr[i] * n + i;
     }
      
-    iSort(tmp, (intT)n, intT(maxid)*n+n, long_with_index_extract());
+    iSort(arr, (intT)n, intT(maxid)*n+n, long_with_index_extract());
     
-    for(int i=0; i<n; i++) {
-        arr[i] = tmp[i] / n;
-        if (i < n - 1) assert(tmp[i] < tmp[i+1]);
-    }
-    
-    if (is_copy1) {
-        env->SetLongArrayRegion(arr_, 0, n, arr);
-    }
-    env->ReleaseLongArrayElements(arr_, arr, 0);
     
     jintArray ret = env->NewIntArray(n);
     if (ret == NULL) {
@@ -234,10 +224,17 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithInde
     }
     jint * arr2 = new jint[n];
     for(int i=0; i<n; i++) {
-        arr2[i] = tmp[i] % n;
+        jlong tmp = arr[i];
+        arr[i] = tmp / n;
+        arr2[i] = tmp % n;
     }
+ 
     
-    delete[] tmp;
+    if (is_copy1) {
+        env->SetLongArrayRegion(arr_, 0, n, arr);
+    }
+    env->ReleaseLongArrayElements(arr_, arr, 0);
+        
     
     env->SetIntArrayRegion(ret, 0, n, arr2);
     delete [] arr2;

@@ -53,7 +53,7 @@ public class TestSorting {
 
         long st = System.currentTimeMillis();
         int[] b = Sorting.radixSortWithIndex(a);
-        System.out.println("Java sorting took: " + (System.currentTimeMillis() - st) + " ms");
+        System.out.println("Native radix sorting took: " + (System.currentTimeMillis() - st) + " ms");
 
         long idxsum = 0;
         long asum = 0;
