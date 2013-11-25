@@ -13,9 +13,16 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
   // TODO: multijoin
   def join[T](column: Column[T]) = {
     if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
-    val joins1 = database.columnValues(column, rows.pointers.toSet)
-
-    joins1.keySet map {row => (rows.idForPointer(row), joins1(row))}
+    column.indexing match {
+      case database.edgeIndexing => {
+        val joins1 = database.edgeColumnValues(column, rows.pointers.toSet)
+        joins1.keySet map {row => (rows.idForPointer(row), joins1(row))}
+      }
+      case database.vertexIndexing => {
+        val joins1 = column.getMany(rows.ids.toSet)
+        joins1.keySet map {row => (row, joins1(row))}
+      }
+    }
   }
 
   def join[T, V](column: Column[T], column2: Column[V]) = {
@@ -32,6 +39,10 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
   def getRows = rows.ids
 
   override def toString() = "Query result: %d rows".format(rows.ids.size)
+
+  def withIndexing(desiredIndexing: DatabaseIndexing) = {
+      new QueryResult(desiredIndexing, rows, database)
+  }
 }
 
 

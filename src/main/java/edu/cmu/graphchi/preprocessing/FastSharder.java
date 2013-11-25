@@ -663,11 +663,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         shoveled2 = tmpshoveled2;
 
 
-        System.out.println("In-edge link building took " + (System.currentTimeMillis() - t) + " ms (" + indices.length + " edges)");
-        System.out.println("Phase a: " + (t1 - t) + ", b: " + (t1a-t1));
-        System.out.println("phase 1: " + (t2 - t) + " phase 2: " + (t3 - t2) + ", phase3: " + (System.currentTimeMillis() - t3));
-
-
 
         /*
          Now write the final shard in a compact form. Note that there is separate shard

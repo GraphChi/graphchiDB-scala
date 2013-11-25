@@ -416,6 +416,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     edgeIndexing ->  Seq[(String, Column[Any])]()
   )
 
+  def columnIndex(col: Column[Any]) = columns(col.indexing).map(_._2).indexOf(col)
+
 
   /* Columns */
   def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing) = {
@@ -501,11 +503,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
   /* Column value lookups */
-  def columnValues[T](column: Column[T], pointers: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
+  def edgeColumnValues[T](column: Column[T], pointers: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
     val persistentPointers = pointers.filter(ptr => !PointerUtil.isBufferPointer(ptr))
     val bufferPointers = pointers.filter(ptr => PointerUtil.isBufferPointer(ptr))
 
-    val columnIdx = columns(column.indexing).indexOf(column)
+    val columnIdx = columnIndex(column.asInstanceOf[Column[Any]])
+    assert(columnIdx >= 0)
     val persistentResults = column.getMany(persistentPointers)
     val buf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
     val bufferResults = bufferPointers.map(ptr => {
@@ -517,6 +520,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       buf.rewind
       bufferShards(bufferRef.bufferShardId).buffers(bufferRef.nthBuffer).buffer.readEdgeIntoBuffer(bufferIdx, buf)
       // TODO: read ony necessary column
+
+      buf.rewind
       val vals = edgeEncoderDecoder.decode(buf, -1, -1)
       ptr -> Some(vals.values(columnIdx).asInstanceOf[T])
     }).toMap
@@ -562,7 +567,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           bufferShard.bufferLock.readLock().unlock()
         }
       })
-      new QueryResult(vertexIndexing, result.resultsFor(internalId), this)
+      new QueryResult(edgeIndexing, result.resultsFor(internalId), this)
     } )
   }
 
@@ -571,7 +576,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out", {
-      queryOutMultiple(Set[java.lang.Long](internalId))
+      val res =  queryOutMultiple(Set[java.lang.Long](internalId))
+      // Note, change indexing
+      res.withIndexing(edgeIndexing)
     } )
   }
 
