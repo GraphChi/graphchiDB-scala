@@ -211,6 +211,9 @@ public class QueryShard {
                     throw new RuntimeException("Encoding error: " + edge + " --> " + VertexIdTranslate.getVertexId(edge)
                         + " off : " + VertexIdTranslate.getAux(edge));
                 }
+                if (off != END && (off < 0 || off > adjBuffer.capacity())) {
+                    System.err.println("Illegal off when looking for inedges: " + off + ", capacity:" + adjBuffer.capacity() + ", shardNum=" + shardNum);
+                }
             }
             _timer1.stop();
 

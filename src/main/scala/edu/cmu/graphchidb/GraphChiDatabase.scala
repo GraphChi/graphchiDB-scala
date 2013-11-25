@@ -14,7 +14,7 @@ import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
 import edu.cmu.graphchidb.queries.QueryResult
 import java.{util, lang}
 import edu.cmu.graphchidb.queries.internal.QueryResultContainer
-import java.util.{Date, Collections}
+import java.util.{Random, Date, Collections}
 import edu.cmu.graphchidb.storage.inmemory.EdgeBuffer
 import edu.cmu.graphchi.shards.{PointerUtil, QueryShard}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
@@ -64,11 +64,15 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   val debugFile = new FileOutputStream(new File(baseFilename + ".debug.txt"))
   val format = new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
 
+
+
   /* Debug log */
   def log(msg: String) = {
     val str = format.format(new Date()) + "\t" + msg + "\n"
-    debugFile.write(str.getBytes())
-    debugFile.flush()
+    debugFile.synchronized {
+      debugFile.write(str.getBytes())
+      debugFile.flush()
+    }
   }
 
   def timed[R](blockName: String, block: => R): R = {
@@ -317,13 +321,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
               // Write shard
               timed("buffermerge-writeshard", {
-                try {
-                  FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
-                    combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
-                    destShard.myInterval.getLastVertex, true)
-                } finally {
-                  destShard.persistentShardLock.writeLock().unlock()
-                }
+                FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
+                  combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
+                  destShard.myInterval.getLastVertex, true)
+
               })
 
 
@@ -341,6 +342,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               })
             } catch {
               case e:Exception => e.printStackTrace()
+            } finally {
+              destShard.persistentShardLock.writeLock().unlock()
             }
           }
           )
