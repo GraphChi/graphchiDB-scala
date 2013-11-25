@@ -206,7 +206,6 @@ void quickSort(long_with_index * arr,  int left, int right) {
 JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithIndex
 (JNIEnv * env, jclass cl, jlongArray arr_) {
     jboolean is_copy1;
-    jboolean is_copy2;
     int n = env->GetArrayLength(arr_);
     jlong * arr = env->GetLongArrayElements(arr_, &is_copy1);
     
@@ -231,17 +230,19 @@ JNIEXPORT jintArray JNICALL Java_edu_cmu_graphchi_util_Sorting_radixSortWithInde
     env->ReleaseLongArrayElements(arr_, arr, 0);
     
     jintArray ret = env->NewIntArray(n);
-    jint * arr2 = env->GetIntArrayElements(ret, &is_copy2);
+    if (ret == NULL) {
+        std::cerr << "JNI: could not create array of size " << n << std::endl;
+        return ret;
+    }
+    jint * arr2 = new jint[n];
     for(int i=0; i<n; i++) {
         arr2[i] = tmp[i].idx;
     }
     
     delete[] tmp;
     
-    if (is_copy2) {
-        env->SetIntArrayRegion(ret, 0, n, arr2);
-    }
-    env->ReleaseIntArrayElements(ret, arr2, 0);
+    env->SetIntArrayRegion(ret, 0, n, arr2);
+    delete [] arr2;
     return ret;
  }
 

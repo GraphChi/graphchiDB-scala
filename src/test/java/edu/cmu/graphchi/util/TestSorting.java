@@ -64,6 +64,15 @@ public class TestSorting {
     }
 
     @Test
+    public void testManyJNISorts() {
+        // To test memory leakage
+        for(int i=0; i<1000; i++) {
+            testLongIntSort();
+            System.out.println(Runtime.getRuntime().freeMemory());
+        }
+    }
+
+    @Test
     public void testLongIntSortJavaWithIndex() {
         int N = 10000000;
         long[] a = new long[N];
