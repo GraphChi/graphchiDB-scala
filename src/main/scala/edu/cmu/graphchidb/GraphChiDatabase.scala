@@ -112,12 +112,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       persistentShardLock.writeLock().lock()
       try {
         persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
+      } finally {
+        persistentShardLock.writeLock().unlock()
+      }
+    }
 
+    def checkSize : Unit = {
+      persistentShardLock.writeLock().lock()
+
+      try {
         if (persistentShard.getNumEdges > shardSizeLimit && !parentShards.isEmpty) {
-
           log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
           mergeToParents
-
         }
       } catch {
         case e: Exception => {
@@ -213,6 +219,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       } finally {
         persistentShardLock.writeLock().unlock()
       }
+
+      // Check if upstream shards are too big  -- not in parallel
+      destShards.foreach(destShard => destShard.checkSize)
     }
 
     def mergeToParents = mergeToAndClear(parentShards)
@@ -371,6 +380,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         }
 
       })
+      /* Check if upstream shards too big - not in parallel to limit memory consumption */
+      destShards.foreach(destShard => destShard.checkSize)
     }
 
   }

@@ -63,6 +63,7 @@ public class TestSorting {
         assertEquals((long)N*((long)N-1) / 2, idxsum);
     }
 
+    /*
     @Test
     public void testManyJNISorts() {
         // To test memory leakage
@@ -70,7 +71,7 @@ public class TestSorting {
             testLongIntSort();
             System.out.println(Runtime.getRuntime().freeMemory());
         }
-    }
+    } */
 
     @Test
     public void testLongIntSortJavaWithIndex() {
