@@ -167,7 +167,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
             FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
               combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
               destShard.myInterval.getLastVertex, true)
-            destShard.reset
 
             // TODO: consider synchronization
             // Write data columns, i.e replace the column shard with new data
@@ -176,6 +175,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, combinedValues, totalEdges.toInt)
               columns(edgeIndexing)(columnIdx)._2.recreateWithData(destShard.shardId, columnBuffer.array())
             })
+            destShard.reset
+
           } finally {
             destShard.persistentShardLock.writeLock().unlock()
           }
