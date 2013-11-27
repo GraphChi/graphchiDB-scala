@@ -194,7 +194,6 @@ public class QueryShard {
             }
 
             if (off == (-1)) {
-                System.err.println("Cannot find any in-edges for: " + queryId);
                 return;
             }
 

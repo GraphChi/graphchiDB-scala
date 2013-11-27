@@ -42,6 +42,7 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
     joins2.keySet map {row => (rows.idForPointer(row), joins1(row), joins2(row))}
   }
 
+
   def getVertices = rows.ids.map(vid => VertexId(database.originalToInternalId(vid), vid))
 
   def getInternalIds = rows.ids
