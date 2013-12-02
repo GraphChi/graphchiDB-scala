@@ -50,6 +50,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
   var intervals = ChiFilenames.loadIntervals(baseFilename, numShards).toIndexedSeq
 
+  /* This array keeps track of the largest vertex id currently present in each interval. Due to the modulo-shuffling scheme,
+     the vertex Ids start from the "bottom" of the interval lower bound.
+   */
+  val intervalMaxVertexId = new Array[Long](numShards)
+
   def intervalContaining(dst: Long) = {
     val firstTry = intervals((dst / vertexIdTranslate.getVertexIntervalLength).toInt)
     if (firstTry.contains(dst)) {
@@ -492,13 +497,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     def nShards = numShards
     def shardForIndex(idx: Long) =
       intervals.find(_.contains(idx)).getOrElse(throw new IllegalArgumentException("Vertex id not found")).getId
-    def shardSize(idx: Int) =
-      intervals(idx).length()
+    def shardSize(idx: Int) = scala.math.max(0, 1 + intervalMaxVertexId(idx) - intervals(idx).getFirstVertex)
 
     def globalToLocal(idx: Long) = {
       val interval = intervals(shardForIndex(idx))
       idx - interval.getFirstVertex
     }
+    override def allowAutoExpansion: Boolean = true  // Is this the right place?
+
   }
 
   /* For columns associated with edges */
@@ -533,6 +539,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     col
   }
 
+  def createLongColumn(name: String, indexing: DatabaseIndexing) = {
+    val col = new FileColumn[Long](filePrefix=baseFilename + "_COLUMN_long_" + name.toLowerCase,
+      sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter)
+    columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+    col
+  }
+
   def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
     val col = new MySQLBackedColumn[String](tableName, columnName, indexing, vertexIdTranslate)
     columns(indexing) = columns(indexing) :+ (tableName + "." + columnName, col.asInstanceOf[Column[Any]])
@@ -560,6 +573,17 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     bufferForEdge(src, dst).addEdge(src, dst, values:_*)
+
+    /* Record keeping */
+    this.synchronized {
+      updateVertexRecords(src)
+      updateVertexRecords(dst)
+
+      incrementInDegree(dst)
+      incrementOutDegree(src)
+    }
+
+    /* Buffer flushing. TODO: make smarter. */
 
     if (counter.incrementAndGet() % 100000 == 0) {
       if (totalBufferedEdges > bufferLimit * 0.9) {
@@ -698,42 +722,46 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       val resultContainer =  new QueryResultContainer(javaQueryIds)
 
 
-      bufferShards.par.foreach(bufferShard => {
-        /* Look for buffers */
-        bufferShard.bufferLock.readLock().lock()
-        try {
-          javaQueryIds.par.foreach(internalId =>
-            bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
-              buf.buffer.findOutNeighborsCallback(internalId, resultContainer)
-              if (!buf.interval.contains(internalId))
-                throw new IllegalStateException("Buffer interval %s did not contain %d".format(buf.interval, internalId))
-            }))
-        } catch {
-          case e: Exception  => {
-            e.printStackTrace()
+      timed("query-out-buffers", {
+        bufferShards.par.foreach(bufferShard => {
+          /* Look for buffers */
+          bufferShard.bufferLock.readLock().lock()
+          try {
+            javaQueryIds.par.foreach(internalId =>
+              bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
+                buf.buffer.findOutNeighborsCallback(internalId, resultContainer)
+                if (!buf.interval.contains(internalId))
+                  throw new IllegalStateException("Buffer interval %s did not contain %d".format(buf.interval, internalId))
+              }))
+          } catch {
+            case e: Exception  => {
+              e.printStackTrace()
+            }
+          } finally {
+            bufferShard.bufferLock.readLock().unlock()
           }
-        } finally {
-          bufferShard.bufferLock.readLock().unlock()
-        }
+        })
       })
 
 
-      // TODO: fix this java-scala long mapping
-      shards.par.foreach(shard => {
-        try {
-
-          shard.persistentShardLock.readLock().lock()
+      timed("query-out-persistent", {
+        // TODO: fix this java-scala long mapping
+        shards.par.foreach(shard => {
           try {
-            shard.persistentShard.queryOut(javaQueryIds, resultContainer)
-          } finally {
-            shard.persistentShardLock.readLock().unlock()
-          }
 
-        } catch {
-          case e: Exception  => {
-            e.printStackTrace()
+            shard.persistentShardLock.readLock().lock()
+            try {
+              shard.persistentShard.queryOut(javaQueryIds, resultContainer)
+            } finally {
+              shard.persistentShardLock.readLock().unlock()
+            }
+
+          } catch {
+            case e: Exception  => {
+              e.printStackTrace()
+            }
           }
-        }
+        })
       })
       log("Out query finished")
 
@@ -779,6 +807,29 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
   }
 
+  // Manage shard boundaries etc.
+  def updateVertexRecords(internalId: Long): Unit = {
+    val shardIdx = (internalId / intervals(0).length()).toInt
+    if (intervalMaxVertexId(shardIdx) < internalId) { intervalMaxVertexId(shardIdx) = internalId }
+  }
+
+  /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
+  val degreeColumn = createLongColumn("degree", vertexIndexing)
+
+  def incrementInDegree(internalId: Long) : Unit = {
+     val curValue = degreeColumn.get(internalId).getOrElse(0L)
+     degreeColumn.set(internalId, Util.setHi(Util.hiBytes(curValue) + 1, curValue))
+
+  }
+  def incrementOutDegree(internalId: Long) : Unit = {
+    val curValue = degreeColumn.get(internalId).getOrElse(0L)
+    degreeColumn.set(internalId, Util.setLo(Util.loBytes(curValue) + 1, curValue))
+  }
+
+
+  def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
+  def outDegree(internalId: Long) = Util.loBytes(degreeColumn.get(internalId).getOrElse(0L))
+
 }
 
 
@@ -788,6 +839,7 @@ trait DatabaseIndexing {
   def shardForIndex(idx: Long) : Int
   def shardSize(shardIdx: Int) : Long
   def globalToLocal(idx: Long) : Long
+  def allowAutoExpansion: Boolean = false  // Is this the right place?
 }
 
 /**

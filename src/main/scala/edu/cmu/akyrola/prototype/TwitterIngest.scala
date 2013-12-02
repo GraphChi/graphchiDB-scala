@@ -78,7 +78,24 @@ object TwitterIngest  {
                 + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
 
             /* Consistency check */
-            if (i % 2000000 == 0) {
+            if (i % 333333 == 0) {
+               // Degree check
+              checkSet.foreach(id =>
+              {
+                val indeg =  DB.inDegree(DB.originalToInternalId(id))
+                val outdeg = DB.outDegree(DB.originalToInternalId(id))
+                val expected = inCounters(id) + outCounters(id)
+
+
+                if (!(indeg + outdeg == expected)) {
+                  printf("MISMATCH! %d / %d, %d / %d\n".format(indeg, inCounters(id), outdeg, outCounters(id)));
+                  throw new IllegalStateException()
+                }
+              })
+            }
+
+            /* Search constistency check */
+            if (i % 40000000 == 0) {
                 checkSet.foreach(id =>
                 {
                    val ins =  DB.queryIn(DB.originalToInternalId(id)).getInternalIds
@@ -89,7 +106,9 @@ object TwitterIngest  {
                      outs.size, outCounters(id),
                       ins.size + outs.size, expected))
 
-                   assert(ins.size + outs.size== expected)
+                   if (!(ins.size + outs.size == expected)) {
+                      printf("MISMATCH!\n");
+                   }
                 }
                 )
             }

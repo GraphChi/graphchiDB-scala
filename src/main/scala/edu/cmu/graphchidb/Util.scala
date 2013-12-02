@@ -17,4 +17,10 @@ object Util {
   // http://www.jroller.com/vaclav/entry/asynchronous_methods_in_scala
   def async(fn: => Unit): Unit = scala.actors.Actor.actor { fn }
 
+  def loBytes(x: Long) : Int = (x & 0xffffffff).toInt
+  def hiBytes(x: Long) : Int = ((x >> 32) & 0xffffffff).toInt
+  def setLo(x: Int, y:Long) : Long = (y & 0xffffffff00000000L) | x
+  def setHi(x: Int, y:Long) : Long = (y & 0x00000000ffffffffL) | (x.toLong << 32)
+
+
 }

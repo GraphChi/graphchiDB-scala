@@ -15,33 +15,52 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
     if (!success) throw new IllegalAccessException("Could not create file: " + file.getAbsolutePath)
   }
   // Ensure size
-  private val expectedSize = elementSize.toLong * _size
+  private val initialSize = elementSize.toLong * _size
 
-  if (expectedSize > Int.MaxValue)
-    throw new IllegalStateException("Data block size too big: " + expectedSize + ", file=" + file.getName)
+  if (initialSize > Int.MaxValue)
+    throw new IllegalStateException("Data block size too big: " + initialSize + ", file=" + file.getName)
 
   val currentSize = file.length()
-  if (currentSize != expectedSize) {
+  if (currentSize != initialSize) {
     val fileChannel = new FileOutputStream(file, true).getChannel
-    fileChannel.truncate(expectedSize)
+    fileChannel.truncate(initialSize)
     fileChannel.close()
   }
 
-  var byteBuffer = {
+  private def mmap(size: Long) =
+  {
     val channel = new RandomAccessFile(file, "rw").getChannel
-    val bb = channel.map(FileChannel.MapMode.READ_WRITE, 0, expectedSize)
+    val bb = channel.map(FileChannel.MapMode.READ_WRITE, 0, size)
     channel.close
     bb
   }
 
+  var byteBuffer = mmap(initialSize)
+
+  def expand(newSizeInElements: Int) = {
+    val targetSize = newSizeInElements * elementSize
+    var newBytes = targetSize - file.length()
+    val out = new FileOutputStream(file, true)
+    while(newBytes > 0) {
+       val len = scala.math.min(16384, newBytes).toInt
+       val bb = new Array[Byte](len)
+       out.write(bb)
+       newBytes -= len
+    }
+    out.close()
+    assert(file.length() == targetSize)
+
+    // Reload memory mapped byte buffer
+    byteBuffer = mmap(targetSize)
+  }
 
   def valueLength = elementSize
 
   def readIntoBuffer(idx: Int, out: ByteBuffer) = {
-      byteBuffer.position(idx * elementSize)
-      var i = 0
-      while (i < elementSize) { out.put(byteBuffer.get()); i+=1}
-      true
+    byteBuffer.position(idx * elementSize)
+    var i = 0
+    while (i < elementSize) { out.put(byteBuffer.get()); i+=1}
+    true
   }
 
   def writeFromBuffer(idx: Int, in: ByteBuffer) = {
@@ -55,11 +74,11 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
    * TODO: questionable design.
    */
   def createNew[T](data: Array[Byte]) : MemoryMappedDenseByteStorageBlock with DataBlock[T] = {
-     byteBuffer = null
-     file.delete() // Delete file     // TODO: think if better way
-     val newBlock = new MemoryMappedDenseByteStorageBlock(file, data.size / elementSize, elementSize) with DataBlock[T]
-     /* Set data */
-     newBlock.byteBuffer.put(data)
-     newBlock
+    byteBuffer = null
+    file.delete() // Delete file     // TODO: think if better way
+    val newBlock = new MemoryMappedDenseByteStorageBlock(file, data.size / elementSize, elementSize) with DataBlock[T]
+    /* Set data */
+    newBlock.byteBuffer.put(data)
+    newBlock
   }
 }

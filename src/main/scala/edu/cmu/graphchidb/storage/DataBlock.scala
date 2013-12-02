@@ -25,6 +25,16 @@ object ByteConverters {
     override def sizeOf = 4
   }
 
+  implicit object LongByteConverter extends ByteConverter[Long] {
+    override def fromBytes(bb: ByteBuffer) : Long = {
+      bb.getLong
+    }
+    override def toBytes(v: Long, bb: ByteBuffer) : Unit = {
+      bb.putLong(v)
+    }
+    override def sizeOf = 8
+  }
+
   implicit  object ByteByteConverter extends ByteConverter[Byte] {
     override def fromBytes(bb: ByteBuffer) : Byte = {
       bb.get

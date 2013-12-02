@@ -61,7 +61,18 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
 
   /* Internal call */
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = blocks(shardNum).readIntoBuffer(idx, buf)
-  def get(idx: Long) =  blocks(indexing.shardForIndex(idx)).get(indexing.globalToLocal(idx).toInt)(converter)
+  def get(idx: Long) =  {
+    val block = blocks(indexing.shardForIndex(idx))
+    val localIdx = indexing.globalToLocal(idx).toInt
+    if (block.size <= localIdx && _indexing.allowAutoExpansion) {
+      val EXPANSION_BLOCK = 4096 // TODO -- not right place
+      val expansionSize = (scala.math.ceil((localIdx + 1).toDouble /  EXPANSION_BLOCK) * EXPANSION_BLOCK).toInt
+       block.expand(expansionSize)
+
+      println("Expanding because %d was out of bounds. New size: %d / %d".format(localIdx, expansionSize, block.size))
+    }
+    block.get(localIdx)(converter)
+  }
   def getName(idx: Long) = get(idx).map(a => a.toString).headOption
 
   def set(idx: Long, value: T) : Unit = blocks(indexing.shardForIndex(idx)).set(indexing.globalToLocal(idx).toInt, value)(converter)
