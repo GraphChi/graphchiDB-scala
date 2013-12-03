@@ -12,13 +12,15 @@ import scala.collection.mutable
  */
 class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback {
 
-  private val results = mutable.Map[Long, ResultEdges]() ++ queryIds.map(i => i ->
-    ResultEdges(IndexedSeq[java.lang.Long](), IndexedSeq[java.lang.Long]())).toMap
+  //private val results = mutable.Map[Long, ResultEdges]() ++ queryIds.map(i => i ->
+  //ResultEdges(IndexedSeq[java.lang.Long](), IndexedSeq[java.lang.Long]())).toMap
+
+  private var resultList = List[Tuple2[Long, ResultEdges]]()
 
   def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], dataPointers: util.ArrayList[lang.Long]) = {
     if (!neighborIds.isEmpty) {
       this.synchronized {
-        results(vertexId) += ResultEdges(neighborIds.toIndexedSeq[java.lang.Long], dataPointers.toIndexedSeq[java.lang.Long])
+        resultList = resultList :+ (vertexId, ResultEdges(neighborIds, dataPointers))
       }
     }
   }
@@ -26,17 +28,38 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
   def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], dataPointers: util.ArrayList[lang.Long])= {
     if (!neighborIds.isEmpty) {
       this.synchronized {
-        results(vertexId) += ResultEdges(neighborIds.toIndexedSeq[java.lang.Long], dataPointers.toIndexedSeq[java.lang.Long])
+        resultList = resultList :+ (vertexId, ResultEdges(neighborIds, dataPointers))
       }
     }
   }
 
-  def resultsFor(queryId: Long) = results(queryId)
+  // Unscalaish --- but the basic merge is too slow for very large results
+  private def fastMerge(results: Seq[ResultEdges]) : ResultEdges = {
+    val totalLen = results.map(_.size).sum
+    val ids = new Array[lang.Long](totalLen)
+    val pointers = new Array[lang.Long](totalLen)
+    var i = 0
+    results.foreach( r => {
+      r.ids.copyToArray(ids, i)
+      r.pointers.copyToArray(pointers, i)
+      i += r.size
+    })
+    assert(i == totalLen)
+    ResultEdges(ids, pointers)
+  }
 
-  def combinedResults() = results.values.reduce(_+_)
+
+  lazy val results = {
+    val grouped = resultList.groupBy(_._1).map { case (queryId, idTuple) => (queryId, fastMerge(idTuple.map(_._2))) }
+    grouped.toMap
+  }
+
+  def resultsFor(queryId: Long) = results.getOrElse(queryId, ResultEdges(Seq[lang.Long](), Seq[lang.Long]()))
+
+  def combinedResults() =  results.values.foldLeft(ResultEdges(Seq[lang.Long](), Seq[lang.Long]()))(_+_)
 }
 
-case class ResultEdges(ids: IndexedSeq[java.lang.Long], pointers: IndexedSeq[java.lang.Long]) {
+case class ResultEdges(ids: Seq[java.lang.Long], pointers: Seq[java.lang.Long]) {
   def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, pointers ++ that.pointers)
   def size = ids.size
   def idForPointer(pointer: java.lang.Long) = ids(pointers.indexOf(pointer)) // Note, optimize for large result sets!

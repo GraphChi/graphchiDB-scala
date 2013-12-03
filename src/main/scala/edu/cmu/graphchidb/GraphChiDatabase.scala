@@ -733,7 +733,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
                 buf.buffer.findOutNeighborsCallback(internalId, resultContainer)
                 if (!buf.interval.contains(internalId))
-                  throw new IllegalStateException("Buffer interval %s did not contain %d".format(buf.interval, internalId))
+                  throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
               }))
           } catch {
             case e: Exception  => {
@@ -771,7 +771,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       })
       log("Out query finished")
 
-      new QueryResult(vertexIndexing, resultContainer.combinedResults(), this)
+      timed("query-out-combine", {
+        new QueryResult(vertexIndexing, resultContainer.combinedResults(), this)
+      })
     } )
   }
   def queryOutMultiple(internalIds: Seq[Long]) : QueryResult = queryOutMultiple(internalIds.map(_.asInstanceOf[java.lang.Long]).toSet)
@@ -822,8 +824,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   /* Initialize max vertex id by looking at the degree columns */
   val intervalMaxVertexId =  degreeColumn.blocks.zip(intervals).map {
-      case (block, interval) => block.size + interval.getFirstVertex
-   }.toSeq.toArray[Long]
+    case (block, interval) => block.size + interval.getFirstVertex
+  }.toSeq.toArray[Long]
 
 
   // Manage shard boundaries etc.
