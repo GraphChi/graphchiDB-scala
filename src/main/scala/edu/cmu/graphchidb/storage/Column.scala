@@ -55,7 +55,7 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
   var blocks = (0 until indexing.nShards).map {
       shard =>
         if (!sparse) {
-          new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), indexing.shardSize(shard),
+          new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), None,
             converter.sizeOf) with DataBlock[T]
         } else {
           throw new NotImplementedException()

@@ -7,7 +7,7 @@ import java.nio.{BufferUnderflowException, ByteBuffer}
 /**
  * @author Aapo Kyrola
  */
-class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: Int) extends IndexedByteStorageBlock {
+class MemoryMappedDenseByteStorageBlock(file: File, _size: Option[Long], elementSize: Int) extends IndexedByteStorageBlock {
 
   /** If file exists and is of proper size, do nothing - otherwise initialize */
   if (!file.exists()) {
@@ -15,16 +15,14 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
     if (!success) throw new IllegalAccessException("Could not create file: " + file.getAbsolutePath)
   }
   // Ensure size
-  private val initialSize = elementSize.toLong * _size
+  private val initialSize = if (_size.isDefined) { elementSize.toLong * _size.get } else { file.length() }
 
   if (initialSize > Int.MaxValue)
     throw new IllegalStateException("Data block size too big: " + initialSize + ", file=" + file.getName)
 
   val currentSize = file.length()
   if (currentSize != initialSize) {
-    val fileChannel = new FileOutputStream(file, true).getChannel
-    fileChannel.truncate(initialSize)
-    fileChannel.close()
+     println("Shard size was not as expected: %s, %d != %d".format(file.getName, currentSize, initialSize))
   }
 
   private def mmap(size: Long) =
@@ -76,7 +74,7 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Long, elementSize: In
   def createNew[T](data: Array[Byte]) : MemoryMappedDenseByteStorageBlock with DataBlock[T] = {
     byteBuffer = null
     file.delete() // Delete file     // TODO: think if better way
-    val newBlock = new MemoryMappedDenseByteStorageBlock(file, data.size / elementSize, elementSize) with DataBlock[T]
+    val newBlock = new MemoryMappedDenseByteStorageBlock(file, Some(data.size / elementSize), elementSize) with DataBlock[T]
     /* Set data */
     newBlock.byteBuffer.put(data)
     newBlock

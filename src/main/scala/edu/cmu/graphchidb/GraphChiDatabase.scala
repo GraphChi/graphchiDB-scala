@@ -54,7 +54,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   /* This array keeps track of the largest vertex id currently present in each interval. Due to the modulo-shuffling scheme,
      the vertex Ids start from the "bottom" of the interval lower bound.
    */
-  val intervalMaxVertexId = new Array[Long](numShards)
 
   def intervalContaining(dst: Long) = {
     val firstTry = intervals((dst / vertexIdTranslate.getVertexIntervalLength).toInt)
@@ -627,7 +626,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   /* Vertex id conversions */
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
   def internalToOriginalId(vertexId: Long) = vertexIdTranslate.backward(vertexId)
-  def numVertices = intervals.last.getLastVertex
+  def numVertices = intervals.zip(intervalMaxVertexId).map(z => z._2 - z._1.getFirstVertex + 1).sum
 
 
   /* Column value lookups */
@@ -747,11 +746,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       })
 
 
+      val atc = new AtomicInteger(0)
       timed("query-out-persistent", {
         // TODO: fix this java-scala long mapping
         shards.par.foreach(shard => {
           try {
-
+            atc.incrementAndGet()
             timed("queryout.shard.%d".format(shard.myInterval.getId), {
               shard.persistentShardLock.readLock().lock()
               try {
@@ -761,6 +761,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               } }
             )
 
+            val alive = atc.getAndDecrement
           } catch {
             case e: Exception  => {
               e.printStackTrace()
@@ -812,15 +813,24 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
   }
 
+
+
+
+
+  /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
+  val degreeColumn = createLongColumn("degree", vertexIndexing)
+
+  /* Initialize max vertex id by looking at the degree columns */
+  val intervalMaxVertexId =  degreeColumn.blocks.zip(intervals).map {
+      case (block, interval) => block.size + interval.getFirstVertex
+   }.toSeq.toArray[Long]
+
+
   // Manage shard boundaries etc.
   def updateVertexRecords(internalId: Long): Unit = {
     val shardIdx = (internalId / intervals(0).length()).toInt
     if (intervalMaxVertexId(shardIdx) < internalId) { intervalMaxVertexId(shardIdx) = internalId }
   }
-
-  /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
-  val degreeColumn = createLongColumn("degree", vertexIndexing)
-
   // Premature optimization
   val degreeEncodingBuffer = ByteBuffer.allocate(8)
 

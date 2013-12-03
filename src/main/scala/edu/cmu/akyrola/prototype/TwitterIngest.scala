@@ -30,7 +30,6 @@ object TwitterIngest  {
 
 
   val source =  "/Users/akyrola/graphs/twitter_rv.net"
-
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
 
   GraphChiDatabaseAdmin.createDatabase(baseFilename)

@@ -1,21 +1,12 @@
 package edu.cmu.akyrola.prototype
 
 import java.util.Locale
-import edu.cmu.graphchidb.GraphChiDatabase
+import edu.cmu.graphchidb.{GraphChiDatabaseAdmin, GraphChiDatabase}
 
 /*
 // Console
 import edu.cmu.akyrola.prototype.TwitterPrototypeDatabase._
-queryFollowersAndCountries("kyrpov")
-
-DB.addEdge(23682683, 9999)
-DB.addEdge(9998, 23682683)
-
-DB.queryOut(23682683)
-val a = DB.queryIn(9999)
-a.getRows
-
-queryFollowersAndCountries("biz")
+     DB.queryOut(DB.originalToInternalId(20))
 
 
  */
@@ -25,8 +16,19 @@ queryFollowersAndCountries("biz")
  * @author Aapo Kyrola
  */
 object TwitterPrototypeDatabase {
+  val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
+  val DB = new GraphChiDatabase(baseFilename)
+  /* Create columns */
+  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
+  val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
 
-  val baseFilename = "/Users/akyrola/graphs/twitter_rv.net"
+  DB.initialize()
+
+  println(DB.columns)
+}
+
+/*
+ val baseFilename = "/Users/akyrola/graphs/twitter_rv.net"
   val numShards = 50
 
   val DB = new GraphChiDatabase(baseFilename, numShards)
@@ -54,5 +56,4 @@ object TwitterPrototypeDatabase {
      (0 until DB.numVertices.toInt).foreach(v => countryColumn.set(v, (v % countries.size).toByte))
     */
     println("Ready")
-  }
-}
+  }*/

@@ -16,7 +16,7 @@ class TestDenseStorage {
   val testFile = new File("/tmp/graphchidbtest1")
   testFile.deleteOnExit()
 
-  val storage = new MemoryMappedDenseByteStorageBlock(testFile, 10000, 4) with DataBlock[Int]
+  val storage = new MemoryMappedDenseByteStorageBlock(testFile, Some(10000), 4) with DataBlock[Int]
 
   @Test def testMmappedDenseStorage() {
 
