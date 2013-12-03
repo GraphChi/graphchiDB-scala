@@ -28,6 +28,10 @@ trait Column[T] {
   }
   def getName(idx: Long) : Option[String]
   def set(idx: Long, value: T) : Unit
+  def update(idx: Long, updateFunc: Option[T] => T) : Unit = {
+      val cur = get(idx)
+      set(idx, updateFunc(cur))
+  }
   def indexing: DatabaseIndexing
 
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit
@@ -59,23 +63,40 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
     }.toArray
 
 
+  private def checkSize(block: MemoryMappedDenseByteStorageBlock, localIdx: Int) = {
+    if (block.size <= localIdx && _indexing.allowAutoExpansion) {
+      val EXPANSION_BLOCK = 4096 // TODO -- not right place
+      val expansionSize = (scala.math.ceil((localIdx + 1).toDouble /  EXPANSION_BLOCK) * EXPANSION_BLOCK).toInt
+      block.expand(expansionSize)
+
+      println("Expanding because %d was out of bounds. New size: %d / %d".format(localIdx, expansionSize, block.size))
+    }
+  }
+
   /* Internal call */
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = blocks(shardNum).readIntoBuffer(idx, buf)
   def get(idx: Long) =  {
     val block = blocks(indexing.shardForIndex(idx))
     val localIdx = indexing.globalToLocal(idx).toInt
-    if (block.size <= localIdx && _indexing.allowAutoExpansion) {
-      val EXPANSION_BLOCK = 4096 // TODO -- not right place
-      val expansionSize = (scala.math.ceil((localIdx + 1).toDouble /  EXPANSION_BLOCK) * EXPANSION_BLOCK).toInt
-       block.expand(expansionSize)
-
-      println("Expanding because %d was out of bounds. New size: %d / %d".format(localIdx, expansionSize, block.size))
-    }
+    checkSize(block, localIdx)
     block.get(localIdx)(converter)
   }
   def getName(idx: Long) = get(idx).map(a => a.toString).headOption
 
-  def set(idx: Long, value: T) : Unit = blocks(indexing.shardForIndex(idx)).set(indexing.globalToLocal(idx).toInt, value)(converter)
+  def set(idx: Long, value: T) : Unit = {
+    val block = blocks(indexing.shardForIndex(idx))
+    val localIdx = indexing.globalToLocal(idx).toInt
+    checkSize(block, localIdx)
+    block.set(localIdx, value)(converter)
+  }
+
+  override def update(idx: Long, updateFunc: Option[T] => T) : Unit = {
+     val block =  blocks(indexing.shardForIndex(idx))
+     val localIdx = indexing.globalToLocal(idx).toInt
+     checkSize(block, localIdx)
+     val curVal = block.get(localIdx)(converter)
+     block.set(localIdx, updateFunc(curVal))(converter)
+  }
 
   /* Create data from scratch */
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit = {

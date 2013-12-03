@@ -48,7 +48,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   val bufferParents = 4
 
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
-  var intervals = ChiFilenames.loadIntervals(baseFilename, numShards).toIndexedSeq
+  val intervals = ChiFilenames.loadIntervals(baseFilename, numShards).toIndexedSeq
+  val intervalLength = intervals(0).length()
 
   /* This array keeps track of the largest vertex id currently present in each interval. Due to the modulo-shuffling scheme,
      the vertex Ids start from the "bottom" of the interval lower bound.
@@ -496,7 +497,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   val vertexIndexing : DatabaseIndexing = new DatabaseIndexing {
     def nShards = numShards
     def shardForIndex(idx: Long) =
-      intervals.find(_.contains(idx)).getOrElse(throw new IllegalArgumentException("Vertex id not found")).getId
+      intervals((idx / intervalLength).toInt).getId
     def shardSize(idx: Int) = scala.math.max(0, 1 + intervalMaxVertexId(idx) - intervals(idx).getFirstVertex)
 
     def globalToLocal(idx: Long) = {
@@ -504,7 +505,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       idx - interval.getFirstVertex
     }
     override def allowAutoExpansion: Boolean = true  // Is this the right place?
-
+    override def name = "vertex"
   }
 
   /* For columns associated with edges */
@@ -513,6 +514,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     def shardSize(idx: Int) = shards(idx).numEdges
     def nShards = shards.size
     def globalToLocal(idx: Long) = PointerUtil.decodeShardPos(idx)
+    override def name = "edge"
+
   }
 
   var columns = scala.collection.mutable.Map[DatabaseIndexing, Seq[(String, Column[Any])]](
@@ -525,7 +528,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   /* Columns */
   def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing) = {
-    val col =  new CategoricalColumn(filePrefix=baseFilename + "_COLUMN_cat_" + name.toLowerCase,
+    val col =  new CategoricalColumn(filePrefix=baseFilename + "_COLUMN_cat_" + indexing.name + "_" + name.toLowerCase,
       indexing, values)
 
     columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
@@ -533,14 +536,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
   def createIntegerColumn(name: String, indexing: DatabaseIndexing) = {
-    val col = new FileColumn[Int](filePrefix=baseFilename + "_COLUMN_int_" + name.toLowerCase,
+    val col = new FileColumn[Int](filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
       sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter)
     columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
     col
   }
 
   def createLongColumn(name: String, indexing: DatabaseIndexing) = {
-    val col = new FileColumn[Long](filePrefix=baseFilename + "_COLUMN_long_" + name.toLowerCase,
+    val col = new FileColumn[Long](filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
       sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter)
     columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
     col
@@ -749,12 +752,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         shards.par.foreach(shard => {
           try {
 
-            shard.persistentShardLock.readLock().lock()
-            try {
-              shard.persistentShard.queryOut(javaQueryIds, resultContainer)
-            } finally {
-              shard.persistentShardLock.readLock().unlock()
-            }
+            timed("queryout.shard.%d".format(shard.myInterval.getId), {
+              shard.persistentShardLock.readLock().lock()
+              try {
+                shard.persistentShard.queryOut(javaQueryIds, resultContainer)
+              } finally {
+                shard.persistentShardLock.readLock().unlock()
+              } }
+            )
 
           } catch {
             case e: Exception  => {
@@ -816,15 +821,15 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
   val degreeColumn = createLongColumn("degree", vertexIndexing)
 
-  def incrementInDegree(internalId: Long) : Unit = {
-     val curValue = degreeColumn.get(internalId).getOrElse(0L)
-     degreeColumn.set(internalId, Util.setHi(Util.hiBytes(curValue) + 1, curValue))
+  def incrementInDegree(internalId: Long) : Unit =
+    degreeColumn.update(internalId, curOpt => {
+      val curValue = curOpt.getOrElse(0L)
+      Util.setHi(Util.hiBytes(curValue) + 1, curValue) } )
 
-  }
-  def incrementOutDegree(internalId: Long) : Unit = {
-    val curValue = degreeColumn.get(internalId).getOrElse(0L)
-    degreeColumn.set(internalId, Util.setLo(Util.loBytes(curValue) + 1, curValue))
-  }
+  def incrementOutDegree(internalId: Long) : Unit =
+    degreeColumn.update(internalId, curOpt => {
+      val curValue = curOpt.getOrElse(0L)
+      Util.setLo(Util.loBytes(curValue) + 1, curValue) } )
 
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
@@ -836,6 +841,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 trait DatabaseIndexing {
   def nShards : Int
+  def name: String
   def shardForIndex(idx: Long) : Int
   def shardSize(shardIdx: Int) : Long
   def globalToLocal(idx: Long) : Long
