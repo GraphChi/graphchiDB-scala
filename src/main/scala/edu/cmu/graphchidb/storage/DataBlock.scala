@@ -48,9 +48,9 @@ object ByteConverters {
 
 trait DataBlock[T] extends IndexedByteStorageBlock {
 
-  def get(idx: Int)(implicit converter: ByteConverter[T]) : Option[T] = {
-    val byteBuffer = ByteBuffer.allocate(valueLength)
-    byteBuffer.rewind()
+
+
+  def get(idx: Int, byteBuffer: ByteBuffer)(implicit converter: ByteConverter[T]) : Option[T] = {
     if (readIntoBuffer(idx, byteBuffer)) {
       byteBuffer.rewind()
       Some(converter.fromBytes(byteBuffer))
@@ -58,11 +58,20 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
       None
   }
 
-  def set(idx: Int, value: T)(implicit converter: ByteConverter[T]) : Unit = {
-    val bb = ByteBuffer.allocate(converter.sizeOf)  // TODO reuse
+  def get(idx: Int)(implicit converter: ByteConverter[T]) : Option[T] = {
+    val byteBuffer = ByteBuffer.allocate(valueLength)
+    get(idx, byteBuffer)(converter)
+  }
+
+  def set(idx: Int, value: T, bb: ByteBuffer)(implicit converter: ByteConverter[T]) : Unit = {
     converter.toBytes(value, bb)
     bb.rewind()
     writeFromBuffer(idx, bb)
+  }
+
+  def set(idx: Int, value: T)(implicit converter: ByteConverter[T]) : Unit = {
+    val bb = ByteBuffer.allocate(converter.sizeOf)  // TODO reuse
+    set(idx, value, bb)
   }
 
 }

@@ -90,12 +90,19 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
     block.set(localIdx, value)(converter)
   }
 
-  override def update(idx: Long, updateFunc: Option[T] => T) : Unit = {
+  def update(idx: Long, updateFunc: Option[T] => T, byteBuffer: ByteBuffer) : Unit = {
      val block =  blocks(indexing.shardForIndex(idx))
      val localIdx = indexing.globalToLocal(idx).toInt
      checkSize(block, localIdx)
-     val curVal = block.get(localIdx)(converter)
-     block.set(localIdx, updateFunc(curVal))(converter)
+     byteBuffer.rewind()
+     val curVal = block.get(localIdx, byteBuffer)(converter)
+     byteBuffer.rewind()
+     block.set(localIdx, updateFunc(curVal), byteBuffer)(converter)
+  }
+
+  override def update(idx: Long, updateFunc: Option[T] => T) : Unit = {
+     val buffer = ByteBuffer.allocate(converter.sizeOf)
+     update(idx, updateFunc, buffer)
   }
 
   /* Create data from scratch */

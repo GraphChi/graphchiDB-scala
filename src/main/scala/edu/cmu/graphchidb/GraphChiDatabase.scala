@@ -821,15 +821,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
   val degreeColumn = createLongColumn("degree", vertexIndexing)
 
+  // Premature optimization
+  val degreeEncodingBuffer = ByteBuffer.allocate(8)
+
   def incrementInDegree(internalId: Long) : Unit =
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(0L)
-      Util.setHi(Util.hiBytes(curValue) + 1, curValue) } )
+      Util.setHi(Util.hiBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
 
   def incrementOutDegree(internalId: Long) : Unit =
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(0L)
-      Util.setLo(Util.loBytes(curValue) + 1, curValue) } )
+      Util.setLo(Util.loBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
 
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
