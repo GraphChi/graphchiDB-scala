@@ -105,15 +105,15 @@ public class TestSorting {
     }
 
 
+    IntConverter intc = new IntConverter();
 
     @Test
     public void testMerge2WithValues() {
 
-        IntConverter intc = new IntConverter();
 
         /* Array 1 */
-        long[] src1 = new long[] {1, 2 , 4, 5, 10};
-        long[] dst1 = new long[] {1001, 1002, 1004, 1005, 1010};
+        long[] src1 = new long[] {1, 2 , 4, 5, 5, 5, 10};
+        long[] dst1 = new long[] {1001, 1002, 1004, 5, 4005, 5005, 1010};
         byte[] values1 =  new byte[4 * src1.length];
         int checksum = 0;
         for(int i=0; i<src1.length; i++) {
@@ -124,8 +124,8 @@ public class TestSorting {
         }
 
         /* Array 2 */
-        long[] src2 = new long[] {2, 3, 8, 9, 11, 20};
-        long[] dst2 = new long[] {2002, 2003, 2008, 2009, 2011, 2020};
+        long[] src2 = new long[] {2, 3, 5, 8, 9, 11, 20};
+        long[] dst2 = new long[] {2002, 2003, 2005, 2008, 2009, 2011, 2020};
         byte[] values2 =  new byte[4 * src2.length];
         for(int i=0; i<src2.length; i++) {
             byte[] tmp = new byte[4];
@@ -144,15 +144,114 @@ public class TestSorting {
         for(int j=1; j<ressrc.length; j++) {
             assertTrue(ressrc[j] >= ressrc[j-1]);
             assertTrue(resdst[j] % 1000 == ressrc[j]);
+            if (ressrc[j] == ressrc[j-1]) assertTrue(resdst[j] > resdst[j-1]);
+
             byte[] tmp = new byte[4];
             System.arraycopy(resvals, j * 4, tmp, 0, 4);
             int x = intc.getValue(tmp);
             assertEquals(resdst[j], (long)x);
         }
 
+        // Merge other direction
+        Sorting.mergeWithValues( src2, dst2, values2, src1, dst1, values1, ressrc, resdst, resvals, 4);
+
+        for(int j=1; j<ressrc.length; j++) {
+            assertTrue(ressrc[j] >= ressrc[j-1]);
+            assertTrue(resdst[j] % 1000 == ressrc[j]);
+
+            if (ressrc[j] == ressrc[j-1]) assertTrue(resdst[j] > resdst[j-1]);
+
+            byte[] tmp = new byte[4];
+            System.arraycopy(resvals, j * 4, tmp, 0, 4);
+            int x = intc.getValue(tmp);
+            assertEquals(resdst[j], (long)x);
+        }
+
+
         /* Check that all values in */
         int sum = 0;
         for(int i=0; i<ressrc.length; i++) sum += ressrc[i];
         assertEquals(checksum, sum);
+
+    }
+
+    @Test
+    public void testMergeLarge() {
+        long[] src1 = new long[100000];
+        long[] dst1 = new long[100000];
+
+        for(int j=0; j<src1.length; j++) {
+            src1[j] = (j / 4) * 9999;
+            dst1[j] = src1[j] + 1;
+        }
+
+        byte[] values1 =  new byte[4 * src1.length];
+        int checksum = 0;
+        for(int i=0; i<src1.length; i++) {
+            byte[] tmp = new byte[4];
+            intc.setValue(tmp, (int)dst1[i]);
+            System.arraycopy(tmp, 0, values1, i * 4, 4);
+            checksum += src1[i];
+        }
+
+        /* Array 2 */
+        long[] src2 = new long[153003];
+        long[] dst2 =  new long[153003];
+        for(int j=0; j<src2.length; j++) {
+            src2[j] =  (j / 7) * 9999;
+            dst2[j] = src2[j] + 1;
+        }
+        byte[] values2 =  new byte[4 * src2.length];
+        for(int i=0; i<src2.length; i++) {
+            byte[] tmp = new byte[4];
+            intc.setValue(tmp, (int)dst2[i]);
+            System.arraycopy(tmp, 0, values2, i * 4, 4);
+            checksum += src2[i];
+        }
+
+          /* Results */
+        long[] ressrc = new long[src1.length + src2.length];
+        long[] resdst = new long[src1.length + src2.length];
+        byte[] resvals = new byte[values1.length + values2.length];
+
+        Sorting.mergeWithValues(src1, dst1, values1, src2, dst2, values2, ressrc, resdst, resvals, 4);
+
+        for(int j=1; j<ressrc.length; j++) {
+            assertTrue((ressrc[j] >= ressrc[j-1]|| (ressrc[j-1] == ressrc[j] && resdst[j] > resdst[j-1] )));
+            if (ressrc[j] == ressrc[j-1] && resdst[j] < resdst[j-1]) {
+                System.out.println("Mismatch: "+ j);
+                System.out.println(ressrc[j]);
+                System.out.println(resdst[j-1]);
+                System.out.println(resdst[j]);
+
+                assertTrue(resdst[j] > resdst[j-1]);
+            }
+
+            byte[] tmp = new byte[4];
+            System.arraycopy(resvals, j * 4, tmp, 0, 4);
+            int x = intc.getValue(tmp);
+            assertEquals(resdst[j], (long)x);
+        }
+
+
+        // Merge other direction
+        Sorting.mergeWithValues( src2, dst2, values2, src1, dst1, values1, ressrc, resdst, resvals, 4);
+
+        for(int j=1; j<ressrc.length; j++) {
+            assertTrue((ressrc[j] >= ressrc[j-1]|| (ressrc[j-1] == ressrc[j] && resdst[j] > resdst[j-1] )));
+
+            if (ressrc[j] == ressrc[j-1] && resdst[j] < resdst[j-1]) {
+                System.out.println("Mismatch: "+ j);
+                System.out.println(ressrc[j]);
+                System.out.println(resdst[j-1]);
+                System.out.println(resdst[j]);
+
+                assertTrue(resdst[j] > resdst[j-1]);
+            }
+            byte[] tmp = new byte[4];
+            System.arraycopy(resvals, j * 4, tmp, 0, 4);
+            int x = intc.getValue(tmp);
+            assertEquals(resdst[j], (long)x);
+        }
     }
 }

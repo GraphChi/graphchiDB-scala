@@ -19,6 +19,11 @@ object LiveJournalTest  {
   import edu.cmu.akyrola.prototype.LiveJournalTest._
   startIngest
 
+    DB.getEdgeValueOrigId(0, 14, timestampColumn)
+        DB.updateEdgeOrigId(0, 14, timestampColumn, 333)
+    DB.getEdgeValueOrigId(0, 14, timestampColumn)
+
+
     DB.queryOut(DB.originalToInternalId(8737)).join(timestampColumn)
 
    DB.runIteration(pagerankComputation, continuous=true)

@@ -201,14 +201,17 @@ public class Sorting {
         quickSort(shoveled, edgeValues, sizeOf, 0, shoveled.length - 1);
     }
 
+    /** Merges two doubly sorted arrays (sorted first by a, then by b) **/
     public static void mergeWithValues(long[] s1a, long[] s1b, byte[] values1, long[] s2a, long[] s2b, byte[] values2,
                                        long[] mergeda, long[] mergedb, byte[] mergedvalues, int sizeOf) {
         int idx1 = 0;
         int idx2 = 0;
 
+        long x1a = (s1a.length > 0 ?  s1a[0] : Long.MAX_VALUE);
+        long x2a = (s2a.length > 0 ? s2a[0] : Long.MAX_VALUE);
 
-        long x1 = (s1a.length > 0 ?  s1a[0] : Long.MAX_VALUE);
-        long x2 = (s2a.length > 0 ? s2a[0] : Long.MAX_VALUE);
+        long x1b = (s1a.length > 0 ?  s1b[0] : Long.MAX_VALUE);
+        long x2b = (s2a.length > 0 ? s2b[0] : Long.MAX_VALUE);
 
         if (mergeda.length != s1a.length + s2a.length) throw new IllegalArgumentException("Arrays passed to merge wrong length");
 
@@ -218,24 +221,44 @@ public class Sorting {
 
         for(int mergeidx=0; mergeidx < mergeda.length; mergeidx++) {
 
-            if (x1 <= x2) {
+            if (x1a < x2a || (x1a == x2a && x1b <= x2b)) {
                 mergeda[mergeidx] = s1a[idx1];
                 mergedb[mergeidx] = s1b[idx1];
                 /* Data */
                 System.arraycopy(values1,  idx1 * sizeOf, mergedvalues, mergeidx * sizeOf, sizeOf);
-                if (idx1 < l1last) x1 = s1a[++idx1];
-                else x1 = Long.MAX_VALUE;
+                if (idx1 < l1last) {
+                    x1a = s1a[++idx1];
+                    x1b = s1b[idx1];
+                }
+                else {
+                    x1a = Long.MAX_VALUE;
+                    x1b = Long.MAX_VALUE;
+                }
             } else {
                 mergeda[mergeidx] = s2a[idx2];
                 mergedb[mergeidx] = s2b[idx2];
                 /* Data */
                 System.arraycopy(values2,  idx2 * sizeOf, mergedvalues, mergeidx * sizeOf, sizeOf);
 
-                if (idx2 < l2last) x2 = s2a[++idx2];
-                else x2 = Long.MAX_VALUE;
+                if (idx2 < l2last) {
+                    x2a = s2a[++idx2];
+                    x2b = s2b[idx2];
+                }
+                else {
+                    x2a = Long.MAX_VALUE;
+                    x2b = Long.MAX_VALUE;
+                }
 
             }
         }
+    }
+
+    public static void testDoubleSorted(long[] s1a, long[] s1b) {
+        for(int j=1; j<s1a.length; j++) {
+            boolean ok = (s1a[j] > s1a[j-1] || (s1a[j] == s1a[j-1] && s1b[j] >= s1b[j-1]));
+            if (!ok) throw new IllegalStateException("Array not sorted j =" + j + " (len=" + s1a.length + ")");
+        }
+
     }
 
 }

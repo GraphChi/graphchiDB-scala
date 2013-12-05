@@ -12,6 +12,7 @@ import edu.cmu.graphchi.io.CompressedIO;
 import static edu.cmu.graphchi.util.Sorting.*;
 import edu.cmu.graphchi.shards.MemoryShard;
 import edu.cmu.graphchi.shards.SlidingShard;
+import edu.cmu.graphchi.util.Sorting;
 import nom.tam.util.BufferedDataInputStream;
 
 import java.io.*;
@@ -488,7 +489,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         }
         byte[] edgeValues = new byte[shoveled.length * sizeOf];
 
-
         logger.info("Processing shovel " + shardNum);
 
         /**
@@ -620,20 +620,17 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             sortWithValues(shoveled, shoveled2, edgeValues, sizeOf);  // The source id is  higher order, so sorting the longs will produce right result
         }
 
-        /* Compute links and write start idx file */
-        long t = System.currentTimeMillis();
+        /* Check ordering -- temp */
+        Sorting.testDoubleSorted(shoveled, shoveled2);
 
+        long[] shoveled2backup = new long[shoveled2.length];
+        System.arraycopy(shoveled2, 0, shoveled2backup, 0, shoveled2.length);
 
-        long t1 = System.currentTimeMillis();
-        // TODO: use JNI?
         int[] indices =  radixSortWithIndex(shoveled2);
-
-        long t1a = System.currentTimeMillis();
 
         File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
         DataOutputStream startOutFile = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(startIdxFile)));
 
-        long t2 = System.currentTimeMillis();
         long prev = -1;
         int c = shoveled2.length - 1;
         for(int i=0; i<c; i++) {
@@ -644,6 +641,9 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             } else {
                 shoveled2[i] = VertexIdTranslate.encodeVertexPacket(curr, (1<<30) - 1);
             }
+
+            if (VertexIdTranslate.getVertexId(shoveled2[i]) != curr) throw new IllegalStateException("Encoding error:" +
+                    shoveled2[i] + ", curr=" + curr +", dec=" + VertexIdTranslate.getVertexId(shoveled2[i]));
             if (curr != prev) {
                 // First
                 startOutFile.writeInt((int) (curr - minTarget));
@@ -651,17 +651,15 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             }
             prev = curr;
         }
-
+        shoveled2[c] = VertexIdTranslate.encodeVertexPacket(shoveled2[c], (1 << 30) - 1);
         startOutFile.close();
 
-        long t3 = System.currentTimeMillis();
         // Sort back
         long[] tmpshoveled2 = new long[shoveled2.length];
         for(int j=0; j<shoveled2.length; j++) {
             tmpshoveled2[indices[j]] = shoveled2[j];
         }
         shoveled2 = tmpshoveled2;
-
 
 
         /*

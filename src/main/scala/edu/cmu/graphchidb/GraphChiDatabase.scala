@@ -118,13 +118,29 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
     def numEdges = persistentShard.getNumEdges
 
-    def reset : Unit = {
+    def reset() : Unit = {
       persistentShardLock.writeLock().lock()
       try {
         persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
       } finally {
         persistentShardLock.writeLock().unlock()
       }
+    }
+
+
+    def find(src: Long, dst: Long) : Option[Long] = {
+       println("Shard %d find".format(shardId))
+       persistentShardLock.readLock().lock()
+       try {
+         val idx = persistentShard.find(src, dst)
+         idx match {
+           case null => None
+           case _ => Some(idx)
+         }
+       } finally {
+         persistentShardLock.readLock().unlock()
+       }
+
     }
 
     def checkSize : Unit = {
@@ -160,7 +176,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       val edgeIterator = persistentShard.edgeIterator()
       var i = 0
       while(edgeIterator.hasNext) {
-        edgeIterator.next
+        edgeIterator.next()
         if (destInterval.contains(edgeIterator.getDst)) {
           workBuffer.rewind()
           edgeColumns.foreach(c => c._2.readValueBytes(shardId, i, workBuffer))
@@ -298,14 +314,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
     /* Buffer if chosen by src (shard is chosen by dst) */
-    def bufferFor(src:Long, dst:Long) = {
+    def bufferFor(src:Long, dst:Long) : EdgeBuffer = {
       val buffersByParent = buffers(((dst - firstDst) / parentIntervalLength).toInt)
       val firstTry = (src / intervalLength).toInt
-      if (buffersByParent(firstTry).interval.contains(src)) {
-        buffersByParent(firstTry).buffer
-      } else {
-        buffersByParent.find(_.interval.contains(src)).get.buffer
-      }
+      buffersByParent(firstTry).buffer
+    }
+
+    def oldBufferFor(src:Long, dst:Long) : EdgeBuffer = {
+      val buffersByParent = oldBuffers(((dst - firstDst) / parentIntervalLength).toInt)
+      val firstTry = (src / intervalLength).toInt
+      buffersByParent(firstTry).buffer
     }
 
     def nthBuffer(nth: Int) = buffers(nth / intervals.size)(nth % intervals.size)
@@ -328,7 +346,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       if (gotLock || bufferLock.writeLock().tryLock()) {
         // Check for delayed edges
         try {
-
           if (delayedStack.nonEmpty) {
             delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(e.src, e.dst, e.values:_*))
             delayedStack = List[DelayedEdge]()
@@ -347,9 +364,71 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       }
     }
 
-    def numEdges = buffers.map(_.map(_.buffer.numEdges).sum).sum
+    /* Returns buffer pointer for given edge, if found */
+    def find(src: Long, dst: Long) : Option[Long] = {
+      bufferLock.readLock().lock()
+      try {
+        bufferFor(src, dst).find(src, dst).orElse(oldBufferFor(src, dst).find(src, dst))
+      } finally {
+        bufferLock.readLock().unlock()
+      }
+    }
+
+    def getValue[T](src:Long, dst:Long, columnIdx: Int) : Option[T] = {
+      bufferLock.readLock().lock()
+      try {
+        val buffer = bufferFor(src, dst)
+        val ptrOpt  = buffer.find(src, dst)
+        // Need to check old and new buffer...
+        if (ptrOpt.isDefined) {
+          val byteBuf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
+          buffer.readEdgeIntoBuffer(PointerUtil.decodeBufferPos(ptrOpt.get), byteBuf)
+          byteBuf.rewind
+          val decoded = edgeEncoderDecoder.decode(byteBuf, src, dst)
+          Some(decoded.values(columnIdx).asInstanceOf[T])
+        } else {
+          val oldBuffer = oldBufferFor(src, dst)
+          if (ptrOpt.isDefined) {
+            val byteBuf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
+            oldBuffer.readEdgeIntoBuffer(PointerUtil.decodeBufferPos(ptrOpt.get), byteBuf)
+            byteBuf.rewind
+            val decoded = edgeEncoderDecoder.decode(byteBuf, src, dst)
+            Some(decoded.values(columnIdx).asInstanceOf[T])
+          } else {
+            None
+          }
+        }
+      } finally {
+        bufferLock.readLock().unlock()
+      }
+    }
 
     val flushLock = new Object
+
+
+    def update[T](src: Long, dst: Long, columnIdx: Int, value: T) : Boolean  = {
+      // Note: for update we use readLock as it does not alter the size of the data or move data
+      if (find(src, dst).isDefined) {
+        flushLock.synchronized {         // Need flush lock
+          bufferLock.readLock().lock()
+          try {
+            val buffer = bufferFor(src, dst)
+            val ptrOpt  = buffer.find(src, dst)
+            if (ptrOpt.isDefined) {
+              buffer.setColumnValue(PointerUtil.decodeBufferPos(ptrOpt.get), columnIdx, value)
+              return true
+            }  else { return false }
+          } finally {
+            bufferLock.readLock().unlock()
+          }
+        }
+      } else {
+        false
+      }
+    }
+
+    def numEdges = buffers.map(_.map(_.buffer.numEdges).sum).sum
+
 
     def mergeToParentsAndClear() : Unit = {
       flushLock.synchronized {
@@ -398,7 +477,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
               timed("sortEdges", {
                 Sorting.sortWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray, edgeSize)
-
               })
 
               try {
@@ -452,11 +530,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                 // Remove the edges from the buffer since they are now assumed to be in the persistent shard
                 oldBuffers = oldBuffers.patch(parentIdx, IndexedSeq(intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
                   bufferId=edgeBufferId(bufferShardId, parentIdx, interval.getId)), interval))), 1)
-                bufferLock.writeLock().unlock()
 
               } catch {
                 case e:Exception => e.printStackTrace()
               } finally {
+                bufferLock.writeLock().unlock()
+
                 destShard.persistentShardLock.writeLock().unlock()
               }
             }
@@ -550,41 +629,48 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     edgeIndexing ->  Seq[(String, Column[Any])]()
   )
 
-  def columnIndex(col: Column[Any]) = columns(col.indexing).map(_._2).indexOf(col)
 
 
   /* Columns */
   def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing) = {
-    val col =  new CategoricalColumn(filePrefix=baseFilename + "_COLUMN_cat_" + indexing.name + "_" + name.toLowerCase,
-      indexing, values)
+    this.synchronized {
+      val col =  new CategoricalColumn(columns(indexing).size, filePrefix=baseFilename + "_COLUMN_cat_" + indexing.name + "_" + name.toLowerCase,
+        indexing, values)
 
-    columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
-    col
+      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      col
+    }
   }
 
   def createFloatColumn(name: String, indexing: DatabaseIndexing) = {
-    val col = new FileColumn[Float](filePrefix=baseFilename + "_COLUMN_float_" +  indexing.name + "_" + name.toLowerCase,
-      sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter)
-    columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
-    col
+    this.synchronized {
+      val col = new FileColumn[Float](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_float_" +  indexing.name + "_" + name.toLowerCase,
+        sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter)
+      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      col
+    }
   }
 
   def createIntegerColumn(name: String, indexing: DatabaseIndexing) = {
-    val col = new FileColumn[Int](filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
-      sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter)
-    columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
-    col
+    this.synchronized {
+      val col = new FileColumn[Int](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
+        sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter)
+      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      col
+    }
   }
 
   def createLongColumn(name: String, indexing: DatabaseIndexing) = {
-    val col = new FileColumn[Long](filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
-      sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter)
-    columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
-    col
+    this.synchronized {
+      val col = new FileColumn[Long](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
+        sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter)
+      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      col
+    }
   }
 
   def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
-    val col = new MySQLBackedColumn[String](tableName, columnName, indexing, vertexIdTranslate)
+    val col = new MySQLBackedColumn[String](columns(indexing).size, tableName, columnName, indexing, vertexIdTranslate)
     columns(indexing) = columns(indexing) :+ (tableName + "." + columnName, col.asInstanceOf[Column[Any]])
     col
   }
@@ -616,7 +702,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   def addEdge(src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
-
     /* Record keeping */
     this.synchronized {
       updateVertexRecords(src)
@@ -626,7 +711,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       incrementOutDegree(src)
 
       bufferForEdge(src, dst).addEdge(src, dst, values:_*)
-
     }
 
     /* Buffer flushing. TODO: make smarter. */
@@ -666,6 +750,52 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     addEdge(originalToInternalId(src), originalToInternalId(dst), values:_*)
   }
 
+  /**
+   * Updates edge value for given column. Returns true if operation succeeds (edge is found).
+   * @param src
+   * @param dst
+   * @param column
+   * @param newValue
+   * @tparam T
+   * @return
+   */
+  def updateEdge[T](src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
+    /* First buffers */
+    val bufferShard = bufferForEdge(src, dst)
+    if (!bufferShard.update(src, dst, column.columnId, newValue)) {
+      /* And then persistent shard */
+      val possibleShards = shards.filter(_.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
+      possibleShards.foreach( shard => {
+        val idx = shard.persistentShard.find(src, dst)
+        if (idx != null) {
+          column.set(idx, newValue)
+          return true
+        }
+      })
+      false
+    } else {
+      true
+    }
+  }
+
+
+  def updateEdgeOrigId[T](src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
+    updateEdge(originalToInternalId(src), originalToInternalId(dst), column, newValue)
+  }
+
+  def getEdgeValue[T](src: Long, dst: Long, column: Column[T]) : Option[T] = {
+    val bufferShard = bufferForEdge(src, dst)
+    val bufferOpt = bufferShard.getValue(src, dst, column.columnId)
+    bufferOpt.orElse( {
+      // Look first the most recent data, so reverse
+      val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(src, dst)).find(_.isDefined)
+      idxOpt.map(idx => column.get(idx.get)).headOption.getOrElse(None)
+    })
+  }
+
+  def getEdgeValueOrigId[T](src: Long, dst: Long, column: Column[T]) : Option[T] = {
+    getEdgeValue(originalToInternalId(src), originalToInternalId(dst), column)
+  }
 
   /* Vertex id conversions */
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
@@ -678,7 +808,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     val persistentPointers = pointers.filter(ptr => !PointerUtil.isBufferPointer(ptr))
     val bufferPointers = pointers.filter(ptr => PointerUtil.isBufferPointer(ptr))
 
-    val columnIdx = columnIndex(column.asInstanceOf[Column[Any]])
+    val columnIdx = column.columnId
     assert(columnIdx >= 0)
     val persistentResults = column.getMany(persistentPointers)
     val buf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
@@ -854,6 +984,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         out.put(workArray, 0, l)
       }
 
+
+      // Note, buffer position has to be set to a beginning of row
+      def setIthColumnInBuffer[T](buf: ByteBuffer, columnIdx: Int, value: T) = {
+        buf.position(buf.position() + columnOffsets(columnIdx))
+        val l = columnLengths(columnIdx)
+        encoderSeq(columnIdx)(value, buf)
+      }
+
       def edgeSize = _edgeSize
       def columnLength(columnIdx: Int) = columnLengths(columnIdx)
     }
@@ -1009,6 +1147,9 @@ trait EdgeEncoderDecoder {
 
   // For making fast projections. Writes ith column to out
   def readIthColumn(buf: ByteBuffer, columnIdx: Int, out: ByteBuffer, workArray: Array[Byte])
+
+  // Note, buffer has to be set to a beginning of row
+  def setIthColumnInBuffer[T](buf: ByteBuffer, columnIdx: Int, value: T)
 
   def columnLength(columnIdx: Int) : Int
 }

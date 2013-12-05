@@ -65,6 +65,11 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
   }
 
+  def setColumnValue[T](idx: Int, columnIdx: Int, value: T) = {
+    val buf = ByteBuffer.wrap(buffer.currentBuf, idx * edgeSize, edgeSize)
+    encoderDecoder.setIthColumnInBuffer(buf, columnIdx, value)
+  }
+
   /**
    * Sets the arrays to the size of the buffer
    */
@@ -118,12 +123,21 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
       if (srcArray(i) == src) {
         ids.add(dstArray(i))
         pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
-
-
       }
       i += 1
     }
     callback.receiveOutNeighbors(src, ids, pointers)
+  }
+
+  def find(src: Long, dst: Long) : Option[Long] = {
+      var i = 0
+      while(i < counter) {
+        if (srcArray(i) == src && dstArray(i) == dst) {
+           return Some(PointerUtil.encodeBufferPointer(bufferId, i))
+        }
+        i += 1
+      }
+      None
   }
 
 
