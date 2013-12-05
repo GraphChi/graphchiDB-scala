@@ -89,6 +89,30 @@ public class QueryShard {
         ptrFileChannel.close();
     }
 
+    // TODO: do not synchronize but make mirror of the buffer
+    public synchronized Long find(long src, long dst) {
+        ShardIndex.IndexEntry indexEntry = index.lookup(src);
+        long curPtr = findIdxAndPos(src, indexEntry);
+        if (curPtr != (-1L)) {
+            long nextPtr = pointerIdxBuffer.get();
+            int n = (int) (VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(curPtr));
+
+            long adjOffset = VertexIdTranslate.getAux(curPtr);
+            adjBuffer.position((int)adjOffset);
+            for(int i=0; i<n; i++) {
+                // TODO: binary search
+                long v = VertexIdTranslate.getVertexId(adjBuffer.get());
+                if (v == dst) {
+                    // Found
+                    return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
+                } else if (v > dst) {
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
 
 
     public synchronized void queryOut(Collection<Long> queryIds, QueryCallback callback) {
@@ -106,7 +130,6 @@ public class QueryShard {
             for(int qIdx=0; qIdx < sortedIds.size(); qIdx++) {
                 entry = indexEntries.get(qIdx);
                 long vertexId = sortedIds.get(qIdx);
-
                 long curPtr = findIdxAndPos(vertexId, entry);
 
                 if (curPtr != (-1L)) {
@@ -137,9 +160,7 @@ public class QueryShard {
      * Returns the vertex idx for given vertex in the pointer file, or -1 if not found.
      */
     private long findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry) {
-
         assert(sparseIndexEntry.vertex <= vertexId);
-
         if (pointerIdxBuffer.capacity() == 0) return -1;
 
         int vertexSeq = sparseIndexEntry.vertexSeq;
@@ -147,7 +168,7 @@ public class QueryShard {
         pointerIdxBuffer.position(vertexSeq);
         long ptr = pointerIdxBuffer.get();
 
-        while(curvid < vertexId) {
+        while(curvid <= vertexId) {
             try {
                 curvid = VertexIdTranslate.getVertexId(ptr);
                 if (curvid == vertexId) {
