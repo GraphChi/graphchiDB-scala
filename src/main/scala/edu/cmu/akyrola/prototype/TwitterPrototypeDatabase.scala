@@ -2,12 +2,14 @@ package edu.cmu.akyrola.prototype
 
 import java.util.Locale
 import edu.cmu.graphchidb.{GraphChiDatabaseAdmin, GraphChiDatabase}
+import edu.cmu.graphchidb.compute.Pagerank
 
 /*
 // Console
 import edu.cmu.akyrola.prototype.TwitterPrototypeDatabase._
      DB.queryOut(DB.originalToInternalId(20))
 
+DB.runIteration(pagerankComputation)
 
  */
 
@@ -21,6 +23,8 @@ object TwitterPrototypeDatabase {
   /* Create columns */
   val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
   val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
+
+  val pagerankComputation = new Pagerank(DB)
 
   DB.initialize()
 

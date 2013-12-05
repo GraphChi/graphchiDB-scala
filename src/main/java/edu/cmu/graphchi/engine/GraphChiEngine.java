@@ -38,7 +38,7 @@ import java.util.logging.Logger;
  */
 
 /**
- * The engine responsible for executing a GraphChi computation.
+ * The engine responsible for executing a GraphChi compute.
  * @param <VertexDataType>  type of vertex-data
  * @param <EdgeDataType>   type of edge-data
  */
@@ -787,10 +787,10 @@ public class GraphChiEngine <VertexDataType, EdgeDataType> {
                 int vertexBlockid = initVertices(nVertices, interval.getFirstVertex(), vertices);
 
                 loadBeforeUpdates(intervalNum, vertices, memShard, interval.getFirstVertex(), lastVertex);
-                return new IntervalData(new VertexInterval(interval.getFirstVertex(), lastVertex), vertices, vertexBlockid, memShard, intervalNum);
+                return new IntervalData(new VertexInterval(interval.getFirstVertex(), lastVertex, -1), vertices, vertexBlockid, memShard, intervalNum);
 
             } catch (NoEdgesInIntervalException nie) {
-                return new IntervalData(new VertexInterval(interval.getFirstVertex(), interval.getLastVertex()), vertices, -1, memShard, intervalNum);
+                return new IntervalData(new VertexInterval(interval.getFirstVertex(), interval.getLastVertex(), -1), vertices, -1, memShard, intervalNum);
 
             } catch (Exception err) {
                 err.printStackTrace();

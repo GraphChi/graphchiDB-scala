@@ -30,6 +30,10 @@ public class VertexInterval {
         this.lastVertex = lastVertex;
         this.id = id;
     }
+    public VertexInterval(long firstVertex, long lastVertex) {
+       this(firstVertex, lastVertex, -1);
+    }
+
 
     public int getId() {
         return id;

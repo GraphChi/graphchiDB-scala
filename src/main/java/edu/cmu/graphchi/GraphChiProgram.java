@@ -28,7 +28,7 @@ public interface GraphChiProgram <VertexDataType, EdgeDataType> {
     /**
      * Called for every (scheduled) vertex
      * @param vertex the current vertex
-     * @param context context representing the current state of the computation
+     * @param context context representing the current state of the compute
      */
     public void update(ChiVertex<VertexDataType, EdgeDataType> vertex, GraphChiContext context);
 

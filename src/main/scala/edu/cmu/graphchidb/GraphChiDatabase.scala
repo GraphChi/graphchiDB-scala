@@ -22,6 +22,9 @@ import java.text.SimpleDateFormat
 import java.util.concurrent.locks.ReadWriteLock
 import scala.actors.threadpool.locks.ReentrantReadWriteLock
 import edu.cmu.graphchi.util.Sorting
+import edu.cmu.graphchidb.compute.Computation
+import sun.reflect.generics.reflectiveObjects.NotImplementedException
+import java.util.concurrent.TimeUnit
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -309,13 +312,34 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
     val bufferLock = new ReentrantReadWriteLock()
 
+    case class DelayedEdge(src: Long, dst:Long, values: Any*)
+    var delayedStack = List[DelayedEdge]()
+    var delayedCount = 0
+
     def addEdge(src: Long, dst:Long, values: Any*) : Unit = {
       // TODO: Handle if value outside of intervals
-      bufferLock.writeLock().lock()
-      try {
-        bufferFor(src, dst).addEdge(src, dst, values:_*)
-      } finally {
-        bufferLock.writeLock().unlock()
+      // Kind of complicated logic... improve?
+      if (delayedCount > 10000) {
+        println("Stalling... %d".format(delayedCount))    // Kind of hacky
+        bufferLock.writeLock().tryLock(1L, scala.actors.threadpool.TimeUnit.SECONDS)
+      }
+
+      if (bufferLock.writeLock().tryLock()) {
+        // Check for delayed edges
+        if (delayedStack.nonEmpty) {
+          delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(e.src, e.dst, e.values:_*))
+          delayedStack = List[DelayedEdge]()
+          delayedCount = 0
+        }
+        try {
+          bufferFor(src, dst).addEdge(src, dst, values:_*)
+        } finally {
+          bufferLock.writeLock().unlock()
+        }
+      } else {
+        // Stalling
+        delayedStack = delayedStack :+ DelayedEdge(src, dst, values:_*)
+        delayedCount += 1
       }
     }
 
@@ -534,6 +558,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     col
   }
 
+  def createFloatColumn(name: String, indexing: DatabaseIndexing) = {
+    val col = new FileColumn[Float](filePrefix=baseFilename + "_COLUMN_float_" +  indexing.name + "_" + name.toLowerCase,
+      sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter)
+    columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+    col
+  }
+
   def createIntegerColumn(name: String, indexing: DatabaseIndexing) = {
     val col = new FileColumn[Int](filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
       sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter)
@@ -554,7 +585,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     col
   }
 
-  def column(name: String, indexing: DatabaseIndexing) = columns(indexing).find(_._1 == name)
+  def column(name: String, indexing: DatabaseIndexing) = {
+    val col = columns(indexing).find(_._1 == name)
+    if (col.isDefined) {
+      Some(col.get._2)
+    } else {
+      None
+    }
+  }
 
 
   /* Adding edges */
@@ -574,7 +612,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   def addEdge(src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
-    bufferForEdge(src, dst).addEdge(src, dst, values:_*)
 
     /* Record keeping */
     this.synchronized {
@@ -583,6 +620,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
       incrementInDegree(dst)
       incrementOutDegree(src)
+
+      bufferForEdge(src, dst).addEdge(src, dst, values:_*)
+
     }
 
     /* Buffer flushing. TODO: make smarter. */
@@ -850,6 +890,93 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
   def outDegree(internalId: Long) = Util.loBytes(degreeColumn.get(internalId).getOrElse(0L))
 
+
+  def joinValue[T1](col: Column[T1], vertexId: Long, idx: Int, shardId: Int=0, buffer: Option[EdgeBuffer] = None): T1 = {
+    (col.indexing match {
+      case `vertexIndexing` => col.get(vertexId)
+      case `edgeIndexing` => {
+        buffer match {
+          case None => col.get(PointerUtil.encodePointer(shardId, idx))
+          case Some(buf) => throw new NotImplementedException
+        }
+      }
+      case _ => throw new UnsupportedOperationException
+    }).get
+  }
+
+  /** Computational functionality **/
+  def sweepInEdgesWithJoin[T1, T2](intervalId: Int, maxVertex: Long, col1: Column[T1], col2: Column[T2])(updateFunc: (Long, Long, T1, T2) => Unit) = {
+    val interval = intervals(intervalId)
+    val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
+
+    shardsToSweep.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
+        val edgeIterator = shard.persistentShard.edgeIterator()
+        var idx = 0
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst) && dst <= maxVertex) {
+            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, shard.shardId)
+            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, shard.shardId)
+            updateFunc(src, dst, v1, v2)
+          }
+          idx += 1
+        }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
+
+    val bufferToSweep = bufferShards.find(_.myInterval.intersects(interval)).get
+    bufferToSweep.bufferLock.readLock().lock()
+    try {
+      var matches = 0 // debug
+      bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
+        val edgeIterator = buf.buffer.edgeIterator
+        var idx = 0
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit ackward
+          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
+            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
+            updateFunc(src, dst, v1, v2)
+            matches += 1
+          }
+          idx += 1
+        }
+      })
+    } finally {
+      bufferToSweep.bufferLock.readLock().unlock()
+    }
+  }
+
+  var activeComputations = Set[Computation]()
+
+  def runIteration(computation: Computation, continuous: Boolean = false) = {
+    if (activeComputations.contains(computation)) {
+      println("Computation %s was already active!".format(computation))
+    } else {
+      activeComputations = activeComputations + computation
+      async {
+        var iter = 0
+        try {
+          do {
+            timed("runiteration_%s_%d".format(computation, iter), {
+              intervals.foreach(int => {
+                computation.computeForInterval(int.getId, int.getFirstVertex, intervalMaxVertexId(int.getId))
+              } )
+            })
+            iter += 1
+          } while (continuous)
+        } finally {
+          activeComputations = activeComputations - computation
+        }
+      }
+    }
+  }
 }
 
 

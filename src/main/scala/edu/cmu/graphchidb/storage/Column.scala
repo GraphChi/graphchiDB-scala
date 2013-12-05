@@ -69,7 +69,7 @@ class FileColumn[T](filePrefix: String, sparse: Boolean, _indexing: DatabaseInde
       val expansionSize = (scala.math.ceil((localIdx + 1).toDouble /  EXPANSION_BLOCK) * EXPANSION_BLOCK).toInt
       block.expand(expansionSize)
 
-      println("Expanding because %d was out of bounds. New size: %d / %d".format(localIdx, expansionSize, block.size))
+      //println("Expanding because %d was out of bounds. New size: %d / %d".format(localIdx, expansionSize, block.size))
     }
   }
 

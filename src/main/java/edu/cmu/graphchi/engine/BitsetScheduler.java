@@ -8,7 +8,7 @@ import java.util.BitSet;
 /**
  * Scheduler implementation for "Selective Scheduling". Each vertex in the
  * graph has a bit which is 1 if the vertex should be updated, and 0 otherwise.
- * To obtain the current scheduler during computation, use context.getScheduler().
+ * To obtain the current scheduler during compute, use context.getScheduler().
  * @see edu.cmu.graphchi.GraphChiContext
  * @author akyrola
  */

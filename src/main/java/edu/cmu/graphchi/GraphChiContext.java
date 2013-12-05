@@ -20,7 +20,7 @@ import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
  */
 
 /**
- * GraphChiContext represents the current state of the computation.
+ * GraphChiContext represents the current state of the compute.
  * This is passed to the update-function.
  * @see edu.cmu.graphchi.GraphChiProgram
  */
@@ -63,7 +63,7 @@ public class GraphChiContext {
     }
 
     /**
-     * Get the scheduler bound to this computation.
+     * Get the scheduler bound to this compute.
      * @return scheduler
      */
     public Scheduler getScheduler() {

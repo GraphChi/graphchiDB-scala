@@ -5,6 +5,7 @@ import scala.io.Source
 import java.io.File
 import edu.cmu.graphchidb.Util._
 import scala.util.Random
+import edu.cmu.graphchidb.compute.Pagerank
 
 /**
  * Ingest a full live journal graph from scratch
@@ -19,11 +20,17 @@ object LiveJournalTest  {
 
     DB.queryOut(DB.originalToInternalId(8737)).join(timestampColumn)
 
+   DB.runIteration(pagerankComputation)
+
+   pagerankCol.get(DB.originalToInternalId(8737))
+
   DB.queryIn(DB.originalToInternalId(8737))
 
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(8737))(DB)
-   */
+
+
+    */
 
   val source =  "/Users/akyrola/graphs/soc-LiveJournal1.txt"
 
@@ -40,6 +47,9 @@ object LiveJournalTest  {
 
   DB.initialize()
 
+  val pagerankComputation = new Pagerank(DB)
+  val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
+
   def startIngest() {
     async {
       var i = 0
@@ -54,7 +64,7 @@ object LiveJournalTest  {
             DB.addEdgeOrigId(from, to, (from + to),
               typeColumn.indexForName(edgeType))
             i += 1
-            if (i % 1000000 == 0) println("Processed: %d".format(i))
+            if (i % 2000000 == 0) println("Processed: %d".format(i))
           }
         })
       })
