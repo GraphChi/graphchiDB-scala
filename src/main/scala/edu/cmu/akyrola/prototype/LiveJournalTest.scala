@@ -6,6 +6,7 @@ import java.io.File
 import edu.cmu.graphchidb.Util._
 import scala.util.Random
 import edu.cmu.graphchidb.compute.Pagerank
+import edu.cmu.graphchi.GraphChiEnvironment
 
 /**
  * Ingest a full live journal graph from scratch
@@ -20,7 +21,7 @@ object LiveJournalTest  {
 
     DB.queryOut(DB.originalToInternalId(8737)).join(timestampColumn)
 
-   DB.runIteration(pagerankComputation)
+   DB.runIteration(pagerankComputation, continuous=true)
 
    pagerankCol.get(DB.originalToInternalId(8737))
 
@@ -54,7 +55,10 @@ object LiveJournalTest  {
     async {
       var i = 0
       val r = new Random
+      val t = System.currentTimeMillis()
       timed("ingest", {
+        val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
+
         Source.fromFile(new File(source)).getLines().foreach( ln => {
           if (!ln.startsWith("#")) {
             val toks = ln.split("\t")
@@ -64,7 +68,9 @@ object LiveJournalTest  {
             DB.addEdgeOrigId(from, to, (from + to),
               typeColumn.indexForName(edgeType))
             i += 1
-            if (i % 2000000 == 0) println("Processed: %d".format(i))
+            if (i % 1000 == 0) ingestMeter.mark(1000)
+            if (i % 1000000 == 0) println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(i) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
+              + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
           }
         })
       })

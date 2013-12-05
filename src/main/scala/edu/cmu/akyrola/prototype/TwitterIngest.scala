@@ -6,6 +6,7 @@ import java.io.File
 import edu.cmu.graphchidb.Util._
 import scala.util.Random
 import edu.cmu.graphchi.GraphChiEnvironment
+import edu.cmu.graphchidb.compute.Pagerank
 
 /**
  * Ingest a full live journal graph from scratch
@@ -17,6 +18,7 @@ object TwitterIngest  {
 
   import edu.cmu.akyrola.prototype.TwitterIngest._
   startIngest
+    DB.runIteration(pagerankComputation, continuous=true)
 
     DB.queryOut(DB.originalToInternalId(20))
            DB.queryIn(DB.originalToInternalId(20))
@@ -40,7 +42,7 @@ object TwitterIngest  {
   /* Create columns */
   val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
   val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
-
+  val pagerankComputation = new Pagerank(DB)
   DB.initialize()
 
   def startIngest() {

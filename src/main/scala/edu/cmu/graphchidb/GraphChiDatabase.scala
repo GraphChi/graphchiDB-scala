@@ -319,20 +319,24 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     def addEdge(src: Long, dst:Long, values: Any*) : Unit = {
       // TODO: Handle if value outside of intervals
       // Kind of complicated logic... improve?
+      var gotLock = false
       if (delayedCount > 10000) {
         println("Stalling... %d".format(delayedCount))    // Kind of hacky
-        bufferLock.writeLock().tryLock(1L, scala.actors.threadpool.TimeUnit.SECONDS)
+        gotLock = bufferLock.writeLock().tryLock(1L, scala.actors.threadpool.TimeUnit.SECONDS)
       }
 
-      if (bufferLock.writeLock().tryLock()) {
+      if (gotLock || bufferLock.writeLock().tryLock()) {
         // Check for delayed edges
-        if (delayedStack.nonEmpty) {
-          delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(e.src, e.dst, e.values:_*))
-          delayedStack = List[DelayedEdge]()
-          delayedCount = 0
-        }
         try {
+
+          if (delayedStack.nonEmpty) {
+            delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(e.src, e.dst, e.values:_*))
+            delayedStack = List[DelayedEdge]()
+            delayedCount = 0
+          }
           bufferFor(src, dst).addEdge(src, dst, values:_*)
+        } catch {
+          case e: Exception => e.printStackTrace()
         } finally {
           bufferLock.writeLock().unlock()
         }
