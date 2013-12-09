@@ -6,7 +6,11 @@
 
     <groupId>groupId</groupId>
     <artifactId>graphchi-java</artifactId>
+    <packaging>pom</packaging>
     <version>0.2</version>
+    <modules>
+        <module>linkbench-graphchiDB</module>
+    </modules>
 
     <repositories>
     <repository>
