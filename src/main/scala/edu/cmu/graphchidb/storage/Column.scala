@@ -4,7 +4,7 @@ import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
 import edu.cmu.graphchidb.storage.ByteConverters._
 
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
-import java.io.File
+import java.io.{ByteArrayInputStream, File}
 import java.sql.DriverManager
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate
 import java.nio.ByteBuffer
@@ -31,8 +31,8 @@ trait Column[T] {
   def getName(idx: Long) : Option[String]
   def set(idx: Long, value: T) : Unit
   def update(idx: Long, updateFunc: Option[T] => T) : Unit = {
-      val cur = get(idx)
-      set(idx, updateFunc(cur))
+    val cur = get(idx)
+    set(idx, updateFunc(cur))
   }
   def indexing: DatabaseIndexing
 
@@ -56,14 +56,14 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
 
 
   var blocks = (0 until indexing.nShards).map {
-      shard =>
-        if (!sparse) {
-          new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), None,
-            converter.sizeOf) with DataBlock[T]
-        } else {
-          throw new NotImplementedException()
-        }
-    }.toArray
+    shard =>
+      if (!sparse) {
+        new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), None,
+          converter.sizeOf) with DataBlock[T]
+      } else {
+        throw new NotImplementedException()
+      }
+  }.toArray
 
 
   private def checkSize(block: MemoryMappedDenseByteStorageBlock, localIdx: Int) = {
@@ -94,18 +94,18 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
   }
 
   def update(idx: Long, updateFunc: Option[T] => T, byteBuffer: ByteBuffer) : Unit = {
-     val block =  blocks(indexing.shardForIndex(idx))
-     val localIdx = indexing.globalToLocal(idx).toInt
-     checkSize(block, localIdx)
-     byteBuffer.rewind()
-     val curVal = block.get(localIdx, byteBuffer)(converter)
-     byteBuffer.rewind()
-     block.set(localIdx, updateFunc(curVal), byteBuffer)(converter)
+    val block =  blocks(indexing.shardForIndex(idx))
+    val localIdx = indexing.globalToLocal(idx).toInt
+    checkSize(block, localIdx)
+    byteBuffer.rewind()
+    val curVal = block.get(localIdx, byteBuffer)(converter)
+    byteBuffer.rewind()
+    block.set(localIdx, updateFunc(curVal), byteBuffer)(converter)
   }
 
   override def update(idx: Long, updateFunc: Option[T] => T) : Unit = {
-     val buffer = ByteBuffer.allocate(converter.sizeOf)
-     update(idx, updateFunc, buffer)
+    val buffer = ByteBuffer.allocate(converter.sizeOf)
+    update(idx, updateFunc, buffer)
   }
 
   /* Create data from scratch */
@@ -129,6 +129,96 @@ class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing,
 
 }
 
+
+/** Vardata columns have two parts: one is long-column holding indices to the
+  * var data payload, which is stored separately (currently in MySQL).
+  */
+class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Long])   {
+  val tableName =  "vardata_" + math.abs(filePrefix.hashCode) + "_" + name + "_" + _pointerColumn.indexing.name
+
+  println(tableName)
+
+  def pointerColumn = _pointerColumn
+
+  val dbConnection = {
+    Class.forName("com.mysql.jdbc.Driver")
+    DriverManager.getConnection("jdbc:mysql://127.0.0.1/graphchidb?" +
+      "user=graphchidb&password=dbchi9999")
+  }
+
+  def initMySQLBacking() = {
+    val stmt = dbConnection.createStatement()
+    try {
+      val rset = stmt.executeQuery("select * from %s".format(tableName))
+      // Table exists because no exception
+      rset.close()
+    } catch {
+      case e : Exception =>  {
+        // Create table
+        try {
+          stmt.execute("CREATE TABLE %s (id int auto_increment primary key,  payload mediumblob)")
+        } catch {case e: Exception => e.printStackTrace()}
+      }
+    } finally {
+      try { stmt.close() } catch {case e: Exception => e.printStackTrace()}
+    }
+  }
+
+  initMySQLBacking()
+
+  def insert(data: Array[Byte]) : Long = {
+    this.synchronized {  // TODO, remove sync!
+    var pstmt = dbConnection.prepareStatement("insert into %s (payload) values (?)".format(tableName))
+      try {
+
+        pstmt.setBlob(1, new ByteArrayInputStream(data))
+        pstmt.executeUpdate()
+        pstmt.close()
+
+        pstmt = dbConnection.prepareStatement("select last_insert_id()")
+        val rset = pstmt.executeQuery()
+
+        return rset.getLong(1)
+      } catch {
+        case e: Exception => e.printStackTrace()
+
+      } finally {
+        try { pstmt.close() } catch {case e: Exception => e.printStackTrace()}
+      }
+      throw new RuntimeException("Could not insert payload!")
+    }
+  }
+
+  def get(id: Long) : Array[Byte] = {
+    var pstmt = dbConnection.prepareStatement("select payload from %s where id=?".format(tableName))
+    try {
+      pstmt.setLong(1, id)
+      val rset = pstmt.executeQuery()
+      val dataBlob = rset.getBlob(1)
+      return dataBlob.getBytes(0, dataBlob.length().toInt)
+    } catch {
+      case e: Exception => e.printStackTrace()
+    } finally {
+      try { pstmt.close() } catch {case e: Exception => e.printStackTrace()}
+    }
+    throw new RuntimeException("Could not get payload for id=%s!".format(id))
+
+  }
+
+  def delete(id: Long) : Unit = {
+    var pstmt = dbConnection.prepareStatement("delete from %s where id=?".format(tableName))
+    try {
+      pstmt.setLong(1, id)
+      pstmt.executeUpdate()
+    } catch {
+      case e: Exception => e.printStackTrace()
+    } finally {
+      try { pstmt.close() } catch {case e: Exception => e.printStackTrace()}
+    }
+  }
+}
+
+
 class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _indexing: DatabaseIndexing,
                            vertexIdTranslate: VertexIdTranslate) extends Column[T] {
 
@@ -143,7 +233,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
   // TODO: temporary code
   val dbConnection = {
     Class.forName("com.mysql.jdbc.Driver")
-    DriverManager.getConnection("jdbc:mysql://multi6.aladdin.cs.cmu.edu/graphchidb_aux?" +
+    DriverManager.getConnection("jdbc:mysql://127.0.0.1/graphchidb?" +
       "user=graphchidb&password=dbchi9999")
   }
 

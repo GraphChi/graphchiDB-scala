@@ -5,7 +5,7 @@ import java.util.Properties
 import java.util.concurrent.atomic.AtomicLong
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import edu.cmu.graphchidb.compute.Pagerank
-import edu.cmu.graphchidb.storage.{CategoricalColumn, Column}
+import edu.cmu.graphchidb.storage.{VarDataColumn, CategoricalColumn, Column}
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 
 /**
@@ -48,6 +48,9 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
   var type0Counters : Column[Int]  = null
   var type1Counters : Column[Int]  = null
+
+  var edgePayloadColumn : VarDataColumn = null
+  var vertexPayloadColumn : VarDataColumn = null
   // payload data
   // var nodePaylaod
 
@@ -70,9 +73,11 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     /* Create columns */
     edgeTimestamp = DB.createIntegerColumn("time", DB.edgeIndexing)
     edgeVersion = DB.createByteColumn("vers", DB.edgeIndexing)
+    edgePayloadColumn = DB.createVarDataColumn("payload", DB.edgeIndexing)
 
     nodeTimestamp = DB.createIntegerColumn("time", DB.vertexIndexing)
     nodeVersion = DB.createByteColumn("vers", DB.vertexIndexing)
+    vertexPayloadColumn = DB.createVarDataColumn("payload", DB.vertexIndexing)
 
     type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
     type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
@@ -103,12 +108,18 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     DB.updateVertexRecords(newInternalId)
     nodeTimestamp.set(newInternalId, node.time)
     nodeVersion.set(newInternalId, node.version.toByte)
+
+    // Payload
+    val payloadId = vertexPayloadColumn.insert(node.data)
+    vertexPayloadColumn.pointerColumn.set(newInternalId, payloadId)
+
     newId
   }
 
   def getNode(databaseId: String, nodeType: Int, id: Long) : Node = {
     val internalId = DB.originalToInternalId(id)
-    val payloadData = new Array[Byte](0) // TODO!!!
+    val payloadId = vertexPayloadColumn.pointerColumn.get(internalId).get
+    val payloadData = vertexPayloadColumn.get(payloadId)
     val timestamp = nodeTimestamp.get(internalId).getOrElse(0)
     if (timestamp > 0) {
       val versionByte = nodeVersion.get(internalId).getOrElse(0.toByte)
@@ -127,6 +138,15 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     if (timestamp > 0) {
       nodeTimestamp.set(internalId, node.time)
       nodeVersion.set(internalId, node.version.toByte)
+
+      val payloadId = vertexPayloadColumn.pointerColumn.get(internalId).get
+      val oldPayload = vertexPayloadColumn.get(payloadId)
+      if (!new String(oldPayload).equals(node.data)) {
+          // Create new
+         val newPayloadId = vertexPayloadColumn.insert(node.data)
+         vertexPayloadColumn.pointerColumn.set(internalId, newPayloadId)
+         vertexPayloadColumn.delete(payloadId)
+      }
       true
     } else {
       false
@@ -143,7 +163,9 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
   def addLinkImpl(edge: Link) = {
     val edgeTypeByte = edgeType(edge.link_type)
-    DB.addEdgeOrigId(edge.version.toByte, edge.id1, edge.id2, edge.time, edgeTypeByte)
+    /* Payload */
+    val payloadId = edgePayloadColumn.insert(edge.data)
+    DB.addEdgeOrigId(edge.version.toByte, edge.id1, edge.id2, edge.time, edgeTypeByte, payloadId)
 
     /* Adjust counters */
     // NOTE: hard-coded only two types
@@ -190,6 +212,7 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     println("Update link: %s".format(edge))
     val edgeTypeByte = edgeType(edge.link_type)
 
+    // TODO: first find index, then set directly via the index!
     DB.updateEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edgeTimestamp, edge.time.toInt)
     DB.updateEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edgeVersion, edge.version.toByte)
 

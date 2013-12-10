@@ -64,6 +64,7 @@ object ByteConverters {
     }
     override def sizeOf = 1
   }
+
 }
 
 trait DataBlock[T] extends IndexedByteStorageBlock {

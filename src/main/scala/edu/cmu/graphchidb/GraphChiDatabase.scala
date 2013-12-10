@@ -727,6 +727,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
   }
 
+  def createVarDataColumn(name: String, indexing: DatabaseIndexing) : VarDataColumn = {
+      this.synchronized {
+         val pointerColumn = createLongColumn(name, indexing)
+         new VarDataColumn(name, baseFilename, pointerColumn)
+      }
+  }
+
   def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
     val col = new MySQLBackedColumn[String](columns(indexing).size, tableName, columnName, indexing, vertexIdTranslate)
     columns(indexing) = columns(indexing) :+ (tableName + "." + columnName, col.asInstanceOf[Column[Any]])
@@ -886,8 +893,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         (outDegree(internalId), inDegree(internalId))
 
       if (inDeg + outDeg > 0) {
+
         // Need to pass all shards!
-        shards.par.foreach(shard => {
+        bufferShards.par.foreach(bufferShard => bufferShard.deleteAllEdgesForVertex(internalId, inDeg > 0, outDeg > 0))
+
+        shards.reverse.par.foreach(shard => {  // Reverse order to maintain same locking direction
           shard.persistentShardLock.writeLock().lock()
           try {
             shard.persistentShard.deleteAllEdgesFor(internalId, inDeg > 0, outDeg > 0)
@@ -895,7 +905,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
             shard.persistentShardLock.writeLock().unlock()
           }
         })
-        bufferShards.par.foreach(bufferShard => bufferShard.deleteAllEdgesForVertex(internalId, inDeg > 0, outDeg > 0))
 
         degreeColumn.set(internalId, 0L)  // Zero degree
         true

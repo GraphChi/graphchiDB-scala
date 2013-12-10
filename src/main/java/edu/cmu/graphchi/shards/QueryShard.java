@@ -131,6 +131,8 @@ public class QueryShard {
         long edge = adjBuffer.get(idx);
         adjBuffer.put(idx, VertexIdTranslate.encodeAsDeleted(VertexIdTranslate.getVertexId(edge),
                 VertexIdTranslate.getAux(edge)));
+
+        // TODO: delete columns (vardata) --- maybe delete listeners?
     }
 
     class DeleteCallBack implements QueryCallback {
