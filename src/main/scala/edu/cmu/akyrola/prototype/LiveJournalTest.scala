@@ -24,7 +24,7 @@ object LiveJournalTest  {
     DB.getEdgeValueOrigId(0, 14, timestampColumn)
 
 
-    DB.queryOut(DB.originalToInternalId(8737)).join(timestampColumn)
+    DB.queryOut(DB.originalToInternalId(8737), 0).join(timestampColumn)
 
    DB.runIteration(pagerankComputation, continuous=true)
 

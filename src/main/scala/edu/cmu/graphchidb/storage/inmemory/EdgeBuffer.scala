@@ -20,6 +20,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   val tmpBuffer = ByteBuffer.allocate(edgeSize)
 
   var counter : Int = 0
+  var deletedEdges : Int = 0
   var srcArray = new Array[Long](initialCapacityNumEdges)
   var dstArrayWithType = new Array[Long](initialCapacityNumEdges)
 
@@ -69,7 +70,20 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   // Sets a tombstone at edge.
   // TODO: think if should be refleced in numedges
   def deleteEdgeAt(idx: Int) = {
-    dstArrayWithType(idx) = encode(VertexIdTranslate.DELETED_TYPE, extractVertexId(dstArrayWithType(idx)))
+    if (extractType(dstArrayWithType(idx)) != VertexIdTranslate.DELETED_TYPE) {
+      dstArrayWithType(idx) = encode(VertexIdTranslate.DELETED_TYPE, extractVertexId(dstArrayWithType(idx)))
+      deletedEdges += 1
+    }
+  }
+
+  def deleteAllEdgesForVertex(vertexId: Long) = {
+    var i = 0
+    while(i < counter) {
+      if ((srcArray(i) == vertexId) || (extractVertexId(dstArrayWithType(i)) == vertexId)) {
+        deleteEdgeAt(i)
+      }
+      i += 1
+    }
   }
 
   def readEdgeIntoBuffer(idx: Int, buf: ByteBuffer) : Unit = {
@@ -190,7 +204,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   }
 
 
-  def numEdges = counter
+  def numEdges = counter - deletedEdges
 
   def edgeIterator = new EdgeIterator {
     var i = (-1)

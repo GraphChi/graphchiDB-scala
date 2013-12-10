@@ -64,7 +64,7 @@ public class QueryShard {
 
         FileChannel channel = new java.io.RandomAccessFile(adjFile, "rw").getChannel();
         adjBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0,
-                    adjFile.length()).asLongBuffer();
+                adjFile.length()).asLongBuffer();
         channel.close();
 
         index = new ShardIndex(adjFile);
@@ -117,21 +117,55 @@ public class QueryShard {
     }
 
     public synchronized boolean deleteEdge(byte edgeType, long src, long dst) {
-         Long ptr = find(edgeType, src, dst);
-         if (ptr != null) {
-             int idx = PointerUtil.decodeShardPos(ptr);
-             long edge = adjBuffer.get(idx);
-             adjBuffer.put(idx, VertexIdTranslate.encodeAsDeleted(VertexIdTranslate.getVertexId(edge),
-                            VertexIdTranslate.getAux(edge)));
-             return true;
-         } else {
-             return false;
-         }
+        Long ptr = find(edgeType, src, dst);
+        if (ptr != null) {
+            deleteEdgeAtPtr(ptr);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private void deleteEdgeAtPtr(Long ptr) {
+        int idx = PointerUtil.decodeShardPos(ptr);
+        long edge = adjBuffer.get(idx);
+        adjBuffer.put(idx, VertexIdTranslate.encodeAsDeleted(VertexIdTranslate.getVertexId(edge),
+                VertexIdTranslate.getAux(edge)));
+    }
+
+    class DeleteCallBack implements QueryCallback {
+        @Override
+        public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Byte> edgeTypes, ArrayList<Long> dataPointers) {
+            // A bit wasteful, but not a big deal
+            for(long ptr : dataPointers) {
+                deleteEdgeAtPtr(ptr);
+            }
+        }
+
+        @Override
+        public void receiveInNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Byte> edgeTypes, ArrayList<Long> dataPointers) {
+            // A bit wasteful, but not a big deal
+            for(long ptr : dataPointers) {
+                deleteEdgeAtPtr(ptr);
+            }
+        }
+    }
+
+    public synchronized void deleteAllEdgesFor(long vertexId, boolean hasIn, boolean hasOut) {
+        if (interval.contains(vertexId) && hasIn) {
+            queryIn(vertexId, new DeleteCallBack(), (byte)0, true);
+        }
+        if (hasOut)
+          queryOut(Collections.singleton(vertexId), new DeleteCallBack(), (byte)0, true);
     }
 
 
-    // TODO: wild-card search
     public synchronized void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType) {
+        queryOut(queryIds, callback, edgeType, false);
+    }
+
+    // TODO: wild-card search
+    public synchronized void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
         try {
              /* Sort the ids because the index-entries will be in same order */
             ArrayList<Long> sortedIds = new ArrayList<Long>(queryIds);
@@ -162,7 +196,7 @@ public class QueryShard {
                         long e = adjBuffer.get();
                         byte etype = VertexIdTranslate.getType(e);
 
-                        if (etype == edgeType) {
+                        if (ignoreType || etype == edgeType) {
                             res.add(VertexIdTranslate.getVertexId(e));
                             resPointers.add(PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
                             resTypes.add(etype);
@@ -205,8 +239,11 @@ public class QueryShard {
         return -1L;
     }
 
-    // TODO: do wild-card edge type
     public synchronized void queryIn(Long queryId, QueryCallback callback, byte edgeType) {
+        queryIn(queryId, callback, edgeType, false);
+    }
+
+    private synchronized void queryIn(Long queryId, QueryCallback callback, byte edgeType, boolean ignoreType) {
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
@@ -248,9 +285,7 @@ public class QueryShard {
                 if (VertexIdTranslate.getVertexId(edge) != queryId) {
                     throw new RuntimeException("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
                 }
-                byte etype = VertexIdTranslate.getType(edge);
-
-                if (etype == edgeType) {
+                if (ignoreType || VertexIdTranslate.getType(edge) == edgeType) {
                     offsets.add(off);
                 }
 
@@ -258,7 +293,7 @@ public class QueryShard {
 
                 if (off > END) {
                     throw new RuntimeException("Encoding error: " + edge + " --> " + VertexIdTranslate.getVertexId(edge)
-                        + " off : " + VertexIdTranslate.getAux(edge));
+                            + " off : " + VertexIdTranslate.getAux(edge));
                 }
                 if (off != END && (off < 0 || off > adjBuffer.capacity())) {
                     System.err.println("Illegal off when looking for inedges: " + off + ", capacity:" + adjBuffer.capacity() + ", shardNum=" + shardNum);
@@ -356,7 +391,7 @@ public class QueryShard {
 
                 curDst = VertexIdTranslate.getVertexId(vertexPacket);
                 curType = VertexIdTranslate.getType(vertexPacket);
-             }
+            }
 
             @Override
             public long getSrc() {

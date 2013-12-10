@@ -426,6 +426,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       }
     }
 
+
+    def deleteAllEdgesForVertex(vertexId: Long, hasIn: Boolean, hasOut: Boolean) = {
+      flushLock.synchronized {
+        if (myInterval.contains(vertexId) && hasIn) {
+          buffersForDstQuery(vertexId).foreach(b => b.buffer.deleteAllEdgesForVertex(vertexId))
+        }
+        if (hasOut) {
+          buffersForSrcQuery(vertexId).foreach(b => b.buffer.deleteAllEdgesForVertex(vertexId))
+        }
+      }
+    }
+
     def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
       if (find(edgeType, src, dst).isDefined) {
         flushLock.synchronized {         // Need flush lock
@@ -446,7 +458,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       }
     }
 
-    def numEdges = buffers.map(_.map(_.buffer.numEdges).sum).sum
+    def numEdgesInclDeletions = buffers.map(_.map(b => b.buffer.numEdges + b.buffer.deletedEdges).sum).sum
+    def numEdges  = buffers.map(_.map(b => b.buffer.numEdges ).sum).sum
 
 
     def mergeToParentsAndClear() : Unit = {
@@ -513,8 +526,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                 val destEdges =  timed("destShard.readIntoBuffer", {
                   destShard.readIntoBuffer(destShard.myInterval)
                 })
-
-
 
                 val totalEdges = myEdges.numEdges + destEdges.numEdges
                 this.synchronized {
@@ -744,7 +755,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     bufferShards((dst / bufferIntervalLength).toInt)
   }
 
-  def totalBufferedEdges = bufferShards.map(_.numEdges).sum
+  def totalBufferedEdges = bufferShards.map(_.numEdgesInclDeletions).sum
 
   def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
@@ -782,7 +793,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         if (totalBufferedEdges > bufferLimit * 0.5) {
           pendingBufferFlushes.incrementAndGet()
           async {
-            val maxBuffer = bufferShards.maxBy(_.numEdges)
+            val maxBuffer = bufferShards.maxBy(_.numEdgesInclDeletions)
             if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
               maxBuffer.mergeToParentsAndClear()
             }
@@ -869,9 +880,32 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   def deleteEdgeOrigId(edgeType: Byte, src: Long, dst: Long) : Boolean = deleteEdge(edgeType, originalToInternalId(src), originalToInternalId(dst))
 
-  def deleteVertex(internalId: Long) : Boolean = { false }
+  def deleteVertex(internalId: Long) : Boolean = {
+    this.synchronized {
+      val (inDeg, outDeg) =
+        (outDegree(internalId), inDegree(internalId))
 
-  def deleteVertexInternalId(vertexId: Long): Boolean = { deleteVertex(originalToInternalId(vertexId)) }
+      if (inDeg + outDeg > 0) {
+        // Need to pass all shards!
+        shards.par.foreach(shard => {
+          shard.persistentShardLock.writeLock().lock()
+          try {
+            shard.persistentShard.deleteAllEdgesFor(internalId, inDeg > 0, outDeg > 0)
+          } finally {
+            shard.persistentShardLock.writeLock().unlock()
+          }
+        })
+        bufferShards.par.foreach(bufferShard => bufferShard.deleteAllEdgesForVertex(internalId, inDeg > 0, outDeg > 0))
+
+        degreeColumn.set(internalId, 0L)  // Zero degree
+        true
+      } else {
+        false
+      }
+    }
+  }
+
+  def deleteVertexOrigId(vertexId: Long): Boolean = { deleteVertex(originalToInternalId(vertexId)) }
 
 
   def getEdgeValue[T](edgeType: Byte, src: Long, dst: Long, column: Column[T]) : Option[T] = {

@@ -17,8 +17,7 @@ object TwitterIngest  {
 
   /**
 
-  import edu.cmu.akyrola.prototype.TwitterIngest._
-  startIngest
+
     DB.runIteration(pagerankComputation, continuous=true)
 
     DB.queryOut(DB.originalToInternalId(20), edgeType=0)
