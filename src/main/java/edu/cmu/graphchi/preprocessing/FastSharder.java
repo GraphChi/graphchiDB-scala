@@ -26,7 +26,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
      * @param numShards
      * @param sizeOf
      * @param shoveled
-     * @param shoveled2
+     * @param shoveled2   -- needs to have edge type encoded
      * @param edgeValues
      * @param minTarget
      * @param maxTarget
@@ -54,6 +54,12 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         for(int i=0; i<shoveled.length; i++) {
             edgeTypeArray[i] = VertexIdTranslate.getType(shoveled2[i]);
             shoveled2[i] = VertexIdTranslate.getVertexId(shoveled2[i]);
+            // Temp check
+            if (shoveled2[i] < minTarget) {
+                throw new IllegalStateException("Encoding error: " + shoveled2[i] + ", " +
+                        VertexIdTranslate.getVertexId(shoveled2[i]) + " min target = " + minTarget);
+            }
+
         }
 
 
@@ -135,6 +141,10 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                 ptrOut.writeLong(VertexIdTranslate.encodeVertexPacket((byte)0, curvid, edgeCounter));
                 vertexSeq++;
                 for(int j=istart; j<i; j++) {
+                    if (shoveled2[j] < minTarget) {
+                        throw new IllegalStateException("Encoding error: " + shoveled2[j] + ", " +
+                                VertexIdTranslate.getVertexId(shoveled2[j]) + " min target = " + minTarget);
+                    }
                     adjOut.writeLong(shoveled2[j]);
                     edgeCounter++;
                 }

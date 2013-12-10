@@ -6,6 +6,7 @@ import java.nio.ByteBuffer
 import edu.cmu.graphchi.queries.QueryCallback
 import java.util
 import edu.cmu.graphchi.shards.{PointerUtil, EdgeIterator}
+import edu.cmu.graphchi.preprocessing.VertexIdTranslate
 
 /**
  * Memory-efficient, but unsorted, in-memory edge buffer allowing for fast searches.
@@ -33,9 +34,9 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   }
 
 
-  def encode(edgeType: Byte, vertexId: Long) = ((vertexId << 4) & 0xfffffffffffffff0L) | edgeType
-  def extractVertexId(x: Long) = (x >> 4) & 0x0fffffffffffffffL
-  def extractType(x: Long) = (x & 0xf).toByte
+  def encode(edgeType: Byte, vertexId: Long) = VertexIdTranslate.encodeVertexPacket(edgeType, vertexId, 0)
+  def extractVertexId(x: Long) = VertexIdTranslate.getVertexId(x)
+  def extractType(x: Long) =  VertexIdTranslate.getType(x)
 
   def addEdge(edgeType: Byte, src: Long, dst: Long, valueBytes: Array[Byte]) : Unit = {
     // Expand array. Maybe better to use scala's buffers, but not sure if they have the

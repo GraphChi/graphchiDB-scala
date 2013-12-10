@@ -22,7 +22,7 @@ object TwitterIngest  {
     DB.runIteration(pagerankComputation, continuous=true)
 
     DB.queryOut(DB.originalToInternalId(20), edgeType=0)
-           DB.queryIn(DB.originalToInternalId(20, edgeType=1))
+           DB.queryIn(DB.originalToInternalId(20), edgeType=1)
 
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(20))(DB)
@@ -87,8 +87,6 @@ object TwitterIngest  {
                 val indeg =  DB.inDegree(DB.originalToInternalId(id))
                 val outdeg = DB.outDegree(DB.originalToInternalId(id))
                 val expected = inCounters(id) + outCounters(id)
-
-
                 if (!(indeg + outdeg == expected)) {
                   printf("MISMATCH! %d / %d, %d / %d\n".format(indeg, inCounters(id), outdeg, outCounters(id)));
                   throw new IllegalStateException()
@@ -97,7 +95,7 @@ object TwitterIngest  {
             }
 
             /* Search constistency check */
-            if (i % 40000000 == 0) {
+            if (i % 5000000 == 0) {
                 checkSet.foreach(id =>
                 {
                   val ins0 =  DB.queryIn(DB.originalToInternalId(id), edgeType=0).getInternalIds
@@ -109,7 +107,7 @@ object TwitterIngest  {
                   val outs = outs0 ++ outs1
                   val expected = inCounters(id) + outCounters(id)
 
-                   printf("%d: ins=%d:%d / %d outs=%d:%d / %d sum=%d expected=%d\n".format(id, ins0.size, ins.size, inCounters(id),
+                   printf("%d: ins=%d:%d / %d outs=%d:%d / %d sum=%d expected=%d\n".format(id, ins0.size, ins1.size, inCounters(id),
                      outs0.size, outs.size, outCounters(id),
                       ins.size + outs.size, expected))
 

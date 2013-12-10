@@ -184,6 +184,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         }
         i += 1
       }
+      println("Read %d edges out of %d into interval %s".format(thisBuffer.numEdges, this.numEdges, destInterval))
       thisBuffer.compact
     }
 
@@ -201,13 +202,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           val totalEdges = myEdges.numEdges + destEdges.numEdges
           totalMergedEdges += totalEdges
           val combinedSrc = new Array[Long](totalEdges.toInt)
-          val combinedDst = new Array[Long](totalEdges.toInt)
+          val combinedDstWithType = new Array[Long](totalEdges.toInt)
           val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
-
 
           Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray,
             destEdges.srcArray, destEdges.dstArrayWithType, destEdges.byteArray,
-            combinedSrc, combinedDst, combinedValues, edgeSize)
+            combinedSrc, combinedDstWithType, combinedValues, edgeSize)
 
           log("Merging %d -> %d (%d edges)".format(shardId, destShard.shardId, totalEdges))
 
@@ -216,7 +216,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           try {
             timed("diskshard-merge,writeshard", {
               FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
-                combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
+                combinedDstWithType, combinedValues, destShard.myInterval.getFirstVertex,
                 destShard.myInterval.getLastVertex, true)
             })
             // TODO: consider synchronization
@@ -330,7 +330,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
     val bufferLock = new ReentrantReadWriteLock()
 
-    case class DelayedEdge(src: Long, dst:Long, values: Any*)
+    case class DelayedEdge(edgeType: Byte, src: Long, dst:Long, values: Any*)
     var delayedStack = List[DelayedEdge]()
     var delayedCount = 0
 
@@ -347,7 +347,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         // Check for delayed edges
         try {
           if (delayedStack.nonEmpty) {
-            delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(edgeType, e.src, e.dst, e.values:_*))
+            delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(e.edgeType, e.src, e.dst, e.values:_*))
             delayedStack = List[DelayedEdge]()
             delayedCount = 0
           }
@@ -359,7 +359,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         }
       } else {
         // Stalling
-        delayedStack = delayedStack :+ DelayedEdge(src, dst, values:_*)
+        delayedStack = delayedStack :+ DelayedEdge(edgeType, src, dst, values:_*)
         delayedCount += 1
       }
     }
@@ -467,6 +467,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                     workBuffer.rewind()
                     buffer.readEdgeIntoBuffer(i, workBuffer)
                     // TODO: write directly to buffer
+                    if (!_myInterval.contains(edgeIterator.getDst)) {
+                      throw new IllegalStateException()
+                    }
+
                     myEdges.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
                     i += 1
                   }
@@ -474,6 +478,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                 if (myEdges.numEdges != parEdges) throw new IllegalStateException("Mismatch %d != %d".format(myEdges.numEdges,parEdges))
                 assert(myEdges.numEdges == parEdges)
               })
+
+
 
               timed("sortEdges", {
                 Sorting.sortWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray, edgeSize)
@@ -489,26 +495,30 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                   destShard.readIntoBuffer(destShard.myInterval)
                 })
 
+
+
                 val totalEdges = myEdges.numEdges + destEdges.numEdges
                 this.synchronized {
                   totalMergedEdges +=  myEdges.numEdges
                 }
                 val combinedSrc = new Array[Long](totalEdges.toInt)
-                val combinedDst = new Array[Long](totalEdges.toInt)
+                val combinedDstWithType = new Array[Long](totalEdges.toInt)
                 val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
 
                 timed("buffermerge-sort", {
                   Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray,
                     destEdges.srcArray, destEdges.dstArrayWithType, destEdges.byteArray,
-                    combinedSrc, combinedDst, combinedValues, edgeSize)
+                    combinedSrc, combinedDstWithType, combinedValues, edgeSize)
                 })
 
-                log("Merging buffer %d -> %d (%d edges)".format(bufferShardId, destShard.shardId, totalEdges))
+
+                log("Merging buffer %d -> %d (%d buffered edges, %d from old)".format(bufferShardId, destShard.shardId,
+                      myEdges.numEdges, destEdges.numEdges))
 
                 // Write shard
                 timed("buffermerge-writeshard", {
                   FastSharder.writeAdjacencyShard(baseFilename, destShard.shardId, numShards, edgeSize, combinedSrc,
-                    combinedDst, combinedValues, destShard.myInterval.getFirstVertex,
+                    combinedDstWithType, combinedValues, destShard.myInterval.getFirstVertex,
                     destShard.myInterval.getLastVertex, true)
 
                 })
@@ -889,7 +899,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           bufferShard.bufferLock.readLock().unlock()
         }
       })
-      log("In-results from buffers: %d".format(result.combinedResults().size))
 
       /* Look for persistent shards */
       val targetShards = shards.filter(_.myInterval.contains(internalId))
@@ -959,14 +968,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         shards.par.foreach(shard => {
           try {
             atc.incrementAndGet()
-            timed("queryout.shard.%d".format(shard.myInterval.getId), {
               shard.persistentShardLock.readLock().lock()
               try {
                 shard.persistentShard.queryOut(javaQueryIds, resultContainer, edgeType)
               } finally {
                 shard.persistentShardLock.readLock().unlock()
-              } }
-            )
+              }
 
             val alive = atc.getAndDecrement
           } catch {

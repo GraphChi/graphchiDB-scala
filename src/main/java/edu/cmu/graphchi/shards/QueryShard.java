@@ -92,7 +92,7 @@ public class QueryShard {
     }
 
     // TODO: do not synchronize but make mirror of the buffer
-    public synchronized Long find(byte edgetype, long src, long dst) {
+    public synchronized Long find(byte edgeType, long src, long dst) {
         ShardIndex.IndexEntry indexEntry = index.lookup(src);
         long curPtr = findIdxAndPos(src, indexEntry);
         if (curPtr != (-1L)) {
@@ -103,8 +103,9 @@ public class QueryShard {
             adjBuffer.position((int)adjOffset);
             for(int i=0; i<n; i++) {
                 // TODO: binary search
-                long v = VertexIdTranslate.getVertexId(adjBuffer.get());
-                if (v == dst) {
+                long e = adjBuffer.get();
+                long v = VertexIdTranslate.getVertexId(e);
+                if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
                     // Found
                     return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
                 } else if (v > dst) {
@@ -227,9 +228,9 @@ public class QueryShard {
             if (off == (-1)) {
                 return;
             }
-;
-            while(off != END) {
 
+            while(off != END) {
+                adjBuffer.position(off);
                 long edge = adjBuffer.get();
                 if (VertexIdTranslate.getVertexId(edge) != queryId) {
                     throw new RuntimeException("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
@@ -238,8 +239,8 @@ public class QueryShard {
 
                 if (etype == edgeType) {
                     offsets.add(off);
-                    adjBuffer.position(off);
                 }
+
                 off = (int) VertexIdTranslate.getAux(edge);
 
                 if (off > END) {
@@ -288,30 +289,15 @@ public class QueryShard {
                 _timer2.stop();
 
             }
+            System.out.println("Found " + inNeighbors.size() + " for in-query" );
             callback.receiveInNeighbors(queryId, inNeighbors, edgeTypes, inNeighborsPtrs);
 
 
         } catch (Exception err) {
             throw new RuntimeException(err);
         }
-        callback.receiveInNeighbors(queryId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
     }
 
-
-    public static String namify(String baseFilename, Long vertexId) throws IOException {
-        File f = new File(baseFilename + "_names.dat");
-        if (!f.exists()) {
-            //	System.out.println("didn't find name file: " + f.getPath());
-            return vertexId+"";
-        }
-        long i = vertexId * 16;
-        java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f.getAbsolutePath(), "r");
-        raf.seek(i);
-        byte[] tmp = new byte[16];
-        raf.read(tmp);
-        raf.close();
-        return new String(tmp) + "(" + vertexId + ")";
-    }
 
     public EdgeIterator edgeIterator() {
         final LongBuffer iterBuffer = adjBuffer.duplicate();
@@ -344,7 +330,7 @@ public class QueryShard {
                 long vertexPacket = iterBuffer.get();
                 curDst = VertexIdTranslate.getVertexId(vertexPacket);
                 curType = VertexIdTranslate.getType(vertexPacket);
-            }
+             }
 
             @Override
             public long getSrc() {

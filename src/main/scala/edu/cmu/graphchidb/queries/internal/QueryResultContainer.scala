@@ -52,7 +52,7 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
   }
 
 
-  lazy val results = {
+  def results = {
     val grouped = resultList.groupBy(_._1).map { case (queryId, idTuple) => (queryId, fastMerge(idTuple.map(_._2))) }
     grouped.toMap
   }
