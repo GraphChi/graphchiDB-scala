@@ -129,17 +129,17 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
     def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
-       println("Shard %d find".format(shardId))
-       persistentShardLock.readLock().lock()
-       try {
-         val idx = persistentShard.find(edgeType, src, dst)
-         idx match {
-           case null => None
-           case _ => Some(idx)
-         }
-       } finally {
-         persistentShardLock.readLock().unlock()
-       }
+      println("Shard %d find".format(shardId))
+      persistentShardLock.readLock().lock()
+      try {
+        val idx = persistentShard.find(edgeType, src, dst)
+        idx match {
+          case null => None
+          case _ => Some(idx)
+        }
+      } finally {
+        persistentShardLock.readLock().unlock()
+      }
 
     }
 
@@ -184,7 +184,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         }
         i += 1
       }
-      println("Read %d edges out of %d into interval %s".format(thisBuffer.numEdges, this.numEdges, destInterval))
       thisBuffer.compact
     }
 
@@ -427,6 +426,26 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       }
     }
 
+    def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
+      if (find(edgeType, src, dst).isDefined) {
+        flushLock.synchronized {         // Need flush lock
+          bufferLock.readLock().lock()
+          try {
+            val buffer = bufferFor(src, dst)
+            val ptrOpt  = buffer.find(edgeType, src, dst)
+            if (ptrOpt.isDefined) {
+              buffer.deleteEdgeAt(PointerUtil.decodeBufferPos(ptrOpt.get))
+              return true
+            }  else { return false }
+          } finally {
+            bufferLock.readLock().unlock()
+          }
+        }
+      } else {
+        false
+      }
+    }
+
     def numEdges = buffers.map(_.map(_.buffer.numEdges).sum).sum
 
 
@@ -513,7 +532,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
                 log("Merging buffer %d -> %d (%d buffered edges, %d from old)".format(bufferShardId, destShard.shardId,
-                      myEdges.numEdges, destEdges.numEdges))
+                  myEdges.numEdges, destEdges.numEdges))
 
                 // Write shard
                 timed("buffermerge-writeshard", {
@@ -731,7 +750,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     if ((edgeType & 0xf0) != 0) {
-       throw new IllegalArgumentException("Only 4 bits allowed for edge type!");
+      throw new IllegalArgumentException("Only 4 bits allowed for edge type!");
     }
 
     /* Record keeping */
@@ -798,10 +817,15 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       /* And then persistent shard */
       val possibleShards = shards.filter(_.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
       possibleShards.foreach( shard => {
-        val idx = shard.persistentShard.find(edgeType, src, dst)
-        if (idx != null) {
-          column.set(idx, newValue)
-          return true
+        shard.persistentShardLock.writeLock().lock()
+        try {
+          val idx = shard.persistentShard.find(edgeType, src, dst)
+          if (idx != null) {
+            column.set(idx, newValue)
+            return true
+          }
+        } finally {
+          shard.persistentShardLock.writeLock().unlock()
         }
       })
       false
@@ -816,7 +840,32 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
 
-  def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = { false }
+  def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
+    /* First buffers */
+
+    val bufferShard = bufferForEdge(src, dst)
+    if (!bufferShard.deleteEdge(edgeType, src, dst)) {
+      /* And then persistent shard */
+      val possibleShards = shards.filter(_.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
+      possibleShards.foreach( shard => {
+        shard.persistentShardLock.writeLock().lock()
+        try {
+          if (shard.persistentShard.deleteEdge(edgeType, src, dst)) {
+            decrementInDegree(dst)
+            decrementOutDegree(src)
+            return true
+          }
+        } finally {
+          shard.persistentShardLock.writeLock().unlock()
+        }
+      })
+      false
+    } else {
+      decrementInDegree(dst)
+      decrementOutDegree(src)
+      true
+    }
+  }
 
   def deleteEdgeOrigId(edgeType: Byte, src: Long, dst: Long) : Boolean = deleteEdge(edgeType, originalToInternalId(src), originalToInternalId(dst))
 
@@ -968,12 +1017,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         shards.par.foreach(shard => {
           try {
             atc.incrementAndGet()
-              shard.persistentShardLock.readLock().lock()
-              try {
-                shard.persistentShard.queryOut(javaQueryIds, resultContainer, edgeType)
-              } finally {
-                shard.persistentShardLock.readLock().unlock()
-              }
+            shard.persistentShardLock.readLock().lock()
+            try {
+              shard.persistentShard.queryOut(javaQueryIds, resultContainer, edgeType)
+            } finally {
+              shard.persistentShardLock.readLock().unlock()
+            }
 
             val alive = atc.getAndDecrement
           } catch {
@@ -1038,9 +1087,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
 
-
-
-
   /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
   val degreeColumn = createLongColumn("degree", vertexIndexing)
 
@@ -1067,6 +1113,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(0L)
       Util.setLo(Util.loBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
+
+  def decrementInDegree(internalId: Long) : Unit =
+    degreeColumn.update(internalId, curOpt => {
+      val curValue = curOpt.getOrElse(1L)
+      Util.setHi(Util.hiBytes(curValue) - 1, curValue) }, degreeEncodingBuffer)
+
+  def decrementOutDegree(internalId: Long) : Unit =
+    degreeColumn.update(internalId, curOpt => {
+      val curValue = curOpt.getOrElse(1L)
+      Util.setLo(Util.loBytes(curValue) - 1, curValue) }, degreeEncodingBuffer)
 
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))

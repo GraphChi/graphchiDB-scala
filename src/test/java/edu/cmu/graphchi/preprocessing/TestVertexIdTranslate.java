@@ -62,4 +62,13 @@ public class TestVertexIdTranslate {
         assertEquals(1<<26 - 1, VertexIdTranslate.getAux(x));
         assertEquals(0xc, VertexIdTranslate.getType(x));
     }
+
+    @Test
+    public void testDelete() {
+        long deleted = VertexIdTranslate.encodeAsDeleted(89438, 8191);
+        assertEquals(8191, VertexIdTranslate.getAux(deleted));
+        assertEquals(89438, VertexIdTranslate.getVertexId(deleted));
+        assertEquals(true, VertexIdTranslate.isEdgeDeleted(deleted));
+
+    }
 }

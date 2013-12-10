@@ -62,8 +62,8 @@ public class QueryShard {
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
         numEdges = (int) (adjFile.length() / BYTES_PER_EDGE);
 
-        FileChannel channel = new java.io.RandomAccessFile(adjFile, "r").getChannel();
-        adjBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0,
+        FileChannel channel = new java.io.RandomAccessFile(adjFile, "rw").getChannel();
+        adjBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0,
                     adjFile.length()).asLongBuffer();
         channel.close();
 
@@ -114,6 +114,19 @@ public class QueryShard {
             }
         }
         return null;
+    }
+
+    public synchronized boolean deleteEdge(byte edgeType, long src, long dst) {
+         Long ptr = find(edgeType, src, dst);
+         if (ptr != null) {
+             int idx = PointerUtil.decodeShardPos(ptr);
+             long edge = adjBuffer.get(idx);
+             adjBuffer.put(idx, VertexIdTranslate.encodeAsDeleted(VertexIdTranslate.getVertexId(edge),
+                            VertexIdTranslate.getAux(edge)));
+             return true;
+         } else {
+             return false;
+         }
     }
 
 
@@ -289,7 +302,6 @@ public class QueryShard {
                 _timer2.stop();
 
             }
-            System.out.println("Found " + inNeighbors.size() + " for in-query" );
             callback.receiveInNeighbors(queryId, inNeighbors, edgeTypes, inNeighborsPtrs);
 
 
@@ -304,6 +316,8 @@ public class QueryShard {
         iterBuffer.position(0);
         final LongBuffer iterPointerBuffer = pointerIdxBuffer.duplicate();
         iterPointerBuffer.position(0);
+
+
         return new EdgeIterator() {
             int idx = (-1);
             long ptr = (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
@@ -312,11 +326,23 @@ public class QueryShard {
             long curSrc = VertexIdTranslate.getVertexId(ptr);
             long curDst;
             byte curType;
+            long vertexPacket;
 
 
             @Override
             public boolean hasNext() {
-                return idx < numEdges - 1;
+                if (idx < numEdges - 1) {
+                    vertexPacket = iterBuffer.get();
+                    if (VertexIdTranslate.isEdgeDeleted(vertexPacket)) {
+                        next(); // Skip over deleted edges
+                        return hasNext();
+                    } else {
+                        return true;
+                    }
+
+                } else {
+                    return false;
+                }
             }
 
             @Override
@@ -327,7 +353,7 @@ public class QueryShard {
                     nextPtr = iterPointerBuffer.get();
                     nextOff = VertexIdTranslate.getAux(nextPtr);
                 }
-                long vertexPacket = iterBuffer.get();
+
                 curDst = VertexIdTranslate.getVertexId(vertexPacket);
                 curType = VertexIdTranslate.getType(vertexPacket);
              }

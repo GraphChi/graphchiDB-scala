@@ -145,4 +145,20 @@ class TestEdgeBuffer {
     assertEquals(checkSumColumn2, checkSum2test)
     assertEquals(checkSumColumn3, checkSum3test)
   }
+
+  @Test def testEdgeDelete = {
+    val n = edgeBuffer.numEdges
+    val indicesToDelete = (0 until 99).map(_ * 8).toSeq
+    indicesToDelete.foreach(idx => edgeBuffer.deleteEdgeAt(idx))
+
+    val iter = edgeBuffer.edgeIterator
+
+    var i = 0
+    while(iter.hasNext) {
+      iter.next()
+      i += 1
+      assertEquals(5, iter.getType)
+    }
+    assertEquals(3901, i)
+  }
 }

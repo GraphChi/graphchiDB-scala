@@ -27,9 +27,9 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   private val buffer = new ByteArrayOutputStream(initialCapacityNumEdges * encoderDecoder.edgeSize) {
     def currentBuf = buf
     def compact : Unit = {
-       val newCurrentBuf = new Array[Byte](counter * encoderDecoder.edgeSize)
-       Array.copy(currentBuf, 0, newCurrentBuf, 0, newCurrentBuf.length)
-       buf = newCurrentBuf
+      val newCurrentBuf = new Array[Byte](counter * encoderDecoder.edgeSize)
+      Array.copy(currentBuf, 0, newCurrentBuf, 0, newCurrentBuf.length)
+      buf = newCurrentBuf
     }
   }
 
@@ -66,6 +66,12 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     encoderDecoder.decode(buf, srcArray(idx), extractVertexId(dstArrayWithType(idx)))
   }
 
+  // Sets a tombstone at edge.
+  // TODO: think if should be refleced in numedges
+  def deleteEdgeAt(idx: Int) = {
+    dstArrayWithType(idx) = encode(VertexIdTranslate.DELETED_TYPE, extractVertexId(dstArrayWithType(idx)))
+  }
+
   def readEdgeIntoBuffer(idx: Int, buf: ByteBuffer) : Unit = {
     buf.put(buffer.currentBuf, idx * edgeSize, edgeSize)
   }
@@ -79,6 +85,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
    * Sets the arrays to the size of the buffer
    */
   def compact : EdgeBuffer = {
+    if (counter != srcArray.length) {
       val newSrcArray = new Array[Long](counter)
       val newDstArray = new Array[Long](counter)
       Array.copy(srcArray, 0, newSrcArray, 0, counter)
@@ -86,7 +93,8 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
       srcArray = newSrcArray
       dstArrayWithType = newDstArray
       buffer.compact
-      this
+    }
+    this
   }
 
   /**
@@ -95,7 +103,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
    * @param out
    */
   def projectColumnToBuffer(columnIdx: Int, out: ByteBuffer): Unit = {
-       EdgeBuffer.projectColumnToBuffer(columnIdx, out, encoderDecoder, buffer.currentBuf, numEdges)
+    EdgeBuffer.projectColumnToBuffer(columnIdx, out, encoderDecoder, buffer.currentBuf, numEdges)
   }
 
 
@@ -137,14 +145,14 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   }
 
   def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
-      var i = 0
-      while(i < counter) {
-        if (srcArray(i) == src && extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
-           return Some(PointerUtil.encodeBufferPointer(bufferId, i))
-        }
-        i += 1
+    var i = 0
+    while(i < counter) {
+      if (srcArray(i) == src && extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
+        return Some(PointerUtil.encodeBufferPointer(bufferId, i))
       }
-      None
+      i += 1
+    }
+    None
   }
 
 
@@ -188,7 +196,20 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     var i = (-1)
     def next() : Unit = { i += 1}
 
-    def hasNext = i < numEdges - 1
+    def hasNext = {
+      if (i < numEdges - 1) {
+        /* Skip over deleted edges */
+        val t = extractType(dstArrayWithType(i + 1))
+        if (t != 15) {
+          true
+        }  else {
+          i += 1
+          hasNext
+        }
+      } else {
+        false
+      }
+    }
 
     def getDst = extractVertexId(dstArrayWithType(i))
 

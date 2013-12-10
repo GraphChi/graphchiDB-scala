@@ -121,11 +121,13 @@ public class VertexIdTranslate {
     }
 
     /**
-     *  Id packing
+     *  Id packing. TODO: move elsewhere.
      */
     private static long ID_MASK   = ((1L<<34)-1) << 30; // 34 bits
     private static long AUX_MASK =  ((1L<<26)-1) << 4; // 26 bits
     private static long TYPE_MASK =  0xf; // 4 bits
+
+    public static final byte DELETED_TYPE = (byte)0xf;
 
     public static long getVertexId(long vertexPacket) {
         return (vertexPacket & ID_MASK) >> 30;
@@ -142,6 +144,14 @@ public class VertexIdTranslate {
     public static long encodeVertexPacket(byte edgeType, long vertexId, long aux) {
         assert(aux <  (1L<<26));
         return ((vertexId << 30) & ID_MASK) | ((aux << 4) & AUX_MASK) | (edgeType & TYPE_MASK);
+    }
+
+    public static long encodeAsDeleted(long vertexId, long aux) {
+        return encodeVertexPacket(DELETED_TYPE, vertexId, aux);
+    }
+
+    public static boolean isEdgeDeleted(long edgePacket) {
+        return getType(edgePacket) == DELETED_TYPE;
     }
 
 }
