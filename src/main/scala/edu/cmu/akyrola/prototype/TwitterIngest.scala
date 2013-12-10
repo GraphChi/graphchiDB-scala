@@ -2,11 +2,12 @@ package edu.cmu.akyrola.prototype
 
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import scala.io.Source
-import java.io.File
+import java.io.{FileInputStream, File}
 import edu.cmu.graphchidb.Util._
 import scala.util.Random
 import edu.cmu.graphchi.GraphChiEnvironment
 import edu.cmu.graphchidb.compute.Pagerank
+import java.util.zip.GZIPInputStream
 
 /**
  * Ingest a full live journal graph from scratch
@@ -20,8 +21,8 @@ object TwitterIngest  {
   startIngest
     DB.runIteration(pagerankComputation, continuous=true)
 
-    DB.queryOut(DB.originalToInternalId(20))
-           DB.queryIn(DB.originalToInternalId(20))
+    DB.queryOut(DB.originalToInternalId(20), edgeType=0)
+           DB.queryIn(DB.originalToInternalId(20, edgeType=1))
 
   import edu.cmu.graphchidb.queries.Queries._
     twoHopOut(DB.originalToInternalId(20))(DB)
@@ -31,7 +32,7 @@ object TwitterIngest  {
     */
 
 
-  val source =  "/Users/akyrola/graphs/twitter_rv.net"
+  val source =  "/Users/akyrola/graphs/twitter_rv.net.gz"
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
 
   GraphChiDatabaseAdmin.createDatabase(baseFilename)
@@ -61,7 +62,7 @@ object TwitterIngest  {
 
 
       timed("ingest", {
-        Source.fromFile(new File(source)).getLines().foreach( ln => {
+        Source.fromInputStream(new GZIPInputStream(new FileInputStream(source))).getLines().foreach( ln => {
           if (!ln.startsWith("#")) {
             val toks = ln.split(" ")
             val from = Integer.parseInt(toks(0))
@@ -71,7 +72,7 @@ object TwitterIngest  {
             if (checkSet contains from) outCounters(from) = outCounters(from) + 1
             if (checkSet contains to) inCounters(to) = inCounters(to) + 1
 
-            DB.addEdgeOrigId(from, to, (System.currentTimeMillis() / 1000 - r.nextInt(24 * 3600 * 365 * 5)).toInt,
+            DB.addEdgeOrigId((i % 2).toByte, from, to, (System.currentTimeMillis() / 1000 - r.nextInt(24 * 3600 * 365 * 5)).toInt,
               typeColumn.indexForName(edgeType))
             i += 1
             if (i % 1000 == 0) ingestMeter.mark(1000)
@@ -99,16 +100,21 @@ object TwitterIngest  {
             if (i % 40000000 == 0) {
                 checkSet.foreach(id =>
                 {
-                   val ins =  DB.queryIn(DB.originalToInternalId(id)).getInternalIds
-                   val outs =  DB.queryOut(DB.originalToInternalId(id)).getInternalIds
-                   val expected = inCounters(id) + outCounters(id)
+                  val ins0 =  DB.queryIn(DB.originalToInternalId(id), edgeType=0).getInternalIds
+                  val ins1 =  DB.queryIn(DB.originalToInternalId(id), edgeType=1).getInternalIds
+                  val ins = ins0 ++ ins1
 
-                   printf("%d: ins=%d / %d outs=%d / %d sum=%d expected=%d\n".format(id, ins.size, inCounters(id),
-                     outs.size, outCounters(id),
+                  val outs0 =  DB.queryOut(DB.originalToInternalId(id), edgeType=0).getInternalIds
+                  val outs1 =  DB.queryOut(DB.originalToInternalId(id), edgeType=1).getInternalIds
+                  val outs = outs0 ++ outs1
+                  val expected = inCounters(id) + outCounters(id)
+
+                   printf("%d: ins=%d:%d / %d outs=%d:%d / %d sum=%d expected=%d\n".format(id, ins0.size, ins.size, inCounters(id),
+                     outs0.size, outs.size, outCounters(id),
                       ins.size + outs.size, expected))
 
                    if (!(ins.size + outs.size == expected)) {
-                      printf("MISMATCH!\n");
+                      printf("MISMATCH!\n")
                    }
                 }
                 )

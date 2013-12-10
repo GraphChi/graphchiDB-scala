@@ -20,7 +20,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
   var counter : Int = 0
   var srcArray = new Array[Long](initialCapacityNumEdges)
-  var dstArray = new Array[Long](initialCapacityNumEdges)
+  var dstArrayWithType = new Array[Long](initialCapacityNumEdges)
 
   /* Create special byteArrayOutStream that allows direct access */
   private val buffer = new ByteArrayOutputStream(initialCapacityNumEdges * encoderDecoder.edgeSize) {
@@ -33,32 +33,36 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   }
 
 
-  def addEdge(src: Long, dst: Long, valueBytes: Array[Byte]) : Unit = {
+  def encode(edgeType: Byte, vertexId: Long) = ((vertexId << 4) & 0xfffffffffffffff0L) | edgeType
+  def extractVertexId(x: Long) = (x >> 62) & 0x0fffffffffffffffL
+  def extractType(x: Long) = (x & 0xf).toByte
+
+  def addEdge(edgeType: Byte, src: Long, dst: Long, valueBytes: Array[Byte]) : Unit = {
     // Expand array. Maybe better to use scala's buffers, but not sure if they have the
     // optimization for primitives.
     if (counter == srcArray.size) {
       var newSrcArray = new Array[Long](counter * 2)
       var newDstArray = new Array[Long](counter * 2)
       Array.copy(srcArray, 0, newSrcArray, 0, srcArray.size)
-      Array.copy(dstArray, 0, newDstArray, 0, dstArray.size)
+      Array.copy(dstArrayWithType, 0, newDstArray, 0, dstArrayWithType.size)
       srcArray = newSrcArray
-      dstArray = newDstArray
+      dstArrayWithType = newDstArray
     }
     srcArray(counter) = src
-    dstArray(counter) = dst
+    dstArrayWithType(counter) = encode(edgeType, dst)
     counter += 1
     buffer.write(valueBytes)
   }
 
-  def addEdge(src: Long, dst: Long, values: Any*) : Unit  = {
+  def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit  = {
     tmpBuffer.rewind()
     encoderDecoder.encode(tmpBuffer, values:_*)
-    addEdge(src, dst, tmpBuffer.array())
+    addEdge(edgeType, src, dst, tmpBuffer.array())
   }
 
   private def edgeAtPos(idx: Int) = {
     val buf = ByteBuffer.wrap(buffer.currentBuf, idx * edgeSize, edgeSize)
-    encoderDecoder.decode(buf, srcArray(idx), dstArray(idx))
+    encoderDecoder.decode(buf, srcArray(idx), extractVertexId(dstArrayWithType(idx)))
   }
 
   def readEdgeIntoBuffer(idx: Int, buf: ByteBuffer) : Unit = {
@@ -77,9 +81,9 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
       val newSrcArray = new Array[Long](counter)
       val newDstArray = new Array[Long](counter)
       Array.copy(srcArray, 0, newSrcArray, 0, counter)
-      Array.copy(dstArray, 0, newDstArray, 0, counter)
+      Array.copy(dstArrayWithType, 0, newDstArray, 0, counter)
       srcArray = newSrcArray
-      dstArray = newDstArray
+      dstArrayWithType = newDstArray
       buffer.compact
       this
   }
@@ -98,13 +102,13 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
   def byteArray: Array[Byte] = buffer.currentBuf
 
 
-  def findOutNeighborsEdges(src: Long) = {
+  def findOutNeighborsEdges(src: Long, edgeType: Byte) = {
     val n = numEdges
     val results = scala.collection.mutable.ArrayBuffer[DecodedEdge]()
     // Not the most functional way, but should be faster
     var i = 0
     while(i < n) {      // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
-      if (srcArray(i) == src) {
+      if (srcArray(i) == src && extractType(dstArrayWithType(i)) == edgeType) {
         results += edgeAtPos(i)
       }
       i += 1
@@ -112,27 +116,29 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     results.toSeq
   }
 
-  def findOutNeighborsCallback(src: Long, callback: QueryCallback) : Unit = {
+  def findOutNeighborsCallback(src: Long, callback: QueryCallback, edgeType: Byte) : Unit = {
     val n = numEdges
     val ids = new util.ArrayList[java.lang.Long]()
+    val types = new util.ArrayList[java.lang.Byte]()
     val pointers = new util.ArrayList[java.lang.Long]()
 
     // Not the most functional way, but should be faster
     var i = 0
     while( i < n) {      // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
-      if (srcArray(i) == src) {
-        ids.add(dstArray(i))
+      if (srcArray(i) == src &&  extractType(dstArrayWithType(i)) == edgeType) {
+        ids.add(extractVertexId(dstArrayWithType(i)))
+        types.add(extractType(dstArrayWithType(i)))
         pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
       }
       i += 1
     }
-    callback.receiveOutNeighbors(src, ids, pointers)
+    callback.receiveOutNeighbors(src, ids, types, pointers)
   }
 
-  def find(src: Long, dst: Long) : Option[Long] = {
+  def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
       var i = 0
       while(i < counter) {
-        if (srcArray(i) == src && dstArray(i) == dst) {
+        if (srcArray(i) == src && extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
            return Some(PointerUtil.encodeBufferPointer(bufferId, i))
         }
         i += 1
@@ -142,13 +148,13 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
 
 
-  def findInNeighborsEdges(dst: Long) = {
+  def findInNeighborsEdges(dst: Long, edgeType: Byte) = {
     val n = numEdges
     val results = scala.collection.mutable.ArrayBuffer[DecodedEdge]()
     // Not the most functional way, but should be faster
     var i = 0
     while(i < n) {   // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
-      if (dstArray(i) == dst) {
+      if (extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
         results += edgeAtPos(i)
       }
       i += 1
@@ -156,20 +162,22 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     results.toSeq
   }
 
-  def findInNeighborsCallback(dst: Long, callback: QueryCallback) : Unit = {
+  def findInNeighborsCallback(dst: Long, callback: QueryCallback, edgeType: Byte) : Unit = {
     val n = numEdges
     val ids = new util.ArrayList[java.lang.Long]()
+    val types = new util.ArrayList[java.lang.Byte]()
     val pointers = new util.ArrayList[java.lang.Long]()
     // Not the most functional way, but should be faster
     var i = 0
     while(i < n) {   // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
-      if (dstArray(i) == dst) {
+      if (extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
         ids.add(srcArray(i))
+        types.add(extractType(dstArrayWithType(i)))
         pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
       }
       i += 1
     }
-    callback.receiveInNeighbors(dst, ids, pointers)
+    callback.receiveInNeighbors(dst, ids, types, pointers)
   }
 
 
@@ -181,9 +189,11 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
     def hasNext = i < numEdges - 1
 
-    def getDst = dstArray(i)
+    def getDst = extractVertexId(dstArrayWithType(i))
 
     def getSrc = srcArray(i)
+
+    def getType = extractType(dstArrayWithType(i))
   }
 
 }
@@ -210,4 +220,6 @@ object EdgeBuffer {
     }
     out.rewind()
   }
+
+
 }

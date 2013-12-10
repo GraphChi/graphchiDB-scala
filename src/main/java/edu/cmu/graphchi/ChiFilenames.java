@@ -1,7 +1,7 @@
 package edu.cmu.graphchi;
 
 import edu.cmu.graphchi.datablocks.BytesToValueConverter;
-import edu.cmu.graphchi.engine.VertexInterval;
+import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.io.CompressedIO;
 
 import java.io.*;

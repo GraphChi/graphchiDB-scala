@@ -70,7 +70,7 @@ object LiveJournalTest  {
             val from = Integer.parseInt(toks(0))
             val to = Integer.parseInt(toks(1))
             val edgeType = if ((from + to) % 3 == 0) "follow" else "like"
-            DB.addEdgeOrigId(from, to, (from + to),
+            DB.addEdgeOrigId((i % 2).toByte, from, to, (from + to),
               typeColumn.indexForName(edgeType))
             i += 1
             if (i % 1000 == 0) ingestMeter.mark(1000)

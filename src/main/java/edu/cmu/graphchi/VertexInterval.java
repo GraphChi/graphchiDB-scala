@@ -1,4 +1,4 @@
-package edu.cmu.graphchi.engine;
+package edu.cmu.graphchi;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +31,7 @@ public class VertexInterval {
         this.id = id;
     }
     public VertexInterval(long firstVertex, long lastVertex) {
-       this(firstVertex, lastVertex, -1);
+        this(firstVertex, lastVertex, -1);
     }
 
 

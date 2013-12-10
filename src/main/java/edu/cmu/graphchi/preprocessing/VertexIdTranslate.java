@@ -124,18 +124,24 @@ public class VertexIdTranslate {
      *  Id packing
      */
     private static long ID_MASK   = ((1L<<34)-1) << 30; // 34 bits
-    private static long AUX_MASK =  (1L<<30)-1; // 30 bits
+    private static long AUX_MASK =  ((1L<<26)-1) << 4; // 26 bits
+    private static long TYPE_MASK =  0xf; // 4 bits
 
     public static long getVertexId(long vertexPacket) {
         return (vertexPacket & ID_MASK) >> 30;
     }
 
     public static long getAux(long vertexPacket) {
-        return (vertexPacket & AUX_MASK);
+        return (vertexPacket & AUX_MASK) >> 4;
     }
 
-    public static long encodeVertexPacket(long vertexId, long aux) {
-        return ((vertexId << 30) & ID_MASK) | (aux & AUX_MASK);
+    public static byte getType(long vertexPacket) {
+        return (byte) (vertexPacket & TYPE_MASK);
+    }
+
+    public static long encodeVertexPacket(byte edgeType, long vertexId, long aux) {
+        assert(aux <  (1L<<26));
+        return ((vertexId << 30) & ID_MASK) | ((aux << 4) & AUX_MASK) | (edgeType & TYPE_MASK);
     }
 
 }

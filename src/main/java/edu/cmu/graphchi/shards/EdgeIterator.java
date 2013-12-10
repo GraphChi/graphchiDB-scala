@@ -14,4 +14,6 @@ public interface EdgeIterator {
 
     long getDst();
 
+    public byte getType();
+
 }

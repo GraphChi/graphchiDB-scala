@@ -17,18 +17,19 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
 
   private var resultList = List[Tuple2[Long, ResultEdges]]()
 
-  def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], dataPointers: util.ArrayList[lang.Long]) = {
+  def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], types: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {
     if (!neighborIds.isEmpty) {
       this.synchronized {
-        resultList = resultList :+ (vertexId, ResultEdges(neighborIds, dataPointers))
+        resultList = resultList :+ (vertexId, ResultEdges(neighborIds, types, dataPointers))
       }
     }
   }
 
-  def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], dataPointers: util.ArrayList[lang.Long])= {
+  // TODO: use flat arrays?
+  def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], types: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= {
     if (!neighborIds.isEmpty) {
       this.synchronized {
-        resultList = resultList :+ (vertexId, ResultEdges(neighborIds, dataPointers))
+        resultList = resultList :+ (vertexId, ResultEdges(neighborIds, types, dataPointers))
       }
     }
   }
@@ -37,15 +38,17 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
   private def fastMerge(results: Seq[ResultEdges]) : ResultEdges = {
     val totalLen = results.map(_.size).sum
     val ids = new Array[lang.Long](totalLen)
+    val types = new Array[lang.Byte](totalLen)
     val pointers = new Array[lang.Long](totalLen)
     var i = 0
     results.foreach( r => {
       r.ids.copyToArray(ids, i)
+      r.types.copyToArray(types, i)
       r.pointers.copyToArray(pointers, i)
       i += r.size
     })
     assert(i == totalLen)
-    ResultEdges(ids, pointers)
+    ResultEdges(ids, types, pointers)
   }
 
 
@@ -54,13 +57,13 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
     grouped.toMap
   }
 
-  def resultsFor(queryId: Long) = results.getOrElse(queryId, ResultEdges(Seq[lang.Long](), Seq[lang.Long]()))
+  def resultsFor(queryId: Long) = results.getOrElse(queryId, ResultEdges(Seq[lang.Long](), Seq[lang.Byte](), Seq[lang.Long]()))
 
-  def combinedResults() =  results.values.foldLeft(ResultEdges(Seq[lang.Long](), Seq[lang.Long]()))(_+_)
+  def combinedResults() =  results.values.foldLeft(ResultEdges(Seq[lang.Long](), Seq[lang.Byte](), Seq[lang.Long]()))(_+_)
 }
 
-case class ResultEdges(ids: Seq[java.lang.Long], pointers: Seq[java.lang.Long]) {
-  def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, pointers ++ that.pointers)
+case class ResultEdges(ids: Seq[java.lang.Long], types: Seq[lang.Byte], pointers: Seq[java.lang.Long]) {
+  def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, types ++ that.types, pointers ++ that.pointers)
   def size = ids.size
   def idForPointer(pointer: java.lang.Long) = ids(pointers.indexOf(pointer)) // Note, optimize for large result sets!
 }

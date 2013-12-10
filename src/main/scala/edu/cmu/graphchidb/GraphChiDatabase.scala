@@ -3,11 +3,11 @@ package edu.cmu.graphchidb
 import edu.cmu.graphchi.ChiFilenames
 import edu.cmu.graphchi.preprocessing.{EdgeProcessor, VertexProcessor, FastSharder, VertexIdTranslate}
 import java.io.{IOException, FileOutputStream, File}
-import edu.cmu.graphchi.engine.VertexInterval
+import edu.cmu.graphchi.VertexInterval
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
-import edu.cmu.graphchi.queries.{QueryCallback, VertexQuery}
+import edu.cmu.graphchi.queries.{QueryCallback}
 import edu.cmu.graphchidb.Util.async
 import java.nio.{BufferUnderflowException, ByteBuffer}
 import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
@@ -80,7 +80,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   def log(msg: String) = {
     val str = format.format(new Date()) + "\t" + msg + "\n"
     debugFile.synchronized {
-      debugFile.write(str.getBytes())
+      debugFile.write(str.getBytes)
       debugFile.flush()
     }
   }
@@ -128,11 +128,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
 
 
-    def find(src: Long, dst: Long) : Option[Long] = {
+    def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
        println("Shard %d find".format(shardId))
        persistentShardLock.readLock().lock()
        try {
-         val idx = persistentShard.find(src, dst)
+         val idx = persistentShard.find(edgeType, src, dst)
          idx match {
            case null => None
            case _ => Some(idx)
@@ -180,7 +180,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         if (destInterval.contains(edgeIterator.getDst)) {
           workBuffer.rewind()
           edgeColumns.foreach(c => c._2.readValueBytes(shardId, i, workBuffer))
-          thisBuffer.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+          thisBuffer.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
         }
         i += 1
       }
@@ -205,8 +205,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
 
 
-          Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray,
-            destEdges.srcArray, destEdges.dstArray, destEdges.byteArray,
+          Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray,
+            destEdges.srcArray, destEdges.dstArrayWithType, destEdges.byteArray,
             combinedSrc, combinedDst, combinedValues, edgeSize)
 
           log("Merging %d -> %d (%d edges)".format(shardId, destShard.shardId, totalEdges))
@@ -334,7 +334,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     var delayedStack = List[DelayedEdge]()
     var delayedCount = 0
 
-    def addEdge(src: Long, dst:Long, values: Any*) : Unit = {
+    def addEdge(edgeType: Byte, src: Long, dst:Long, values: Any*) : Unit = {
       // TODO: Handle if value outside of intervals
       // Kind of complicated logic... improve?
       var gotLock = false
@@ -347,11 +347,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         // Check for delayed edges
         try {
           if (delayedStack.nonEmpty) {
-            delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(e.src, e.dst, e.values:_*))
+            delayedStack.foreach(e => bufferFor(e.src, e.dst).addEdge(edgeType, e.src, e.dst, e.values:_*))
             delayedStack = List[DelayedEdge]()
             delayedCount = 0
           }
-          bufferFor(src, dst).addEdge(src, dst, values:_*)
+          bufferFor(src, dst).addEdge(edgeType, src, dst, values:_*)
         } catch {
           case e: Exception => e.printStackTrace()
         } finally {
@@ -365,20 +365,20 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
 
     /* Returns buffer pointer for given edge, if found */
-    def find(src: Long, dst: Long) : Option[Long] = {
+    def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
       bufferLock.readLock().lock()
       try {
-        bufferFor(src, dst).find(src, dst).orElse(oldBufferFor(src, dst).find(src, dst))
+        bufferFor(src, dst).find(edgeType, src, dst).orElse(oldBufferFor(src, dst).find(edgeType, src, dst))
       } finally {
         bufferLock.readLock().unlock()
       }
     }
 
-    def getValue[T](src:Long, dst:Long, columnIdx: Int) : Option[T] = {
+    def getValue[T](edgeType: Byte, src:Long, dst:Long, columnIdx: Int) : Option[T] = {
       bufferLock.readLock().lock()
       try {
         val buffer = bufferFor(src, dst)
-        val ptrOpt  = buffer.find(src, dst)
+        val ptrOpt  = buffer.find(edgeType, src, dst)
         // Need to check old and new buffer...
         if (ptrOpt.isDefined) {
           val byteBuf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
@@ -406,14 +406,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     val flushLock = new Object
 
 
-    def update[T](src: Long, dst: Long, columnIdx: Int, value: T) : Boolean  = {
+    def update[T](edgeType: Byte, src: Long, dst: Long, columnIdx: Int, value: T) : Boolean  = {
       // Note: for update we use readLock as it does not alter the size of the data or move data
-      if (find(src, dst).isDefined) {
+      if (find(edgeType, src, dst).isDefined) {
         flushLock.synchronized {         // Need flush lock
           bufferLock.readLock().lock()
           try {
             val buffer = bufferFor(src, dst)
-            val ptrOpt  = buffer.find(src, dst)
+            val ptrOpt  = buffer.find(edgeType, src, dst)
             if (ptrOpt.isDefined) {
               buffer.setColumnValue(PointerUtil.decodeBufferPos(ptrOpt.get), columnIdx, value)
               return true
@@ -467,7 +467,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                     workBuffer.rewind()
                     buffer.readEdgeIntoBuffer(i, workBuffer)
                     // TODO: write directly to buffer
-                    myEdges.addEdge(edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
+                    myEdges.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
                     i += 1
                   }
                 })
@@ -476,7 +476,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
               })
 
               timed("sortEdges", {
-                Sorting.sortWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray, edgeSize)
+                Sorting.sortWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray, edgeSize)
               })
 
               try {
@@ -498,8 +498,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                 val combinedValues = new Array[Byte](totalEdges.toInt * edgeSize)
 
                 timed("buffermerge-sort", {
-                  Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArray, myEdges.byteArray,
-                    destEdges.srcArray, destEdges.dstArray, destEdges.byteArray,
+                  Sorting.mergeWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray,
+                    destEdges.srcArray, destEdges.dstArrayWithType, destEdges.byteArray,
                     combinedSrc, combinedDst, combinedValues, edgeSize)
                 })
 
@@ -660,6 +660,24 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
   }
 
+  def createShortColumn(name: String, indexing: DatabaseIndexing) = {
+    this.synchronized {
+      val col = new FileColumn[Short](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_short_" +  indexing.name + "_" + name.toLowerCase,
+        sparse=false, _indexing=indexing, converter = ByteConverters.ShortByteConverter)
+      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      col
+    }
+  }
+
+  def createByteColumn(name: String, indexing: DatabaseIndexing) = {
+    this.synchronized {
+      val col = new FileColumn[Byte](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_byte_" +  indexing.name + "_" + name.toLowerCase,
+        sparse=false, _indexing=indexing, converter = ByteConverters.ByteByteConverter)
+      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      col
+    }
+  }
+
   def createLongColumn(name: String, indexing: DatabaseIndexing) = {
     this.synchronized {
       val col = new FileColumn[Long](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
@@ -699,8 +717,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   def totalBufferedEdges = bufferShards.map(_.numEdges).sum
 
-  def addEdge(src: Long, dst: Long, values: Any*) : Unit = {
+  def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
+
+    if ((edgeType & 0xf0) != 0) {
+       throw new IllegalArgumentException("Only 4 bits allowed for edge type!");
+    }
 
     /* Record keeping */
     this.synchronized {
@@ -710,7 +732,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       incrementInDegree(dst)
       incrementOutDegree(src)
 
-      bufferForEdge(src, dst).addEdge(src, dst, values:_*)
+      bufferForEdge(src, dst).addEdge(edgeType, src, dst, values:_*)
     }
 
     /* Buffer flushing. TODO: make smarter. */
@@ -746,8 +768,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
   }
 
-  def addEdgeOrigId(src:Long, dst:Long, values: Any*) {
-    addEdge(originalToInternalId(src), originalToInternalId(dst), values:_*)
+  def addEdgeOrigId(edgeType: Byte, src:Long, dst:Long, values: Any*) {
+    addEdge(edgeType, originalToInternalId(src), originalToInternalId(dst), values:_*)
   }
 
   /**
@@ -759,14 +781,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
    * @tparam T
    * @return
    */
-  def updateEdge[T](src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
+  def updateEdge[T](edgeType: Byte, src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
     /* First buffers */
     val bufferShard = bufferForEdge(src, dst)
-    if (!bufferShard.update(src, dst, column.columnId, newValue)) {
+    if (!bufferShard.update(edgeType, src, dst, column.columnId, newValue)) {
       /* And then persistent shard */
       val possibleShards = shards.filter(_.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
       possibleShards.foreach( shard => {
-        val idx = shard.persistentShard.find(src, dst)
+        val idx = shard.persistentShard.find(edgeType, src, dst)
         if (idx != null) {
           column.set(idx, newValue)
           return true
@@ -779,29 +801,40 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
 
-  def updateEdgeOrigId[T](src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
-    updateEdge(originalToInternalId(src), originalToInternalId(dst), column, newValue)
+  def updateEdgeOrigId[T](edgeType: Byte, src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
+    updateEdge(edgeType, originalToInternalId(src), originalToInternalId(dst), column, newValue)
   }
 
-  def getEdgeValue[T](src: Long, dst: Long, column: Column[T]) : Option[T] = {
+
+  def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = { false }
+
+  def deleteEdgeOrigId(edgeType: Byte, src: Long, dst: Long) : Boolean = deleteEdge(edgeType, originalToInternalId(src), originalToInternalId(dst))
+
+  def deleteVertex(internalId: Long) : Boolean = { false }
+
+  def deleteVertexInternalId(vertexId: Long): Boolean = { deleteVertex(originalToInternalId(vertexId)) }
+
+
+  def getEdgeValue[T](edgeType: Byte, src: Long, dst: Long, column: Column[T]) : Option[T] = {
     val bufferShard = bufferForEdge(src, dst)
-    val bufferOpt = bufferShard.getValue(src, dst, column.columnId)
+    val bufferOpt = bufferShard.getValue(edgeType, src, dst, column.columnId)
     bufferOpt.orElse( {
       // Look first the most recent data, so reverse
-      val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(src, dst)).find(_.isDefined)
+      val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
       idxOpt.map(idx => column.get(idx.get)).headOption.getOrElse(None)
     })
   }
 
-  def getEdgeValueOrigId[T](src: Long, dst: Long, column: Column[T]) : Option[T] = {
-    getEdgeValue(originalToInternalId(src), originalToInternalId(dst), column)
+  def getEdgeValueOrigId[T](edgeType: Byte, src: Long, dst: Long, column: Column[T]) : Option[T] = {
+    getEdgeValue(edgeType, originalToInternalId(src), originalToInternalId(dst), column)
   }
 
   /* Vertex id conversions */
   def originalToInternalId(vertexId: Long) = vertexIdTranslate.forward(vertexId)
   def internalToOriginalId(vertexId: Long) = vertexIdTranslate.backward(vertexId)
-  def numVertices = intervals.zip(intervalMaxVertexId).map(z => z._2 - z._1.getFirstVertex + 1).sum
 
+  def numVertices = intervals.zip(intervalMaxVertexId).map(z => z._2 - z._1.getFirstVertex + 1).sum
+  def numEdges = shards.map(_.numEdges).sum + bufferShards.map(_.numEdges).sum
 
   /* Column value lookups */
   def edgeColumnValues[T](column: Column[T], pointers: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
@@ -831,7 +864,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
   /* Queries */
-  def queryIn(internalId: Long) = {
+  def queryIn(internalId: Long, edgeType: Byte) = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     timed ("query-in", {
 
@@ -846,7 +879,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           bufferShard.buffersForDstQuery(internalId).par.foreach(
             buf => {
               try {
-                buf.buffer.findInNeighborsCallback(internalId, result)
+                buf.buffer.findInNeighborsCallback(internalId, result, edgeType)
               } catch {
                 case e: Exception => e.printStackTrace()
               }
@@ -864,7 +897,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         shard.persistentShardLock.readLock().lock()
         try {
           try {
-            shard.persistentShard.queryIn(internalId, result)
+            shard.persistentShard.queryIn(internalId, result, edgeType)
           } catch {
             case e: Exception => e.printStackTrace()
           }
@@ -879,11 +912,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
 
-  def queryOut(internalId: Long) = {
+  def queryOut(internalId: Long, edgeType: Byte) = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out", {
-      val res =  queryOutMultiple(Set[java.lang.Long](internalId))
+      val res =  queryOutMultiple(Set[java.lang.Long](internalId), edgeType)
       // Note, change indexing
       res.withIndexing(edgeIndexing)
     } )
@@ -891,7 +924,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
   // TODO: query needs to acquire ALL locks before doing query -- AVOID OR DETECT DEADLOCKS!
-  def queryOutMultiple(javaQueryIds: Set[java.lang.Long])  = {
+  def queryOutMultiple(javaQueryIds: Set[java.lang.Long], edgeType: Byte)  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out-multiple", {
@@ -905,7 +938,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
           try {
             javaQueryIds.par.foreach(internalId =>
               bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
-                buf.buffer.findOutNeighborsCallback(internalId, resultContainer)
+                buf.buffer.findOutNeighborsCallback(internalId, resultContainer, edgeType)
                 if (!buf.interval.contains(internalId))
                   throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
               }))
@@ -929,7 +962,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
             timed("queryout.shard.%d".format(shard.myInterval.getId), {
               shard.persistentShardLock.readLock().lock()
               try {
-                shard.persistentShard.queryOut(javaQueryIds, resultContainer)
+                shard.persistentShard.queryOut(javaQueryIds, resultContainer, edgeType)
               } finally {
                 shard.persistentShardLock.readLock().unlock()
               } }
@@ -950,7 +983,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       })
     } )
   }
-  def queryOutMultiple(internalIds: Seq[Long]) : QueryResult = queryOutMultiple(internalIds.map(_.asInstanceOf[java.lang.Long]).toSet)
+  def queryOutMultiple(internalIds: Seq[Long], edgeType: Byte) : QueryResult = queryOutMultiple(internalIds.map(_.asInstanceOf[java.lang.Long]).toSet, edgeType)
 
   /**
    * High-performance reusable object for encoding edges into bytes

@@ -1,6 +1,6 @@
 package edu.cmu.graphchi.shards;
 
-import edu.cmu.graphchi.engine.VertexInterval;
+import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.FastSharder;
 import org.junit.Test;
 

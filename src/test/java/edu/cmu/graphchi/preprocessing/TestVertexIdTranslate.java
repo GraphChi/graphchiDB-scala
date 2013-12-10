@@ -49,15 +49,17 @@ public class TestVertexIdTranslate {
     @Test
     public void testEncoding() {
         for(long i = 0; i < 5000000000L; i += 1000000L) {
-            for(long link=0; link<268435455L; link+=1000005L) {
-                long vPacket = VertexIdTranslate.encodeVertexPacket(i, link);
+            for(long link=0; link<26843545L; link+=100005L) {
+                long vPacket = VertexIdTranslate.encodeVertexPacket((byte) (i % 16), i, link);
                 assertEquals(i, VertexIdTranslate.getVertexId(vPacket));
                 assertEquals(link, VertexIdTranslate.getAux(vPacket));
+                assertEquals((byte) (i % 16), VertexIdTranslate.getType(vPacket));
             }
         }
 
-        long x = VertexIdTranslate.encodeVertexPacket(1214077, 1<<30 -1);
+        long x = VertexIdTranslate.encodeVertexPacket((byte) 0xc, 1214077, 1<<26 -1);
         assertEquals(1214077, VertexIdTranslate.getVertexId(x));
-        assertEquals(1<<30 - 1, VertexIdTranslate.getAux(x));
+        assertEquals(1<<26 - 1, VertexIdTranslate.getAux(x));
+        assertEquals(0xc, VertexIdTranslate.getType(x));
     }
 }

@@ -24,7 +24,7 @@ class TestEdgeBuffer {
   GraphChiDatabaseAdmin.createDatabase(testDb)
 
   case class TestEdge(src: Long, dst: Long, col1: String, col2: Int, col3: Int) {
-     def isValid =  (col2 == (src + dst) % 10000) && (col3 == (src - dst) % 333 && col1 == "c")
+    def isValid =  (col2 == (src + dst) % 10000) && (col3 == (src - dst) % 333 && col1 == "c")
   }
 
   val db = new GraphChiDatabase(testDb, 2)
@@ -48,50 +48,66 @@ class TestEdgeBuffer {
     } ) } ).flatten.toSeq )
 
   println("Creating %d edges".format(edgesToCreate.size))
-  edgesToCreate.foreach(edge => edgeBuffer.addEdge(edge.src, edge.dst, catColumn.indexForName(edge.col1), edge.col2, edge.col3))
+  edgesToCreate.foreach(edge => edgeBuffer.addEdge(5, edge.src, edge.dst, catColumn.indexForName(edge.col1), edge.col2, edge.col3))
 
 
 
+  @Test def edgeEncodings = {
+    (0 until 1000000).foreach(i => {
+      val edgeId = i * 3 - i % 2
+      val edgeType = (i % 16).toByte
 
+      val encoded = edgeBuffer.encode(edgeType, edgeId)
+      assertEquals(edgeId, edgeBuffer.extractVertexId(encoded))
+      assertEquals(edgeType, edgeBuffer.extractType(encoded))
+
+    })
+  }
 
   @Test def testEdgeBuffer = {
-     assertEquals(edgeBuffer.numEdges, edgesToCreate.size)
+    assertEquals(edgeBuffer.numEdges, edgesToCreate.size)
 
     def fromDecodedEdge(dec: DecodedEdge) = TestEdge(dec.src, dec.dst, catColumn.categoryName(dec.values(0).asInstanceOf[Byte]),
-        dec.values(1).asInstanceOf[Int], dec.values(2).asInstanceOf[Int])
+      dec.values(1).asInstanceOf[Int], dec.values(2).asInstanceOf[Int])
 
     /* Do searches */
     var totalOut = 0
 
     timed("out", {
-    (0 until 1000).foreach(src => {
-        val results = edgeBuffer.findOutNeighborsEdges(src).toSet
+      (0 until 1000).foreach(src => {
+        val results = edgeBuffer.findOutNeighborsEdges(src, 5).toSet
         totalOut += results.size
         assertEquals(4, results.size)
         results.foreach(r => assertEquals(src, r.src))
         results.foreach(r => assertEquals(true, fromDecodedEdge(r).isValid))
-    }) }
+
+        val resultsWrongType = edgeBuffer.findOutNeighborsEdges(src, 0).toSet
+        assertEquals(0, resultsWrongType.size)
+      }) }
     )
     var totalIn = 0
     timed("in", {
-    (0 until 1003).foreach(dst => {
-      val results = edgeBuffer.findInNeighborsEdges(dst).toSet
-      assertTrue(results.size > 0)
-      totalIn += results.size
-      results.foreach(r => assertEquals(dst, r.dst))
-      results.foreach(r => assertEquals(true, fromDecodedEdge(r).isValid))
-    }) })
+      (0 until 1003).foreach(dst => {
+        val results = edgeBuffer.findInNeighborsEdges(dst, 5).toSet
+        assertTrue(results.size > 0)
+        totalIn += results.size
+        results.foreach(r => assertEquals(dst, r.dst))
+        results.foreach(r => assertEquals(true, fromDecodedEdge(r).isValid))
+
+        val resultsWrongType = edgeBuffer.findInNeighborsEdges(dst, 0).toSet
+        assertEquals(0, resultsWrongType.size)
+      }) })
 
     assertEquals(4000, totalOut)
     assertEquals(4000, totalIn)
 
     timed("not-found-out", {
-       val results = edgeBuffer.findOutNeighborsEdges(99999)
-       assertEquals(0, results.size)
+      val results = edgeBuffer.findOutNeighborsEdges(99999, 5)
+      assertEquals(0, results.size)
     })
 
     timed("not-found-in", {
-      val results = edgeBuffer.findOutNeighborsEdges(99999)
+      val results = edgeBuffer.findOutNeighborsEdges(99999, 5)
       assertEquals(0, results.size)
     })
 
