@@ -135,29 +135,35 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
   def deleteNode(databaseId: String, nodeType: Int, id: Long) = {
     println("Delete node: %s %d".format(nodeType, id))
-    DB.deleteVertexInternalId(id)
-    false
+    DB.deleteVertexOrigId(id)
   }
 
   /**** LINK STORE ****/
 
 
+  def addLinkImpl(edge: Link) = {
+    val edgeTypeByte = edgeType(edge.link_type)
+    DB.addEdgeOrigId(edge.version.toByte, edge.id1, edge.id2, edge.time, edgeTypeByte)
+
+    /* Adjust counters */
+    // NOTE: hard-coded only two types
+    val countColumn = if (edgeTypeByte == 0) type0Counters else type1Counters
+    countColumn.update(DB.originalToInternalId(edge.id1), c => c.getOrElse(0) + 1)
+  }
+
   /// NOTE: can apparently ignore noInverse settings!
   def addLink(databaseId: String, edge: Link, noInverse: Boolean) = {
     println("Add link %s, %s".format(edge, noInverse))
+    val edgeTypeByte = edgeType(edge.link_type)
+
     if (currentPhase == Phase.LOAD) {
       /* Just insert */
-
-      val edgeTypeByte = edgeType(edge.link_type)
-      DB.addEdgeOrigId(edge.version.toByte, edge.id1, edge.id2, edge.time, edgeTypeByte)
-
-      /* Adjust counters */
-      // NOTE: hard-coded only two types
-      val countColumn = if (edgeTypeByte == 0) type0Counters else type1Counters
-      countColumn.update(DB.originalToInternalId(edge.id1), c => c.getOrElse(0) + 1)
+      addLinkImpl(edge)
     } else {
-      /* Check first if exits, then insert */
-      throw new NotImplementedException
+       /* Check first if exits, then insert */
+       if (!updateLink(databaseId, edge, noInverse)) {
+         addLinkImpl(edge)
+       }
     }
    true
 }
@@ -178,12 +184,16 @@ class GraphChiLinkBenchAdapter extends GraphStore {
   def deleteLink(databaseId: String, id1: Long, linkType: Long, id2: Long, noInverse: Boolean, exPunge: Boolean) = {
     println("Delete link: %s %s %s expunge: %s".format(id1, linkType, id2, exPunge))
     DB.deleteEdgeOrigId(edgeType(linkType), id1, id2)
-    false
   }
 
   def updateLink(databaseId: String, edge: Link, noInverse: Boolean) = {
     println("Update link: %s".format(edge))
-    false
+    val edgeTypeByte = edgeType(edge.link_type)
+
+    DB.updateEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edgeTimestamp, edge.time.toInt)
+    DB.updateEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edgeVersion, edge.version.toByte)
+
+    // TODO: update payload
   }
 
   def getLink(databaseId: String, id1: Long, linkType: Long, id2: Long) : Link = {
