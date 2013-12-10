@@ -54,11 +54,11 @@ class TestEdgeBuffer {
 
   @Test def edgeEncodings = {
     (0 until 1000000).foreach(i => {
-      val edgeId = i * 3 - i % 2
+      val vertexId = i % 3 + i % 2
       val edgeType = (i % 16).toByte
 
-      val encoded = edgeBuffer.encode(edgeType, edgeId)
-      assertEquals(edgeId, edgeBuffer.extractVertexId(encoded))
+      val encoded = edgeBuffer.encode(edgeType, vertexId)
+      assertEquals(vertexId, edgeBuffer.extractVertexId(encoded))
       assertEquals(edgeType, edgeBuffer.extractType(encoded))
 
     })
