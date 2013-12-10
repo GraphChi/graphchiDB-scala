@@ -34,7 +34,7 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
 
   def encode(edgeType: Byte, vertexId: Long) = ((vertexId << 4) & 0xfffffffffffffff0L) | edgeType
-  def extractVertexId(x: Long) = (x >> 60) & 0x0fffffffffffffffL
+  def extractVertexId(x: Long) = (x >> 4) & 0x0fffffffffffffffL
   def extractType(x: Long) = (x & 0xf).toByte
 
   def addEdge(edgeType: Byte, src: Long, dst: Long, valueBytes: Array[Byte]) : Unit = {

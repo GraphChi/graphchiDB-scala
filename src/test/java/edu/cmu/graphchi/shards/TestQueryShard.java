@@ -2,6 +2,7 @@ package edu.cmu.graphchi.shards;
 
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.FastSharder;
+import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -19,6 +20,9 @@ public class TestQueryShard {
 
         long[] srcs = new long[]{100, 99, 98, 97, 10, 0};
         long[] dsts = new long[]{1, 2, 3, 4, 5, 6};
+        for(int j=0; j<dsts.length; j++) {
+            dsts[j] = VertexIdTranslate.encodeVertexPacket((byte)0, dsts[j], 0);
+        }
 
         FastSharder.writeAdjacencyShard(baseFilename, 0, 1, 1, srcs, dsts, new byte[srcs.length], 0, 101, false);
 
