@@ -728,10 +728,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
   def createVarDataColumn(name: String, indexing: DatabaseIndexing) : VarDataColumn = {
-      this.synchronized {
-         val pointerColumn = createLongColumn(name, indexing)
-         new VarDataColumn(name, baseFilename, pointerColumn)
-      }
+    this.synchronized {
+      val pointerColumn = createLongColumn(name, indexing)
+      new VarDataColumn(name, baseFilename, pointerColumn)
+    }
   }
 
   def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
@@ -817,6 +817,22 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   def addEdgeOrigId(edgeType: Byte, src:Long, dst:Long, values: Any*) {
     addEdge(edgeType, originalToInternalId(src), originalToInternalId(dst), values:_*)
+  }
+
+  // TODO: remove redundancy with updateEdge
+  def findEdgeIdx(edgeType: Byte, src: Long, dst: Long)(updateFunc: Option[Long] => Unit) = {
+    this.synchronized {
+      val idxOpt = {
+        val bufferShard = bufferForEdge(src, dst)
+        val bufferOpt = bufferShard.find(edgeType, src, dst)
+        bufferOpt.orElse( {
+          // Look first the most recent data, so reverse
+          val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+          idxOpt.get
+        })
+      }
+      updateFunc(idxOpt)
+    }
   }
 
   /**

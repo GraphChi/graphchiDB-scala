@@ -142,10 +142,10 @@ class GraphChiLinkBenchAdapter extends GraphStore {
       val payloadId = vertexPayloadColumn.pointerColumn.get(internalId).get
       val oldPayload = vertexPayloadColumn.get(payloadId)
       if (!new String(oldPayload).equals(node.data)) {
-          // Create new
-         val newPayloadId = vertexPayloadColumn.insert(node.data)
-         vertexPayloadColumn.pointerColumn.set(internalId, newPayloadId)
-         vertexPayloadColumn.delete(payloadId)
+        // Create new
+        val newPayloadId = vertexPayloadColumn.insert(node.data)
+        vertexPayloadColumn.pointerColumn.set(internalId, newPayloadId)
+        vertexPayloadColumn.delete(payloadId)
       }
       true
     } else {
@@ -182,13 +182,13 @@ class GraphChiLinkBenchAdapter extends GraphStore {
       /* Just insert */
       addLinkImpl(edge)
     } else {
-       /* Check first if exits, then insert */
-       if (!updateLink(databaseId, edge, noInverse)) {
-         addLinkImpl(edge)
-       }
+      /* Check first if exits, then insert */
+      if (!updateLink(databaseId, edge, noInverse)) {
+        addLinkImpl(edge)
+      }
     }
-   true
-}
+    true
+  }
 
 
   /**
@@ -208,15 +208,34 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     DB.deleteEdgeOrigId(edgeType(linkType), id1, id2)
   }
 
-  def updateLink(databaseId: String, edge: Link, noInverse: Boolean) = {
+  def updateLink(databaseId: String, edge: Link, noInverse: Boolean) : Boolean = {
     println("Update link: %s".format(edge))
     val edgeTypeByte = edgeType(edge.link_type)
 
-    // TODO: first find index, then set directly via the index!
-    DB.updateEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edgeTimestamp, edge.time.toInt)
-    DB.updateEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edgeVersion, edge.version.toByte)
+     DB.findEdgeIdx(edgeTypeByte, edge.id1, edge.id2) { idxOpt => {
+      idxOpt match {
+        case Some(idx) => {
 
-    // TODO: update payload
+          edgeTimestamp.set(idx, edge.time.toInt)
+          edgeVersion.set(idx, edge.version.toByte)
+
+
+          val payloadId = edgePayloadColumn.pointerColumn.get(idx).get
+          val oldPayload = edgePayloadColumn.get(payloadId)
+          if (!new String(oldPayload).equals(new String(edge.data))) {
+              val newPayloadId = edgePayloadColumn.insert(edge.data)
+              edgePayloadColumn.pointerColumn.set(idx, newPayloadId)
+              edgePayloadColumn.delete(payloadId)
+          }
+
+          return true
+        }
+        case None => throw new IllegalArgumentException("Edge does not exist")
+        // TODO: update payload
+
+      }
+    } }
+    throw new IllegalArgumentException("Edge does not exist: %s".format(edge))
   }
 
   def getLink(databaseId: String, id1: Long, linkType: Long, id2: Long) : Link = {
