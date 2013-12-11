@@ -5,6 +5,7 @@ import org.junit.Assert._
 
 import java.io.File
 import edu.cmu.graphchidb.{GraphChiDatabaseAdmin, GraphChiDatabase}
+import scala.collection.mutable.ArrayBuffer
 
 
 /**
@@ -24,17 +25,20 @@ class TestVarData {
 
     val varDataCol = db.createVarDataColumn("testvardata", db.vertexIndexing, null)
 
+    val ids = new ArrayBuffer[Long]()
+
     (0 to 1000000).foreach(i => {
       val id =  varDataCol.insert("testdata%d".format(i).getBytes)
-      assertEquals(id, i)
       // Test read
+
       val retrieved = varDataCol.get(id)
+      ids += id
       assertEquals("testdata%d".format(i), new String(retrieved))
     })
 
     val t = System.currentTimeMillis()
     (0 to 1000000).foreach(i => {
-      val retrieved = varDataCol.get(i)
+      val retrieved = varDataCol.get(ids(i))
       assertEquals("testdata%d".format(i), new String(retrieved))
     })
     val dt = System.currentTimeMillis() - t

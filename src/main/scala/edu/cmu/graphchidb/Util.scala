@@ -21,6 +21,6 @@ object Util {
   def hiBytes(x: Long) : Int = ((x >> 32) & 0xffffffff).toInt
   def setLo(x: Int, y:Long) : Long = (y & 0xffffffff00000000L) | x
   def setHi(x: Int, y:Long) : Long = (y & 0x00000000ffffffffL) | (x.toLong << 32)
-
+  def setHiLo(hi: Int, lo: Int) : Long = setHi(hi, setLo(lo, 0L))
 
 }
