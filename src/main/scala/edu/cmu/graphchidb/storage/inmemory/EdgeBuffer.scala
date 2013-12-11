@@ -211,10 +211,10 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     def next() : Unit = { i += 1}
 
     def hasNext = {
-      if (i < numEdges - 1) {
+      if (i < counter - 1) {
         /* Skip over deleted edges */
         val t = extractType(dstArrayWithType(i + 1))
-        if (t != 15) {
+        if (t != VertexIdTranslate.DELETED_TYPE) {
           true
         }  else {
           i += 1

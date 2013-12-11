@@ -2,7 +2,7 @@ package edu.cmu.graphchidb.linkbench
 
 import com.facebook.LinkBench._
 import java.util.Properties
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
 
@@ -79,13 +79,19 @@ object GraphChiLinkBenchAdapter {
 
   var initialized = false
 
+  val workerCounter = new AtomicInteger()
 
   def close() = {
     println("GraphChiLinkBenchAdapter: close")
-    DB.flushAllBuffers
-    edgePayloadColumn.flushBuffer()
-    vertexPayloadColumn.flushBuffer()
-    initialized = false
+    // Last one flushes the buffers
+    if (workerCounter.decrementAndGet() == 0) {
+      println("Last one -- flushing buffers")
+      DB.flushAllBuffers
+      edgePayloadColumn.flushBuffer()
+      vertexPayloadColumn.flushBuffer()
+      println("Done.")
+      initialized = false
+    }
   }
 
   def clearErrors(threadId: Int) = {
@@ -127,6 +133,7 @@ object GraphChiLinkBenchAdapter {
 
     while (!initialized) Thread.sleep(50)
     println("Thread " + threadId + " starting, this=" + this)
+    workerCounter.incrementAndGet()
   }
 
 

@@ -489,12 +489,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
               val parEdges = oldBuffers(parentIdx).map(_.buffer.numEdges).sum
               val myEdges = new EdgeBuffer(edgeEncoderDecoder, parEdges, bufferId=(-1))
               // Get edges from buffers
+
+              var j = 0
               timed("Edges from buffers", {
                 oldBuffers(parentIdx).foreach( bufAndInt => {
                   val buffer = bufAndInt.buffer
                   val edgeIterator = buffer.edgeIterator
-                  var i = 0
                   val workBuffer = ByteBuffer.allocate(edgeSize)
+                  var i = 0
 
                   while(edgeIterator.hasNext) {
                     edgeIterator.next()
@@ -507,9 +509,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
                     myEdges.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
                     i += 1
+                    j += i
                   }
                 })
-                if (myEdges.numEdges != parEdges) throw new IllegalStateException("Mismatch %d != %d".format(myEdges.numEdges,parEdges))
+                if (myEdges.numEdges != parEdges) throw new IllegalStateException("Mismatch %d != %d, deleted: %d, counters: %d, j:%d".format(
+                  myEdges.numEdges,parEdges, oldBuffers(parentIdx).map(_.buffer.deletedEdges).sum,
+                  oldBuffers(parentIdx).map(_.buffer.counter).sum, j))
                 assert(myEdges.numEdges == parEdges)
               })
 
