@@ -85,6 +85,7 @@ object GraphChiLinkBenchAdapter {
     DB.flushAllBuffers
     edgePayloadColumn.flushBuffer()
     vertexPayloadColumn.flushBuffer()
+    initialized = false
   }
 
   def clearErrors(threadId: Int) = {

@@ -78,11 +78,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   /* Debug log */
   def log(msg: String) = {
-  /*  val str = format.format(new Date()) + "\t" + msg + "\n"
-    debugFile.synchronized {
-      debugFile.write(str.getBytes)
-      debugFile.flush()
-    }*/
+    /*  val str = format.format(new Date()) + "\t" + msg + "\n"
+      debugFile.synchronized {
+        debugFile.write(str.getBytes)
+        debugFile.flush()
+      }*/
   }
 
   def timed[R](blockName: String, block: => R): R = {
@@ -143,7 +143,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
 
-      def checkSize : Unit = {
+    def checkSize : Unit = {
       persistentShardLock.writeLock().lock()
 
       try {
@@ -439,8 +439,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
 
     def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
-      if (find(edgeType, src, dst).isDefined) {
-        flushLock.synchronized {         // Need flush lock
+      flushLock.synchronized {         // Need flush lock
+        if (find(edgeType, src, dst).isDefined) {
           bufferLock.readLock().lock()
           try {
             val buffer = bufferFor(src, dst)
@@ -452,9 +452,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           } finally {
             bufferLock.readLock().unlock()
           }
+
+        } else {
+          false
         }
-      } else {
-        false
       }
     }
 
@@ -958,25 +959,25 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     assert(column.indexing == edgeIndexing)
 
     if (PointerUtil.isBufferPointer(ptr)) {
-         val bufferId = PointerUtil.decodeBufferNum(ptr)
-         val bufferIdx = PointerUtil.decodeBufferPos(ptr)
-         val bufferRef = bufferReference(bufferId)
-         // NOTE: buffer reference may be invalid!!! TODO
+      val bufferId = PointerUtil.decodeBufferNum(ptr)
+      val bufferIdx = PointerUtil.decodeBufferPos(ptr)
+      val bufferRef = bufferReference(bufferId)
+      // NOTE: buffer reference may be invalid!!! TODO
 
-         buf.rewind
-         bufferShards(bufferRef.bufferShardId).nthBuffer(bufferRef.nthBuffer).buffer.readEdgeIntoBuffer(bufferIdx, buf)
-         // TODO: read only necessary column
+      buf.rewind
+      bufferShards(bufferRef.bufferShardId).nthBuffer(bufferRef.nthBuffer).buffer.readEdgeIntoBuffer(bufferIdx, buf)
+      // TODO: read only necessary column
 
-         buf.rewind
-         val vals = edgeEncoderDecoder.decode(buf, -1, -1)
-         Some(vals.values(column.columnId).asInstanceOf[T])
-       } else {
-          column.get(ptr)
-       }
+      buf.rewind
+      val vals = edgeEncoderDecoder.decode(buf, -1, -1)
+      Some(vals.values(column.columnId).asInstanceOf[T])
+    } else {
+      column.get(ptr)
+    }
   }
   def getByPointer[T](column: Column[T], ptr: Long) : Option[T] = {
-     assert(column.indexing == edgeIndexing)
-     getByPointer(column, ptr, ByteBuffer.allocate(edgeEncoderDecoder.edgeSize))
+    assert(column.indexing == edgeIndexing)
+    getByPointer(column, ptr, ByteBuffer.allocate(edgeEncoderDecoder.edgeSize))
   }
 
   def getEdgeValue[T](edgeType: Byte, src: Long, dst: Long, column: Column[T]) : Option[T] = {
@@ -1012,7 +1013,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val buf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
 
     val bufferResults = bufferPointers.map(ptr => {
-       ptr -> getByPointer(column, ptr, buf)
+      ptr -> getByPointer(column, ptr, buf)
     }).toMap
     println("Retrieved %d buffer results, %d persistent", bufferPointers.size, persistentPointers.size)
     persistentResults ++ bufferResults

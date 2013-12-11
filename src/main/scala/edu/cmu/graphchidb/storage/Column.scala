@@ -9,7 +9,7 @@ import java.sql.DriverManager
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate
 import java.nio.{MappedByteBuffer, LongBuffer, ByteBuffer}
 import scala.Some
-import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import java.nio.channels.FileChannel.MapMode
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
@@ -149,7 +149,7 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
   private val bufferSize = 100000
   private var bufferIdStart = 0L
   private var bufferIndexStart = 0L
-  private var bufferCounter = 0
+  private var bufferCounter = new AtomicInteger()
 
   private val buffer = new ByteArrayOutputStream(bufferSize * 100) {
     def currentBuf = buf
@@ -186,36 +186,42 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
   init()
 
   def flushBuffer(): Unit = {
+    lock.writeLock().lock()
+    try {
     logOutput.seek(logOutput.length())
     logOutput.write(buffer.toByteArray)
 
     val byteBuffer = ByteBuffer.allocate(bufferIndices.length * 8)
     val longBuffer = byteBuffer.asLongBuffer()
     longBuffer.put(bufferIndices)
+
+
     val flushedIndicesAsBytes = byteBuffer.array()
     indexFile.seek(indexFile.length())
-    indexFile.write(flushedIndicesAsBytes, 0, bufferCounter * 8)
+    indexFile.write(flushedIndicesAsBytes, 0, bufferCounter.get * 8)
 
-    bufferCounter = 0
-    bufferIndexStart = new File(logFileName).length()
+    bufferCounter.set(0)
+    bufferIndexStart = logOutput.length()
     bufferIdStart = idSeq.get
     buffer.reset()
     indexBuffer = indexFile.getChannel.map(MapMode.READ_ONLY, 0, indexFile.length())
     dataBuffer = logOutput.getChannel.map(MapMode.READ_ONLY, 0, logOutput.length())
 
     println("flush: " + new File(logFileName).getAbsolutePath + ", " +  new File(logFileName).length())
+    } finally {
+       lock.writeLock().unlock()
+    }
   }
 
   def insert(data: Array[Byte]) : Long = {
     lock.writeLock().lock
     try {
       if (!initialized) throw new IllegalStateException("Not initialized")
-      bufferIndices(bufferCounter) = bufferIndexStart + buffer.size()
-      bufferCounter += 1
+      bufferIndices(bufferCounter.getAndIncrement) = bufferIndexStart + buffer.size()
       buffer.write(data)
       val id = idSeq.getAndIncrement
 
-      if (bufferCounter == bufferSize) {
+      if (bufferCounter.get == bufferSize) {
         flushBuffer
       }
       id
@@ -231,7 +237,7 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         // Look from buffers
         val idOff = (id - bufferIdStart).toInt
         val bufferOff = bufferIndices(idOff)
-        val len = if (idOff < bufferCounter - 1) { bufferIndices(idOff + 1) - bufferOff} else
+        val len = if (idOff < bufferCounter.get - 1) { bufferIndices(idOff + 1) - bufferOff} else
         { buffer.size() - (bufferOff - bufferIndexStart) }
 
         val res = new Array[Byte](len.toInt)
@@ -244,10 +250,16 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         res
       } else {
         // Seek file
-        val fileOff = indexBuffer.getLong((id * 8).toInt)
-        val next = if (id * 8 < indexBuffer.capacity() - 8) { indexBuffer.getLong((id * 8 + 8).toInt) } else
-            { logOutput.length() }
+        val idxPos = id * 8
+        val fileOff = indexBuffer.getLong((idxPos).toInt)
+        val next = if (idxPos < indexBuffer.capacity() - 8) { indexBuffer.getLong((idxPos + 8).toInt) } else
+            { dataBuffer.capacity() }
         val len = next - fileOff
+
+        if (len < 0) {
+          printf("Error in size comp: %d %d %d %d %s %s\n".format(id, next, indexBuffer.capacity(), fileOff,
+            indexBuffer.getLong(idxPos.toInt), indexBuffer.getLong(idxPos.toInt + 8)))
+        }
 
         val res = new Array[Byte](len.toInt)
 
