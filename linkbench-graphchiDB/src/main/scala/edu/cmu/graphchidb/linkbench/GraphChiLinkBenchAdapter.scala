@@ -227,7 +227,7 @@ class GraphChiLinkBenchAdapter extends GraphStore {
         case Some(ptr) => {
 
           DB.setByPointer(edgeTimestamp, ptr,  edge.time.toInt)
-          DB.setByPointer(edgeTimestamp, ptr,   edge.version.toByte)
+          DB.setByPointer(edgeVersion, ptr,   edge.version.toByte)
 
           val payloadId = DB.getByPointer(edgePayloadColumn.pointerColumn, ptr).get
           val oldPayload = edgePayloadColumn.get(payloadId)
@@ -290,12 +290,16 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     results.getPointers.zip(results.getInternalIds).
       map( row  => linkFromPointer(row._1.asInstanceOf[Long], id1, linkType, DB.internalToOriginalId(row._2.asInstanceOf[Long]),
       t => (t >= minTimestamp && t <= maxTimestamp))
-    ).flatten.toArray[Link]
+    ).filter(_ != null).toArray[Link]
   }
 
   def countLinks(databaseId: String, id1: Long, linkType: Long) = {
     val internalId = DB.originalToInternalId(id1)
-    if (edgeType(linkType) == 1) { type0Counters.get(internalId).getOrElse(0)}
-    else {type1Counters.get(internalId).getOrElse(0) }
+    val c = if (edgeType(linkType) == 1) {
+      type0Counters.get(internalId).getOrElse(0)
+    } else {
+      type1Counters.get(internalId).getOrElse(0)
+    }
+    c.toLong
   }
 }

@@ -974,7 +974,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     val bufferOpt = bufferShard.getValue(edgeType, src, dst, column.columnId)
     bufferOpt.orElse( {
       // Look first the most recent data, so reverse
-      val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+      val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst))
+        .find(_.isDefined)
       idxOpt.map(idx => column.get(idx.get)).headOption.getOrElse(None)
     })
   }
