@@ -74,22 +74,31 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   val format = new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss")
 
 
+  /* Todo: refactor */
+  var bufferPurgeListers = List[Unit => Unit]()
+  def registerPurgeListener(f: Unit => Unit) = bufferPurgeListers = bufferPurgeListers :+ f
+  def invokePurgeListeners() = bufferPurgeListers.foreach(_())
+
+
   val diskShardPurgeLock = new Object()
 
   /* Debug log */
-  def log(msg: String) = {
-    /*  val str = format.format(new Date()) + "\t" + msg + "\n"
-      debugFile.synchronized {
-        debugFile.write(str.getBytes)
-        debugFile.flush()
-      }*/
+  def log(msg: String, flush:Boolean=true) = {
+    val str = format.format(new Date()) + "\t" + msg + "\n"
+    debugFile.synchronized {
+      debugFile.write(str.getBytes)
+      if (flush) debugFile.flush()
+    }
   }
 
   def timed[R](blockName: String, block: => R): R = {
     val t0 = System.nanoTime()
     val result = block
     val t1 = System.nanoTime()
-    log(blockName + " " +  (t1 - t0) / 1000000.0 + "ms")
+    val tms = (t1 - t0) / 1000000.0
+    if (tms > 10) {   // Log only 10 ms
+      log(blockName + " " +  tms  + "ms", flush=false)
+    }
     result
   }
 
@@ -523,6 +532,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
               })
 
               try {
+                invokePurgeListeners()
                 bufferLock.writeLock.lock()
 
                 destShard.persistentShardLock.writeLock().lock()
@@ -637,6 +647,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def initialize() : Unit = {
     bufferShards.foreach(_.init())
+
+    // Add shutdown hook
+    Runtime.getRuntime.addShutdownHook(new Thread() {
+      override def run() = {
+        println("Run shutdown hook...")
+        flushAllBuffers()
+        println("Finished shutdown hook")
+      }
+    })
+
     initialized = true
   }
 
@@ -737,7 +757,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def createVarDataColumn(name: String, indexing: DatabaseIndexing, blobType: String) : VarDataColumn = {
     this.synchronized {
       val pointerColumn = createLongColumn(name, indexing)
-      new VarDataColumn(name, baseFilename, pointerColumn, blobType)
+      val col = new VarDataColumn(name, baseFilename, pointerColumn, blobType)
+      registerPurgeListener(Unit => col.flushBuffer())
+      col
     }
   }
 
@@ -822,7 +844,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
-  def flushAllBuffers = {
+  def flushAllBuffers() = {
     log("Flushing all buffers...")
     this.synchronized {
       bufferShards.foreach(bufferShard => bufferShard.mergeToParentsAndClear())

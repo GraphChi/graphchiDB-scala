@@ -87,8 +87,6 @@ object GraphChiLinkBenchAdapter {
     if (workerCounter.decrementAndGet() == 0) {
       println("Last one -- flushing buffers")
       DB.flushAllBuffers
-      edgePayloadColumn.flushBuffer()
-      vertexPayloadColumn.flushBuffer()
       println("Done.")
       initialized = false
     }
