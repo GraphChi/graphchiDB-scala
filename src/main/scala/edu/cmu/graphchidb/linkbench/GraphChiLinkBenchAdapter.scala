@@ -52,15 +52,6 @@ object GraphChiLinkBenchAdapter {
 
   /**** NODE STORE **/
 
-  def close() = {
-    println("GraphChiLinkBenchAdapter: close")
-  }
-
-  def clearErrors(threadId: Int) = {
-    println("GraphChiLinkBenchAdapter: clear errors")
-
-  }
-
 
   val baseFilename = "/Users/akyrola/graphs/DB/linkbench/linkbench"
   var DB : GraphChiDatabase = null
@@ -89,6 +80,17 @@ object GraphChiLinkBenchAdapter {
   var initialized = false
 
 
+  def close() = {
+    println("GraphChiLinkBenchAdapter: close")
+    DB.flushAllBuffers
+    edgePayloadColumn.flushBuffer()
+    vertexPayloadColumn.flushBuffer()
+  }
+
+  def clearErrors(threadId: Int) = {
+    println("GraphChiLinkBenchAdapter: clear errors")
+  }
+
   def initialize(p1: Properties, phase: Phase, threadId: Int) = {
     if (threadId == 0) {
       println("Initialize: %s, %s, %d".format(p1, currentPhase, threadId))
@@ -96,7 +98,9 @@ object GraphChiLinkBenchAdapter {
 
 
       if (currentPhase.ordinal() == Phase.LOAD.ordinal()) {
-        resetNodeStore(null, 0L)
+        println("GraphChiLinkBenchAdapter: reset node store, startId: " + 0)
+        GraphChiDatabaseAdmin.createDatabase(baseFilename)
+        idSequence.set(0)
       }
 
       println("Initializing, curphase = " + currentPhase.ordinal())
@@ -131,9 +135,8 @@ object GraphChiLinkBenchAdapter {
    *   resets id allocation, with new IDs to be allocated starting from startID
    */
   def resetNodeStore(p1: String, startId: Long) : Unit = {
-    println("GraphChiLinkBenchAdapter: reset node store, startId: " + startId)
-    GraphChiDatabaseAdmin.createDatabase(baseFilename)
     idSequence.set(startId)
+
   }
 
 

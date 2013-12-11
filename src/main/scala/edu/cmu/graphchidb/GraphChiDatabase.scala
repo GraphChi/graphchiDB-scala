@@ -464,6 +464,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
     def mergeToParentsAndClear() : Unit = {
+      if (numEdges  == 0) return
       flushLock.synchronized {
         var totalMergedEdges = 0
 
@@ -512,8 +513,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                 assert(myEdges.numEdges == parEdges)
               })
 
-
-
               timed("sortEdges", {
                 Sorting.sortWithValues(myEdges.srcArray, myEdges.dstArrayWithType, myEdges.byteArray, edgeSize)
               })
@@ -522,7 +521,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
                 bufferLock.writeLock.lock()
 
                 destShard.persistentShardLock.writeLock().lock()
-
 
                 val destEdges =  timed("destShard.readIntoBuffer", {
                   destShard.readIntoBuffer(destShard.myInterval)
@@ -586,7 +584,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
             }
 
           } catch {
-            case e : Exception => throw new RuntimeException(e)
+            case e : Exception => {
+              e.printStackTrace()
+              throw new RuntimeException(e)
+            }
           }
 
         })
@@ -815,6 +816,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
     }
   }
+
+  def flushAllBuffers = {
+    log("Flushing all buffers...")
+    this.synchronized {
+      bufferShards.foreach(bufferShard => bufferShard.mergeToParentsAndClear())
+    }
+  }
+
 
   def addEdgeOrigId(edgeType: Byte, src:Long, dst:Long, values: Any*) {
     addEdge(edgeType, originalToInternalId(src), originalToInternalId(dst), values:_*)

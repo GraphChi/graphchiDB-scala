@@ -140,13 +140,14 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
   val logIdxFile = logFileName + ".idx"
 
   println(logFileName)
+  println(logIdxFile)
 
   val pointerColumn = _pointerColumn
 
   private val bufferSize = 100000
   private var bufferIdStart = 0L
   private  var bufferIndexStart = 0L
- private  var bufferCounter = 0
+  private  var bufferCounter = 0
   private val buffer = new ByteArrayOutputStream(bufferSize * 100) {
     def currentBuf = buf
   }
@@ -157,15 +158,19 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
   val idSeq = new AtomicLong()
 
   def init() {
-    if (new File(logIdxFile).exists()) {
-      idSeq.set(logIdxFile.length / 8)
-      bufferIdStart = idSeq.get
-      bufferIndexStart = new File(logFileName).length()
+    this.synchronized {
+      if (new File(logIdxFile).exists()) {
+        idSeq.set(logIdxFile.length / 8)
+        bufferIdStart = idSeq.get
+        bufferIndexStart = new File(logFileName).length()
+      }
+      println("Var data index start: " + bufferIdStart)
     }
-    println("Var data index start: " + bufferIdStart)
   }
 
-  private def flushBuffer(): Unit = {
+  init()
+
+  def flushBuffer(): Unit = {
     logOutput.seek(logOutput.length())
     logOutput.write(buffer.toByteArray)
 
@@ -174,12 +179,14 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
     longBuffer.put(bufferIndices)
     val flushedIndicesAsBytes = byteBuffer.array()
     indexFile.seek(indexFile.length())
-    indexFile.write(flushedIndicesAsBytes)
+    indexFile.write(flushedIndicesAsBytes, 0, bufferCounter * 8)
 
     bufferCounter = 0
     bufferIndexStart = new File(logFileName).length()
     bufferIdStart = idSeq.get
     buffer.reset()
+
+    println("flush: " + new File(logFileName).getAbsolutePath + ", " +  new File(logFileName).length())
   }
 
   def insert(data: Array[Byte]) : Long = {
@@ -203,7 +210,7 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         val idOff = (id - bufferIdStart).toInt
         val bufferOff = bufferIndices(idOff)
         val len = if (idOff < bufferCounter - 1) { bufferIndices(idOff + 1) - bufferOff} else
-          { buffer.size() - (bufferOff - bufferIndexStart) }
+        { buffer.size() - (bufferOff - bufferIndexStart) }
 
         val res = new Array[Byte](len.toInt)
         Array.copy(buffer.currentBuf, (bufferOff - bufferIndexStart).toInt, res, 0, len.toInt)
