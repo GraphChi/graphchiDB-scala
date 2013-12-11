@@ -36,13 +36,26 @@ class TestVarData {
       assertEquals("testdata%d".format(i), new String(retrieved))
     })
 
-    val t = System.currentTimeMillis()
+    var t = System.currentTimeMillis()
     (0 to 1000000).foreach(i => {
       val retrieved = varDataCol.get(ids(i))
       assertEquals("testdata%d".format(i), new String(retrieved))
     })
-    val dt = System.currentTimeMillis() - t
+    var dt = System.currentTimeMillis() - t
     println("Retrieval took %s ms, %s ms / search".format(dt, dt * 1.0 / 1000000.0))
+    varDataCol.flushBuffer()
+
+    // Second retrieval, with recreated column
+    val varDataCol2 = db.createVarDataColumn("testvardata", db.vertexIndexing, null)
+    t = System.currentTimeMillis()
+    (0 to 1000000).foreach(i => {
+      val retrieved = varDataCol2.get(ids(i))
+      assertEquals("testdata%d".format(i), new String(retrieved))
+    })
+    dt = System.currentTimeMillis() - t
+    println("Retrieval-2 took %s ms, %s ms / search".format(dt, dt * 1.0 / 1000000.0))
+
+
   }
 
 }
