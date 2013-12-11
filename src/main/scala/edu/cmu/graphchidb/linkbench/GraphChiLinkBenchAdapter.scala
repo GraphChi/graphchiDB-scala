@@ -8,6 +8,13 @@ import edu.cmu.graphchidb.compute.Pagerank
 import edu.cmu.graphchidb.storage.{VarDataColumn, CategoricalColumn, Column}
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import scala.Some
+import scala.Some
+import scala.Some
+import scala.Some
+import scala.Some
+import java.lang.String
+import scala.Predef.String
+import scala.Some
 
 /**
  * @author Aapo Kyrola
