@@ -644,20 +644,25 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     shardTree.last.filter(s => s.myInterval.intersects(bufferIntervals(i)))))
 
 
+  val shutdownHook = new Thread() {
+    override def run() = {
+      println("Run shutdown hook...")
+      flushAllBuffers()
+      println("Finished shutdown hook")
+    }
+  }
 
   def initialize() : Unit = {
     bufferShards.foreach(_.init())
 
     // Add shutdown hook
-    Runtime.getRuntime.addShutdownHook(new Thread() {
-      override def run() = {
-        println("Run shutdown hook...")
-        flushAllBuffers()
-        println("Finished shutdown hook")
-      }
-    })
+    Runtime.getRuntime.addShutdownHook(shutdownHook)
 
     initialized = true
+  }
+
+  def close() = {
+      Runtime.getRuntime().removeShutdownHook(shutdownHook)
   }
 
   def shardForEdge(src: Long, dst: Long) = {

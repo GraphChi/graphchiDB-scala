@@ -87,6 +87,8 @@ object GraphChiLinkBenchAdapter {
     if (workerCounter.decrementAndGet() == 0) {
       println("Last one -- flushing buffers")
       DB.flushAllBuffers
+      DB.close()
+      DB = null
       println("Done.")
       initialized = false
     }
