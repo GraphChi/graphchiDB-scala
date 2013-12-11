@@ -188,13 +188,11 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
     this.synchronized {
       if (!initialized) {
 
-        Stream.from(0) takeWhile (i => {
+        val existing =  Stream.from(0) takeWhile (i => {
           val f = new File(partialFileName(i))
-          if (f.exists()) {
-            partialDataFiles += initPartialData(i)
-          }
           f.exists()
         })
+        partialDataFiles ++= existing.map(i => initPartialData(i))
         startNewPart()
         initialized = true
         println("Initialized %s, new part id = %d".format(prefixFilename, currentBufferPartId))
@@ -207,10 +205,14 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
   init()
 
   def startNewPart(): Unit = {
-    this.synchronized {
-      currentBufferPartId = partialDataFiles.size
+    lock.writeLock().lock()
+    try {
       partialDataFiles += initPartialData(currentBufferPartId)
+      currentBufferPartId = partialDataFiles.size
+
       idSeq.set(0)
+    } finally {
+       lock.writeLock.unlock()
     }
   }
 
@@ -288,6 +290,9 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
 
         res
       } else {
+        if (partialId >= partialDataFiles.size) {
+           println("Accessing partial id %d, but size: %d, globalid=%s".format(partialId, partialDataFiles.size, globalId))
+        }
 
         // Seek file
         val indexBuffer = partialDataFiles(partialId).idxBuffer

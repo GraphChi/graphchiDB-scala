@@ -24,6 +24,7 @@ class TestVarData {
     val db = new GraphChiDatabase(testDb)
 
     val varDataCol = db.createVarDataColumn("testvardata", db.vertexIndexing, null)
+    varDataCol.maxFileSize = 100000
 
     val ids = new ArrayBuffer[Long]()
 

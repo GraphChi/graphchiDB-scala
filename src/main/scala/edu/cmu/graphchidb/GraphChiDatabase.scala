@@ -1161,7 +1161,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           }
         })
       })
-      log("Out query finished")
 
       timed("query-out-combine", {
         new QueryResult(vertexIndexing, resultContainer.combinedResults(), this)
