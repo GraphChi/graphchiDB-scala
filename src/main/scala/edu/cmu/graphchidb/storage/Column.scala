@@ -7,9 +7,11 @@ import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import java.io._
 import java.sql.DriverManager
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate
-import java.nio.{LongBuffer, ByteBuffer}
+import java.nio.{MappedByteBuffer, LongBuffer, ByteBuffer}
 import scala.Some
 import java.util.concurrent.atomic.AtomicLong
+import java.nio.channels.FileChannel.MapMode
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /**
  *
@@ -146,25 +148,38 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
 
   private val bufferSize = 100000
   private var bufferIdStart = 0L
-  private  var bufferIndexStart = 0L
-  private  var bufferCounter = 0
+  private var bufferIndexStart = 0L
+  private var bufferCounter = 0
+
   private val buffer = new ByteArrayOutputStream(bufferSize * 100) {
     def currentBuf = buf
   }
+
+  var initialized = false
 
   val bufferIndices = new Array[Long](bufferSize)
   val logOutput = new RandomAccessFile(logFileName, "rw")
   val indexFile = new RandomAccessFile(logIdxFile, "rw")
   val idSeq = new AtomicLong()
 
+  var indexBuffer : MappedByteBuffer = null
+  var dataBuffer : MappedByteBuffer = null
+
+  val lock = new ReentrantReadWriteLock()
+
   def init() {
     this.synchronized {
       if (new File(logIdxFile).exists()) {
-        idSeq.set(logIdxFile.length / 8)
+        idSeq.set(new File(logIdxFile).length / 8)
         bufferIdStart = idSeq.get
         bufferIndexStart = new File(logFileName).length()
+        indexBuffer = indexFile.getChannel.map(MapMode.READ_ONLY, 0, indexFile.length())
+        dataBuffer = logOutput.getChannel.map(MapMode.READ_ONLY, 0, logOutput.length())
+
       }
-      println("Var data index start: " + bufferIdStart)
+      println("Var data index start: " + bufferIdStart + " / " + bufferIndexStart)
+      initialized = true
+
     }
   }
 
@@ -185,12 +200,16 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
     bufferIndexStart = new File(logFileName).length()
     bufferIdStart = idSeq.get
     buffer.reset()
+    indexBuffer = indexFile.getChannel.map(MapMode.READ_ONLY, 0, indexFile.length())
+    dataBuffer = logOutput.getChannel.map(MapMode.READ_ONLY, 0, logOutput.length())
 
     println("flush: " + new File(logFileName).getAbsolutePath + ", " +  new File(logFileName).length())
   }
 
   def insert(data: Array[Byte]) : Long = {
-    this.synchronized {  // TODO, remove sync!
+    lock.writeLock().lock
+    try {
+      if (!initialized) throw new IllegalStateException("Not initialized")
       bufferIndices(bufferCounter) = bufferIndexStart + buffer.size()
       bufferCounter += 1
       buffer.write(data)
@@ -200,11 +219,14 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         flushBuffer
       }
       id
+    } finally {
+       lock.writeLock().unlock()
     }
   }
 
   def get(id: Long) : Array[Byte] = {
-    this.synchronized {
+    lock.readLock().lock()
+    try {
       if (id >= bufferIdStart) {
         // Look from buffers
         val idOff = (id - bufferIdStart).toInt
@@ -213,19 +235,29 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         { buffer.size() - (bufferOff - bufferIndexStart) }
 
         val res = new Array[Byte](len.toInt)
-        Array.copy(buffer.currentBuf, (bufferOff - bufferIndexStart).toInt, res, 0, len.toInt)
+        try {
+          Array.copy(buffer.currentBuf, (bufferOff - bufferIndexStart).toInt, res, 0, len.toInt)
+        } catch {
+          case aie: Exception  =>
+            throw aie
+        }
         res
       } else {
         // Seek file
-        indexFile.seek(id * 8)
-        val fileOff = indexFile.readLong()
-        val next = if (id * 8 < indexFile.length() - 8) { indexFile.readLong() } else { logOutput.length() }
+        val fileOff = indexBuffer.getLong((id * 8).toInt)
+        val next = if (id * 8 < indexBuffer.capacity() - 8) { indexBuffer.getLong((id * 8 + 8).toInt) } else
+            { logOutput.length() }
         val len = next - fileOff
-        logOutput.seek(fileOff)
+
         val res = new Array[Byte](len.toInt)
-        logOutput.read(res, 0, len.toInt)
+
+        val tmpBuffer = dataBuffer.duplicate()
+        tmpBuffer.position(fileOff.toInt)
+        tmpBuffer.get(res)
         res
       }
+    } finally {
+      lock.readLock().unlock()
     }
   }
 

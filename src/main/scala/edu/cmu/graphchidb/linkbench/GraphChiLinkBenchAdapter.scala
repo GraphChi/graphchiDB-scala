@@ -105,7 +105,7 @@ object GraphChiLinkBenchAdapter {
 
       println("Initializing, curphase = " + currentPhase.ordinal())
 
-      DB = new GraphChiDatabase(baseFilename)
+      DB = new GraphChiDatabase(baseFilename, disableDegree = true)
       /* Create columns */
       edgeTimestamp = DB.createIntegerColumn("time", DB.edgeIndexing)
       edgeVersion = DB.createByteColumn("vers", DB.edgeIndexing)
@@ -124,7 +124,7 @@ object GraphChiLinkBenchAdapter {
     }
     println("Thread " + threadId + " waiting, this=" + this)
 
-    if (threadId != 0) Thread.sleep(5000)
+    while (!initialized) Thread.sleep(50)
     println("Thread " + threadId + " starting, this=" + this)
   }
 
@@ -170,7 +170,6 @@ object GraphChiLinkBenchAdapter {
   }
 
   def updateNode(databaseId: String, node: Node) = {
-    println("Update node %s, %s".format(databaseId, node))
     // TODO: payload
     val internalId = DB.originalToInternalId(node.id)
     val timestamp = nodeTimestamp.get(internalId).getOrElse(0)
@@ -194,11 +193,13 @@ object GraphChiLinkBenchAdapter {
   }
 
   def deleteNode(databaseId: String, nodeType: Int, id: Long) = {
-    println("Delete node: %s %d".format(nodeType, id))
     val internalId = DB.originalToInternalId(id)
-    type0Counters.set(internalId, 0)
+    /*type0Counters.set(internalId, 0)
     type1Counters.set(internalId, 0)
-    DB.deleteVertexOrigId(internalId)
+    DB.deleteVertexOrigId(internalId) */
+    // NOTE: as per the mysql link bench, only invalidate the node
+    nodeTimestamp.set(internalId, 0)
+    true
   }
 
   /**** LINK STORE ****/
@@ -245,7 +246,6 @@ object GraphChiLinkBenchAdapter {
    * @throws Exception
    */
   def deleteLink(databaseId: String, id1: Long, linkType: Long, id2: Long, noInverse: Boolean, exPunge: Boolean) = {
-    println("Delete link: %s %s %s expunge: %s".format(id1, linkType, id2, exPunge))
     if (DB.deleteEdgeOrigId(edgeType(linkType), id1, id2)) {
       val countColumn = if (edgeType(linkType) == 0) type0Counters else type1Counters
       countColumn.update(DB.originalToInternalId(id1), c => c.getOrElse(1) - 1)
@@ -256,7 +256,6 @@ object GraphChiLinkBenchAdapter {
   }
 
   def updateLink(databaseId: String, edge: Link, noInverse: Boolean) : Boolean = {
-    println("Update link: %s".format(edge))
     val edgeTypeByte = edgeType(edge.link_type)
 
     DB.findEdgePointer(edgeTypeByte, DB.originalToInternalId(edge.id1), DB.originalToInternalId(edge.id2)) { ptrOpt => {
@@ -277,7 +276,7 @@ object GraphChiLinkBenchAdapter {
 
           return true
         }
-        case None => throw new IllegalArgumentException("Edge does not exist")
+        case None => return false
         // TODO: update payload
 
       }

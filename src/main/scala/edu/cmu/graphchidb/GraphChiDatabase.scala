@@ -46,7 +46,7 @@ object GraphChiDatabaseAdmin {
  * Defines a sharded graphchi database.
  * @author Aapo Kyrola
  */
-class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
+class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false) {
   var numShards = 256
   val bufferParents = 4
 
@@ -78,11 +78,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
   /* Debug log */
   def log(msg: String) = {
-    val str = format.format(new Date()) + "\t" + msg + "\n"
+  /*  val str = format.format(new Date()) + "\t" + msg + "\n"
     debugFile.synchronized {
       debugFile.write(str.getBytes)
       debugFile.flush()
-    }
+    }*/
   }
 
   def timed[R](blockName: String, block: => R): R = {
@@ -129,7 +129,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
 
 
     def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
-      println("Shard %d find".format(shardId))
       persistentShardLock.readLock().lock()
       try {
         val idx = persistentShard.find(edgeType, src, dst)
@@ -838,7 +837,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
         bufferOpt.orElse( {
           // Look first the most recent data, so reverse
           val persistentPtrOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
-          persistentPtrOpt.get
+          if (persistentPtrOpt.isDefined) { persistentPtrOpt.get} else { None }
         })
       }
       updateFunc(ptrOpt)
@@ -905,8 +904,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       })
       false
     } else {
-      decrementInDegree(dst)
-      decrementOutDegree(src)
+      this.synchronized {
+        decrementInDegree(dst)
+        decrementOutDegree(src)
+      }
       true
     }
   }
@@ -1199,25 +1200,29 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   // Premature optimization
   val degreeEncodingBuffer = ByteBuffer.allocate(8)
 
-  def incrementInDegree(internalId: Long) : Unit =
+  def incrementInDegree(internalId: Long) : Unit = if (!disableDegree) {
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(0L)
       Util.setHi(Util.hiBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
+  }
 
-  def incrementOutDegree(internalId: Long) : Unit =
+  def incrementOutDegree(internalId: Long) : Unit =  if (!disableDegree) {
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(0L)
       Util.setLo(Util.loBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
+  }
 
-  def decrementInDegree(internalId: Long) : Unit =
+  def decrementInDegree(internalId: Long) : Unit =  if (!disableDegree) {
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(1L)
       Util.setHi(Util.hiBytes(curValue) - 1, curValue) }, degreeEncodingBuffer)
+  }
 
-  def decrementOutDegree(internalId: Long) : Unit =
+  def decrementOutDegree(internalId: Long) : Unit = if (!disableDegree) {
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(1L)
       Util.setLo(Util.loBytes(curValue) - 1, curValue) }, degreeEncodingBuffer)
+  }
 
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))

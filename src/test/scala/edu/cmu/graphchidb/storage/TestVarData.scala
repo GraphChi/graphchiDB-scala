@@ -32,10 +32,13 @@ class TestVarData {
       assertEquals("testdata%d".format(i), new String(retrieved))
     })
 
+    val t = System.currentTimeMillis()
     (0 to 1000000).foreach(i => {
       val retrieved = varDataCol.get(i)
       assertEquals("testdata%d".format(i), new String(retrieved))
     })
+    val dt = System.currentTimeMillis() - t
+    println("Retrieval took %s ms, %s ms / search".format(dt, dt * 1.0 / 1000000.0))
   }
 
 }

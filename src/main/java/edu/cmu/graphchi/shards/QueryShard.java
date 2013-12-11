@@ -92,18 +92,20 @@ public class QueryShard {
     }
 
     // TODO: do not synchronize but make mirror of the buffer
-    public synchronized Long find(byte edgeType, long src, long dst) {
+    public Long find(byte edgeType, long src, long dst) {
+        final LongBuffer tmpAdjBuffer = adjBuffer.duplicate();
+        final LongBuffer tmpPointerBuffer = pointerIdxBuffer.duplicate();
         ShardIndex.IndexEntry indexEntry = index.lookup(src);
-        long curPtr = findIdxAndPos(src, indexEntry);
+        long curPtr = findIdxAndPos(src, indexEntry, tmpPointerBuffer);
         if (curPtr != (-1L)) {
-            long nextPtr = pointerIdxBuffer.get();
+            long nextPtr = tmpPointerBuffer.get();
             int n = (int) (VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(curPtr));
 
             long adjOffset = VertexIdTranslate.getAux(curPtr);
-            adjBuffer.position((int)adjOffset);
+            tmpAdjBuffer.position((int)adjOffset);
             for(int i=0; i<n; i++) {
                 // TODO: binary search
-                long e = adjBuffer.get();
+                long e = tmpAdjBuffer.get();
                 long v = VertexIdTranslate.getVertexId(e);
                 if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
                     // Found
@@ -116,7 +118,7 @@ public class QueryShard {
         return null;
     }
 
-    public synchronized boolean deleteEdge(byte edgeType, long src, long dst) {
+    public boolean deleteEdge(byte edgeType, long src, long dst) {
         Long ptr = find(edgeType, src, dst);
         if (ptr != null) {
             deleteEdgeAtPtr(ptr);
@@ -162,12 +164,12 @@ public class QueryShard {
     }
 
 
-    public synchronized void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType) {
+    public void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType) {
         queryOut(queryIds, callback, edgeType, false);
     }
 
     // TODO: wild-card search
-    public synchronized void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
+    public void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
         try {
              /* Sort the ids because the index-entries will be in same order */
             ArrayList<Long> sortedIds = new ArrayList<Long>(queryIds);
@@ -178,14 +180,17 @@ public class QueryShard {
                 indexEntries.add(index.lookup(a));
             }
 
+            final LongBuffer tmpPointerIdxBuffer = pointerIdxBuffer.duplicate();
+            final LongBuffer tmpAdjBuffer = adjBuffer.duplicate();
+
             ShardIndex.IndexEntry entry = null;
             for(int qIdx=0; qIdx < sortedIds.size(); qIdx++) {
                 entry = indexEntries.get(qIdx);
                 long vertexId = sortedIds.get(qIdx);
-                long curPtr = findIdxAndPos(vertexId, entry);
+                long curPtr = findIdxAndPos(vertexId, entry, tmpPointerIdxBuffer);
 
                 if (curPtr != (-1L)) {
-                    long nextPtr = pointerIdxBuffer.get();
+                    long nextPtr = tmpPointerIdxBuffer.get();
                     int n = (int) (VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(curPtr));
 
                     ArrayList<Long> res = new ArrayList<Long>(n);
@@ -193,9 +198,9 @@ public class QueryShard {
                     ArrayList<Byte> resTypes = new ArrayList<Byte>(n);
 
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
-                    adjBuffer.position((int)adjOffset);
+                    tmpAdjBuffer.position((int)adjOffset);
                     for(int i=0; i<n; i++) {
-                        long e = adjBuffer.get();
+                        long e = tmpAdjBuffer.get();
                         byte etype = VertexIdTranslate.getType(e);
 
                         if (ignoreType || etype == edgeType) {
@@ -218,14 +223,14 @@ public class QueryShard {
     /**
      * Returns the vertex idx for given vertex in the pointer file, or -1 if not found.
      */
-    private long findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry) {
+    private long findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry, final LongBuffer tmpBuffer) {
         assert(sparseIndexEntry.vertex <= vertexId);
-        if (pointerIdxBuffer.capacity() == 0) return -1;
+        if (tmpBuffer.capacity() == 0) return -1;
 
         int vertexSeq = sparseIndexEntry.vertexSeq;
         long curvid = sparseIndexEntry.vertex;
-        pointerIdxBuffer.position(vertexSeq);
-        long ptr = pointerIdxBuffer.get();
+        tmpBuffer.position(vertexSeq);
+        long ptr = tmpBuffer.get();
 
         while(curvid <= vertexId) {
             try {
@@ -233,7 +238,7 @@ public class QueryShard {
                 if (curvid == vertexId) {
                     return ptr;
                 }
-                ptr = pointerIdxBuffer.get();
+                ptr = tmpBuffer.get();
             } catch (BufferUnderflowException bufe) {
                 return -1;
             }
@@ -241,11 +246,14 @@ public class QueryShard {
         return -1L;
     }
 
-    public synchronized void queryIn(Long queryId, QueryCallback callback, byte edgeType) {
+    public void queryIn(Long queryId, QueryCallback callback, byte edgeType) {
         queryIn(queryId, callback, edgeType, false);
     }
 
-    private synchronized void queryIn(Long queryId, QueryCallback callback, byte edgeType, boolean ignoreType) {
+    private void queryIn(Long queryId, QueryCallback callback, byte edgeType, boolean ignoreType) {
+
+        final LongBuffer tmpBuffer = adjBuffer.duplicate();
+
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
@@ -257,6 +265,8 @@ public class QueryShard {
             ArrayList<Integer> offsets = new ArrayList<Integer>();
             int END = (1<<26) - 1;
 
+            final IntBuffer startBufferTmp = inEdgeStartBuffer.duplicate();
+
             // Binary search to find the start of the vertex
             int n = inEdgeStartBuffer.capacity() / 2;
             int low = 0;
@@ -265,9 +275,9 @@ public class QueryShard {
             int queryRelative = (int) (queryId - interval.getFirstVertex());
             while(low <= high) {
                 int idx = ((high + low) / 2);
-                int v = inEdgeStartBuffer.get(idx * 2);
+                int v = startBufferTmp.get(idx * 2);
                 if (v == queryRelative) {
-                    off = inEdgeStartBuffer.get(idx * 2 + 1);
+                    off = startBufferTmp.get(idx * 2 + 1);
                     break;
                 }
                 if (v < queryRelative) {
@@ -282,8 +292,8 @@ public class QueryShard {
             }
 
             while(off != END) {
-                adjBuffer.position(off);
-                long edge = adjBuffer.get();
+                tmpBuffer.position(off);
+                long edge = tmpBuffer.get();
                 if (VertexIdTranslate.getVertexId(edge) != queryId) {
                     throw new RuntimeException("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
                 }
@@ -297,8 +307,8 @@ public class QueryShard {
                     throw new RuntimeException("Encoding error: " + edge + " --> " + VertexIdTranslate.getVertexId(edge)
                             + " off : " + VertexIdTranslate.getAux(edge));
                 }
-                if (off != END && (off < 0 || off > adjBuffer.capacity())) {
-                    System.err.println("Illegal off when looking for inedges: " + off + ", capacity:" + adjBuffer.capacity() + ", shardNum=" + shardNum);
+                if (off != END && (off < 0 || off > tmpBuffer.capacity())) {
+                    System.err.println("Illegal off when looking for inedges: " + off + ", capacity:" + tmpBuffer.capacity() + ", shardNum=" + shardNum);
                 }
             }
             _timer1.stop();
@@ -312,6 +322,8 @@ public class QueryShard {
             ArrayList<Byte> edgeTypes = new ArrayList<Byte>(offsets.size());
 
 
+            final LongBuffer tmpPointerIdxBuffer = pointerIdxBuffer.duplicate();
+
             Iterator<Integer> offsetIterator = offsets.iterator();
             if (!offsets.isEmpty()) {
                 final Timer.Context  _timer2 = inEdgePhase2Timer.time();
@@ -321,16 +333,16 @@ public class QueryShard {
                 ShardIndex.IndexEntry startIndex = index.lookupByOffset(firstOff * 8);
                 _timer3.stop();
 
-                pointerIdxBuffer.position(startIndex.vertexSeq);
+                tmpPointerIdxBuffer.position(startIndex.vertexSeq);
 
-                long last = pointerIdxBuffer.get();
+                long last = tmpPointerIdxBuffer.get();
                 while (offsetIterator.hasNext()) {
                     off = offsetIterator.next();
                     long ptr = last;
 
                     while(VertexIdTranslate.getAux(ptr) <= off) {
                         last = ptr;
-                        ptr = pointerIdxBuffer.get();
+                        ptr = tmpPointerIdxBuffer.get();
                     }
                     inNeighbors.add(VertexIdTranslate.getVertexId(last));
                     inNeighborsPtrs.add(PointerUtil.encodePointer(shardNum, off));
