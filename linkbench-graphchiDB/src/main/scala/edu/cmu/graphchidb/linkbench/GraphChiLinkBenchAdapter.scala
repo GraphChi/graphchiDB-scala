@@ -1,12 +1,13 @@
 package edu.cmu.graphchidb.linkbench
 
-import com.facebook.LinkBench.{Link, Phase, Node, GraphStore}
+import com.facebook.LinkBench._
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicLong
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import edu.cmu.graphchidb.compute.Pagerank
 import edu.cmu.graphchidb.storage.{VarDataColumn, CategoricalColumn, Column}
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
+import scala.Some
 
 /**
  * @author Aapo Kyrola
@@ -155,7 +156,10 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
   def deleteNode(databaseId: String, nodeType: Int, id: Long) = {
     println("Delete node: %s %d".format(nodeType, id))
-    DB.deleteVertexOrigId(id)
+    val internalId = DB.originalToInternalId(id)
+    type0Counters.set(internalId, 0)
+    type1Counters.set(internalId, 0)
+    DB.deleteVertexOrigId(internalId)
   }
 
   /**** LINK STORE ****/
@@ -205,27 +209,33 @@ class GraphChiLinkBenchAdapter extends GraphStore {
    */
   def deleteLink(databaseId: String, id1: Long, linkType: Long, id2: Long, noInverse: Boolean, exPunge: Boolean) = {
     println("Delete link: %s %s %s expunge: %s".format(id1, linkType, id2, exPunge))
-    DB.deleteEdgeOrigId(edgeType(linkType), id1, id2)
+    if (DB.deleteEdgeOrigId(edgeType(linkType), id1, id2)) {
+      val countColumn = if (edgeType(linkType) == 0) type0Counters else type1Counters
+      countColumn.update(DB.originalToInternalId(id1), c => c.getOrElse(1) - 1)
+      true
+    } else {
+      false
+    }
   }
 
   def updateLink(databaseId: String, edge: Link, noInverse: Boolean) : Boolean = {
     println("Update link: %s".format(edge))
     val edgeTypeByte = edgeType(edge.link_type)
 
-     DB.findEdgeIdx(edgeTypeByte, edge.id1, edge.id2) { idxOpt => {
-      idxOpt match {
-        case Some(idx) => {
+    DB.findEdgePointer(edgeTypeByte, DB.originalToInternalId(edge.id1), DB.originalToInternalId(edge.id2)) { ptrOpt => {
+      ptrOpt match {
+        case Some(ptr) => {
 
-          edgeTimestamp.set(idx, edge.time.toInt)
-          edgeVersion.set(idx, edge.version.toByte)
+          DB.setByPointer(edgeTimestamp, ptr,  edge.time.toInt)
+          DB.setByPointer(edgeTimestamp, ptr,   edge.version.toByte)
 
-
-          val payloadId = edgePayloadColumn.pointerColumn.get(idx).get
+          val payloadId = DB.getByPointer(edgePayloadColumn.pointerColumn, ptr).get
           val oldPayload = edgePayloadColumn.get(payloadId)
           if (!new String(oldPayload).equals(new String(edge.data))) {
-              val newPayloadId = edgePayloadColumn.insert(edge.data)
-              edgePayloadColumn.pointerColumn.set(idx, newPayloadId)
-              edgePayloadColumn.delete(payloadId)
+            val newPayloadId = edgePayloadColumn.insert(edge.data)
+            DB.setByPointer(edgePayloadColumn.pointerColumn, ptr, newPayloadId)
+
+            edgePayloadColumn.delete(payloadId)
           }
 
           return true
@@ -238,25 +248,54 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     throw new IllegalArgumentException("Edge does not exist: %s".format(edge))
   }
 
+  private def linkFromPointer(ptr: Long, id1: Long, linkType: Long, id2: Long, timestampFilter: Int => Boolean) : Link = {
+    val timestamp = DB.getByPointer(edgeTimestamp, ptr)
+    if (timestampFilter(timestamp.get)) {
+      val version = DB.getByPointer(edgeVersion, ptr)
+      val payloadId = DB.getByPointer(edgePayloadColumn.pointerColumn, ptr)
+      val payload = edgePayloadColumn.get(payloadId.get)
+      // TODO: visibility
+      return new Link(id1, linkType, id2, LinkStore.VISIBILITY_DEFAULT, payload, version.get, timestamp.get)
+    } else {
+      return null
+    }
+  }
+
   def getLink(databaseId: String, id1: Long, linkType: Long, id2: Long) : Link = {
-    println("Get link: %s, %s, %s".format(id1, linkType, id2))
+    DB.findEdgePointer(edgeType(linkType), DB.originalToInternalId(id1), DB.originalToInternalId(id2)) {
+      ptrOpt => {
+        ptrOpt match {
+          case Some(ptr) => {
+            return linkFromPointer(ptr, id1, linkType, id2, t => true)
+          }
+          case None =>
+            return null
+        }
+      }
+    }
+
     null
   }
 
   def getLinkList(databaseId: String, id1: Long, linkType: Long) : Array[Link]    = {
-    println("getLinkList %s %s".format(id1, linkType))
-    null
+    val results = DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType))
+    results.getPointers.zip(results.getInternalIds).
+      map( row  => linkFromPointer(row._1.asInstanceOf[Long], id1, linkType, DB.internalToOriginalId(row._2.asInstanceOf[Long]), t=>true)
+    ).toArray[Link]
   }
 
   def getLinkList(databaseId: String, id1: Long, linkType: Long, minTimestamp: Long, maxTimestamp: Long,
                   offset: Int, limit: Int) : Array[Link]   = {
-    println("getLinkList-range %s %s %s %s offset: %d, limit: %d".format(id1, linkType, minTimestamp, maxTimestamp,
-      offset, limit))
-    null
+    val results = DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType))
+    results.getPointers.zip(results.getInternalIds).
+      map( row  => linkFromPointer(row._1.asInstanceOf[Long], id1, linkType, DB.internalToOriginalId(row._2.asInstanceOf[Long]),
+      t => (t >= minTimestamp && t <= maxTimestamp))
+    ).flatten.toArray[Link]
   }
 
   def countLinks(databaseId: String, id1: Long, linkType: Long) = {
-    println("countLInks: %s %s".format(id1, linkType))
-    0L
+    val internalId = DB.originalToInternalId(id1)
+    if (edgeType(linkType) == 1) { type0Counters.get(internalId).getOrElse(0)}
+    else {type1Counters.get(internalId).getOrElse(0) }
   }
 }

@@ -47,6 +47,9 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
 
   def getInternalIds = rows.ids
 
+  def getPointers = rows.pointers
+
+
   override def toString() = "Query result: %d rows".format(rows.ids.size)
 
   def withIndexing(desiredIndexing: DatabaseIndexing) = {

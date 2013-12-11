@@ -140,10 +140,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
       } finally {
         persistentShardLock.readLock().unlock()
       }
-
     }
 
-    def checkSize : Unit = {
+
+
+      def checkSize : Unit = {
       persistentShardLock.writeLock().lock()
 
       try {
@@ -820,18 +821,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   }
 
   // TODO: remove redundancy with updateEdge
-  def findEdgeIdx(edgeType: Byte, src: Long, dst: Long)(updateFunc: Option[Long] => Unit) = {
+  def findEdgePointer(edgeType: Byte, src: Long, dst: Long)(updateFunc: Option[Long] => Unit) = {
     this.synchronized {
-      val idxOpt = {
+      val ptrOpt = {
         val bufferShard = bufferForEdge(src, dst)
         val bufferOpt = bufferShard.find(edgeType, src, dst)
         bufferOpt.orElse( {
           // Look first the most recent data, so reverse
-          val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
-          idxOpt.get
+          val persistentPtrOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+          persistentPtrOpt.get
         })
       }
-      updateFunc(idxOpt)
+      updateFunc(ptrOpt)
     }
   }
 
@@ -933,6 +934,41 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
   def deleteVertexOrigId(vertexId: Long): Boolean = { deleteVertex(originalToInternalId(vertexId)) }
 
 
+  def setByPointer[T](column: Column[T], ptr: Long, value: T) = {
+    if (PointerUtil.isBufferPointer(ptr)) {
+      val bufferId = PointerUtil.decodeBufferNum(ptr)
+      val bufferIdx = PointerUtil.decodeBufferPos(ptr)
+      val bufferRef = bufferReference(bufferId)
+      bufferShards(bufferRef.bufferShardId).nthBuffer(bufferRef.nthBuffer).buffer.setColumnValue(bufferIdx, column.columnId, value)
+    } else {
+      column.set(ptr, value)
+    }
+  }
+  def getByPointer[T](column: Column[T], ptr: Long, buf: ByteBuffer) : Option[T] = {
+    assert(column.indexing == edgeIndexing)
+
+    if (PointerUtil.isBufferPointer(ptr)) {
+         val bufferId = PointerUtil.decodeBufferNum(ptr)
+         val bufferIdx = PointerUtil.decodeBufferPos(ptr)
+         val bufferRef = bufferReference(bufferId)
+         // NOTE: buffer reference may be invalid!!! TODO
+
+         buf.rewind
+         bufferShards(bufferRef.bufferShardId).nthBuffer(bufferRef.nthBuffer).buffer.readEdgeIntoBuffer(bufferIdx, buf)
+         // TODO: read only necessary column
+
+         buf.rewind
+         val vals = edgeEncoderDecoder.decode(buf, -1, -1)
+         Some(vals.values(column.columnId).asInstanceOf[T])
+       } else {
+          column.get(ptr)
+       }
+  }
+  def getByPointer[T](column: Column[T], ptr: Long) : Option[T] = {
+     assert(column.indexing == edgeIndexing)
+     getByPointer(column, ptr, ByteBuffer.allocate(edgeEncoderDecoder.edgeSize))
+  }
+
   def getEdgeValue[T](edgeType: Byte, src: Long, dst: Long, column: Column[T]) : Option[T] = {
     val bufferShard = bufferForEdge(src, dst)
     val bufferOpt = bufferShard.getValue(edgeType, src, dst, column.columnId)
@@ -963,19 +999,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     assert(columnIdx >= 0)
     val persistentResults = column.getMany(persistentPointers)
     val buf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
+
     val bufferResults = bufferPointers.map(ptr => {
-      val bufferId = PointerUtil.decodeBufferNum(ptr)
-      val bufferIdx = PointerUtil.decodeBufferPos(ptr)
-      val bufferRef = bufferReference(bufferId)
-      // NOTE: buffer reference may be invalid!!! TODO
-
-      buf.rewind
-      bufferShards(bufferRef.bufferShardId).nthBuffer(bufferRef.nthBuffer).buffer.readEdgeIntoBuffer(bufferIdx, buf)
-      // TODO: read ony necessary column
-
-      buf.rewind
-      val vals = edgeEncoderDecoder.decode(buf, -1, -1)
-      ptr -> Some(vals.values(columnIdx).asInstanceOf[T])
+       ptr -> getByPointer(column, ptr, buf)
     }).toMap
     println("Retrieved %d buffer results, %d persistent", bufferPointers.size, persistentPointers.size)
     persistentResults ++ bufferResults
