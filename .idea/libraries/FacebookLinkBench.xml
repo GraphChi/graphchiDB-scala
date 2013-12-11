@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="FacebookLinkBench">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/../linkbench/target/FacebookLinkBench.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$PROJECT_DIR$/../linkbench/target/FacebookLinkBench.jar!/" />
+    </SOURCES>
+  </library>
+</component>

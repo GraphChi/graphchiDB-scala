@@ -4,10 +4,12 @@ import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
 import edu.cmu.graphchidb.storage.ByteConverters._
 
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
-import java.io.{ByteArrayInputStream, File}
+import java.io._
 import java.sql.DriverManager
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate
-import java.nio.ByteBuffer
+import java.nio.{LongBuffer, ByteBuffer}
+import scala.Some
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  *
@@ -131,90 +133,97 @@ class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing,
 
 
 /** Vardata columns have two parts: one is long-column holding indices to the
-  * var data payload, which is stored separately (currently in MySQL).
+  * var data payload, which is stored in a special log (TODO: garbage collection).
   */
-class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Long])   {
-  val tableName =  "vardata_" + math.abs(filePrefix.hashCode) + "_" + name + "_" + _pointerColumn.indexing.name
+class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Long], blobType: String)   {
+  val logFileName = filePrefix +  ".vardata_" + name + "_" + _pointerColumn.indexing.name
+  val logIdxFile = logFileName + ".idx"
 
-  println(tableName)
+  println(logFileName)
 
-  def pointerColumn = _pointerColumn
+  val pointerColumn = _pointerColumn
 
-  val dbConnection = {
-    Class.forName("com.mysql.jdbc.Driver")
-    DriverManager.getConnection("jdbc:mysql://127.0.0.1/graphchidb?" +
-      "user=graphchidb&password=dbchi9999")
+  private val bufferSize = 100000
+  private var bufferIdStart = 0L
+  private  var bufferIndexStart = 0L
+ private  var bufferCounter = 0
+  private val buffer = new ByteArrayOutputStream(bufferSize * 100) {
+    def currentBuf = buf
   }
 
-  def initMySQLBacking() = {
-    val stmt = dbConnection.createStatement()
-    try {
-      val rset = stmt.executeQuery("select * from %s".format(tableName))
-      // Table exists because no exception
-      rset.close()
-    } catch {
-      case e : Exception =>  {
-        // Create table
-        try {
-          stmt.execute("CREATE TABLE %s (id int auto_increment primary key,  payload mediumblob)")
-        } catch {case e: Exception => e.printStackTrace()}
-      }
-    } finally {
-      try { stmt.close() } catch {case e: Exception => e.printStackTrace()}
+  val bufferIndices = new Array[Long](bufferSize)
+  val logOutput = new RandomAccessFile(logFileName, "rw")
+  val indexFile = new RandomAccessFile(logIdxFile, "rw")
+  val idSeq = new AtomicLong()
+
+  def init() {
+    if (new File(logIdxFile).exists()) {
+      idSeq.set(logIdxFile.length / 8)
+      bufferIdStart = idSeq.get
+      bufferIndexStart = new File(logFileName).length()
     }
+    println("Var data index start: " + bufferIdStart)
   }
 
-  initMySQLBacking()
+  private def flushBuffer(): Unit = {
+    logOutput.seek(logOutput.length())
+    logOutput.write(buffer.toByteArray)
+
+    val byteBuffer = ByteBuffer.allocate(bufferIndices.length * 8)
+    val longBuffer = byteBuffer.asLongBuffer()
+    longBuffer.put(bufferIndices)
+    val flushedIndicesAsBytes = byteBuffer.array()
+    indexFile.seek(indexFile.length())
+    indexFile.write(flushedIndicesAsBytes)
+
+    bufferCounter = 0
+    bufferIndexStart = new File(logFileName).length()
+    bufferIdStart = idSeq.get
+    buffer.reset()
+  }
 
   def insert(data: Array[Byte]) : Long = {
     this.synchronized {  // TODO, remove sync!
-    var pstmt = dbConnection.prepareStatement("insert into %s (payload) values (?)".format(tableName))
-      try {
+      bufferIndices(bufferCounter) = bufferIndexStart + buffer.size()
+      bufferCounter += 1
+      buffer.write(data)
+      val id = idSeq.getAndIncrement
 
-        pstmt.setBlob(1, new ByteArrayInputStream(data))
-        pstmt.executeUpdate()
-        pstmt.close()
-
-        pstmt = dbConnection.prepareStatement("select last_insert_id()")
-        val rset = pstmt.executeQuery()
-
-        return rset.getLong(1)
-      } catch {
-        case e: Exception => e.printStackTrace()
-
-      } finally {
-        try { pstmt.close() } catch {case e: Exception => e.printStackTrace()}
+      if (bufferCounter == bufferSize) {
+        flushBuffer
       }
-      throw new RuntimeException("Could not insert payload!")
+      id
     }
   }
 
   def get(id: Long) : Array[Byte] = {
-    var pstmt = dbConnection.prepareStatement("select payload from %s where id=?".format(tableName))
-    try {
-      pstmt.setLong(1, id)
-      val rset = pstmt.executeQuery()
-      val dataBlob = rset.getBlob(1)
-      return dataBlob.getBytes(0, dataBlob.length().toInt)
-    } catch {
-      case e: Exception => e.printStackTrace()
-    } finally {
-      try { pstmt.close() } catch {case e: Exception => e.printStackTrace()}
-    }
-    throw new RuntimeException("Could not get payload for id=%s!".format(id))
+    this.synchronized {
+      if (id >= bufferIdStart) {
+        // Look from buffers
+        val idOff = (id - bufferIdStart).toInt
+        val bufferOff = bufferIndices(idOff)
+        val len = if (idOff < bufferCounter - 1) { bufferIndices(idOff + 1) - bufferOff} else
+          { buffer.size() - (bufferOff - bufferIndexStart) }
 
+        val res = new Array[Byte](len.toInt)
+        Array.copy(buffer.currentBuf, (bufferOff - bufferIndexStart).toInt, res, 0, len.toInt)
+        res
+      } else {
+        // Seek file
+        indexFile.seek(id * 8)
+        val fileOff = indexFile.readLong()
+        val next = if (id * 8 < indexFile.length() - 8) { indexFile.readLong() } else { logOutput.length() }
+        val len = next - fileOff
+        logOutput.seek(fileOff)
+        val res = new Array[Byte](len.toInt)
+        logOutput.read(res, 0, len.toInt)
+        res
+      }
+    }
   }
 
   def delete(id: Long) : Unit = {
-    var pstmt = dbConnection.prepareStatement("delete from %s where id=?".format(tableName))
-    try {
-      pstmt.setLong(1, id)
-      pstmt.executeUpdate()
-    } catch {
-      case e: Exception => e.printStackTrace()
-    } finally {
-      try { pstmt.close() } catch {case e: Exception => e.printStackTrace()}
-    }
+    // Not implemented now
   }
 }
 

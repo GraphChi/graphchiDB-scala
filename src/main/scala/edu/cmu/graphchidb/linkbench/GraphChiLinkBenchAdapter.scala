@@ -4,22 +4,46 @@ import com.facebook.LinkBench._
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicLong
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
-import edu.cmu.graphchidb.compute.Pagerank
-import edu.cmu.graphchidb.storage.{VarDataColumn, CategoricalColumn, Column}
-import sun.reflect.generics.reflectiveObjects.NotImplementedException
-import scala.Some
-import scala.Some
-import scala.Some
-import scala.Some
-import scala.Some
-import java.lang.String
-import scala.Predef.String
-import scala.Some
+import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
 
+
+class GraphChiLinkBenchAdapter extends GraphStore {
+  def close() = GraphChiLinkBenchAdapter.close()
+
+  def clearErrors(p1: Int) = GraphChiLinkBenchAdapter.clearErrors(p1)
+
+  def resetNodeStore(p1: String, p2: Long) = GraphChiLinkBenchAdapter.resetNodeStore(p1, p2)
+
+  def initialize(p1: Properties, p2: Phase, p3: Int) = GraphChiLinkBenchAdapter.initialize(p1, p2, p3)
+
+  def addNode(p1: String, p2: Node) = GraphChiLinkBenchAdapter.addNode(p1, p2)
+
+  def getNode(p1: String, p2: Int, p3: Long) = GraphChiLinkBenchAdapter.getNode(p1, p2, p3)
+
+  def updateNode(p1: String, p2: Node) = GraphChiLinkBenchAdapter.updateNode(p1, p2)
+
+  def deleteNode(p1: String, p2: Int, p3: Long) = GraphChiLinkBenchAdapter.deleteNode(p1, p2, p3)
+
+  def addLink(p1: String, p2: Link, p3: Boolean) = GraphChiLinkBenchAdapter.addLink(p1, p2, p3)
+
+  def deleteLink(p1: String, p2: Long, p3: Long, p4: Long, p5: Boolean, p6: Boolean) = GraphChiLinkBenchAdapter.deleteLink(p1, p2, p3, p4, p5, p6)
+
+  def updateLink(p1: String, p2: Link, p3: Boolean) =
+    GraphChiLinkBenchAdapter.updateLink(p1, p2, p3)
+
+  def getLink(p1: String, p2: Long, p3: Long, p4: Long) = GraphChiLinkBenchAdapter.getLink(p1, p2, p3, p4)
+
+  def getLinkList(p1: String, p2: Long, p3: Long) = GraphChiLinkBenchAdapter.getLinkList(p1, p2, p3)
+
+  def getLinkList(p1: String, p2: Long, p3: Long, p4: Long, p5: Long, p6: Int, p7: Int) =
+    GraphChiLinkBenchAdapter.getLinkList(p1, p2, p3, p4, p5, p6, p7)
+
+  def countLinks(p1: String, p2: Long, p3: Long) = GraphChiLinkBenchAdapter.countLinks(p1, p2, p3)
+}
 /**
  * @author Aapo Kyrola
  */
-class GraphChiLinkBenchAdapter extends GraphStore {
+object GraphChiLinkBenchAdapter {
 
 
   var currentPhase: Phase = null
@@ -43,7 +67,7 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
 
   // TODO!
-  def edgeType(typeValue: Long) = (typeValue % 255).toByte
+  def edgeType(typeValue: Long) = (typeValue % 2).toByte
 
   /* Edge columns */
   var edgeTimestamp : Column[Int] = null
@@ -81,11 +105,11 @@ class GraphChiLinkBenchAdapter extends GraphStore {
       /* Create columns */
       edgeTimestamp = DB.createIntegerColumn("time", DB.edgeIndexing)
       edgeVersion = DB.createByteColumn("vers", DB.edgeIndexing)
-      edgePayloadColumn = DB.createVarDataColumn("payload", DB.edgeIndexing)
+      edgePayloadColumn = DB.createVarDataColumn("payload", DB.edgeIndexing, "blob")
 
       nodeTimestamp = DB.createIntegerColumn("time", DB.vertexIndexing)
       nodeVersion = DB.createByteColumn("vers", DB.vertexIndexing)
-      vertexPayloadColumn = DB.createVarDataColumn("payload", DB.vertexIndexing)
+      vertexPayloadColumn = DB.createVarDataColumn("payload", DB.vertexIndexing, "mediumblob")
 
       type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
       type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
@@ -94,9 +118,10 @@ class GraphChiLinkBenchAdapter extends GraphStore {
       initialized = true
       println("Thread " + threadId + " initialized")
     }
+    println("Thread " + threadId + " waiting, this=" + this)
 
-    while (!initialized) { Thread.sleep(100) }
-    println("Thread " + threadId + " starting")
+    if (threadId != 0) Thread.sleep(5000)
+    println("Thread " + threadId + " starting, this=" + this)
   }
 
 
@@ -114,7 +139,6 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
 
   def addNode(databaseId: String, node: Node) : Long = {
-    println("Add node %s, %s".format(databaseId, node))
     /* Just insert. Note: nodetype is ignored. */
     val newId = idSequence.getAndIncrement()
     val newInternalId = DB.originalToInternalId(newId)
@@ -181,7 +205,7 @@ class GraphChiLinkBenchAdapter extends GraphStore {
     val edgeTypeByte = edgeType(edge.link_type)
     /* Payload */
     val payloadId = edgePayloadColumn.insert(edge.data)
-    DB.addEdgeOrigId(edge.version.toByte, edge.id1, edge.id2, edge.time, edgeTypeByte, payloadId)
+    DB.addEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edge.time.toInt, edge.version.toByte, payloadId)
 
     /* Adjust counters */
     // NOTE: hard-coded only two types
@@ -191,8 +215,6 @@ class GraphChiLinkBenchAdapter extends GraphStore {
 
   /// NOTE: can apparently ignore noInverse settings!
   def addLink(databaseId: String, edge: Link, noInverse: Boolean) = {
-    println("Add link %s, %s".format(edge, noInverse))
-    val edgeTypeByte = edgeType(edge.link_type)
 
     if (currentPhase == Phase.LOAD) {
       /* Just insert */

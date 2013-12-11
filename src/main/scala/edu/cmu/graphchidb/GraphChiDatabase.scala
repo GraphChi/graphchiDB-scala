@@ -728,10 +728,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000) {
     }
   }
 
-  def createVarDataColumn(name: String, indexing: DatabaseIndexing) : VarDataColumn = {
+  def createVarDataColumn(name: String, indexing: DatabaseIndexing, blobType: String) : VarDataColumn = {
     this.synchronized {
       val pointerColumn = createLongColumn(name, indexing)
-      new VarDataColumn(name, baseFilename, pointerColumn)
+      new VarDataColumn(name, baseFilename, pointerColumn, blobType)
     }
   }
 
