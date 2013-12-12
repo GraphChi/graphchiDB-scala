@@ -195,7 +195,7 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         partialDataFiles ++= existing.map(i => initPartialData(i))
         startNewPart()
         initialized = true
-        println("Initialized %s, new part id = %d".format(prefixFilename, currentBufferPartId))
+        println("Initialized %s, %d, new part id = %d".format(prefixFilename, partialDataFiles.size, currentBufferPartId))
       }
     }
   }
@@ -207,9 +207,9 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
   def startNewPart(): Unit = {
     lock.writeLock().lock()
     try {
-      partialDataFiles += initPartialData(currentBufferPartId)
-      currentBufferPartId = partialDataFiles.size
-
+      val newId = if (partialDataFiles.isEmpty) { 0 } else {partialDataFiles.last.id + 1 }
+      partialDataFiles += initPartialData(newId)
+      currentBufferPartId = newId
       idSeq.set(0)
     } finally {
        lock.writeLock.unlock()
@@ -299,6 +299,9 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         val dataBuffer = partialDataFiles(partialId).dataBuffer
         val idxPos = localId * 8
 
+        if (idxPos > indexBuffer.capacity()) {
+          println("Illegal index %d / %d".format(idxPos, indexBuffer.capacity()))
+        }
         val fileOff = indexBuffer.getLong(idxPos)
         val next = if (idxPos < indexBuffer.capacity() - 8) { indexBuffer.getLong(idxPos + 8) } else
         { dataBuffer.capacity() }
@@ -312,6 +315,9 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
         val res = new Array[Byte](len.toInt)
 
         val tmpBuffer = dataBuffer.duplicate()
+        if (fileOff < 0 || fileOff > tmpBuffer.capacity()) {
+            println("Illegal %d %d".format(fileOff, tmpBuffer.capacity()))
+        }
         tmpBuffer.position(fileOff.toInt)
         tmpBuffer.get(res)
         res
@@ -325,106 +331,6 @@ class VarDataColumn(name: String,  filePrefix: String, _pointerColumn: Column[Lo
     // Not implemented now
   }
 }
-
-/*
-           if (new File(logIdxFile).exists()) {
-        idSeq.set(new File(logIdxFile).length / 8)
-        bufferIdStart = idSeq.get
-        bufferIndexStart = new File(logFileName).length()
-        indexBuffer = indexFile.getChannel.map(MapMode.READ_ONLY, 0, indexFile.length())
-        dataBuffer = logOutput.getChannel.map(MapMode.READ_ONLY, 0, logOutput.length())
-
-      }
-      println("Var data index start: " + bufferIdStart + " / " + bufferIndexStart)
-      initialized = true
-
-  def flushBuffer(): Unit = {
-    lock.writeLock().lock()
-    try {
-    logOutput.seek(logOutput.length())
-    logOutput.write(buffer.toByteArray)
-
-    val byteBuffer = ByteBuffer.allocate(bufferIndices.length * 8)
-    val longBuffer = byteBuffer.asLongBuffer()
-    longBuffer.put(bufferIndices)
-
-    val flushedIndicesAsBytes = byteBuffer.array()
-    indexFile.seek(indexFile.length())
-    indexFile.write(flushedIndicesAsBytes, 0, bufferCounter.get * 8)
-
-    bufferCounter.set(0)
-    bufferIndexStart = logOutput.length()
-    bufferIdStart = idSeq.get
-    buffer.reset()
-    indexBuffer = indexFile.getChannel.map(MapMode.READ_ONLY, 0, indexFile.length())
-    dataBuffer = logOutput.getChannel.map(MapMode.READ_ONLY, 0, logOutput.length())
-
-    println("flush: " + new File(logFileName).getAbsolutePath + ", " +  new File(logFileName).length())
-    } finally {
-       lock.writeLock().unlock()
-    }
-  }
-
- def insert(data: Array[Byte]) : Long = {
-    lock.writeLock().lock
-    try {
-      if (!initialized) throw new IllegalStateException("Not initialized")
-      bufferIndices(bufferCounter.getAndIncrement) = bufferIndexStart + buffer.size()
-      buffer.write(data)
-      val id = idSeq.getAndIncrement
-
-      if (bufferCounter.get == bufferSize) {
-        flushBuffer
-      }
-      id
-    } finally {
-       lock.writeLock().unlock()
-    }
-  }
-
-  def get(id: Long) : Array[Byte] = {
-    lock.readLock().lock()
-    try {
-      if (id >= bufferIdStart) {
-        // Look from buffers
-        val idOff = (id - bufferIdStart).toInt
-        val bufferOff = bufferIndices(idOff)
-        val len = if (idOff < bufferCounter.get - 1) { bufferIndices(idOff + 1) - bufferOff} else
-        { buffer.size() - (bufferOff - bufferIndexStart) }
-
-        val res = new Array[Byte](len.toInt)
-        try {
-          Array.copy(buffer.currentBuf, (bufferOff - bufferIndexStart).toInt, res, 0, len.toInt)
-        } catch {
-          case aie: Exception  =>
-            throw aie
-        }
-        res
-      } else {
-        // Seek file
-        val idxPos = id * 8
-        val fileOff = indexBuffer.getLong((idxPos).toInt)
-        val next = if (idxPos < indexBuffer.capacity() - 8) { indexBuffer.getLong((idxPos + 8).toInt) } else
-            { dataBuffer.capacity() }
-        val len = next - fileOff
-
-        if (len < 0) {
-          printf("Error in size comp: %d %d %d %d %s %s\n".format(id, next, indexBuffer.capacity(), fileOff,
-            indexBuffer.getLong(idxPos.toInt), indexBuffer.getLong(idxPos.toInt + 8)))
-        }
-
-        val res = new Array[Byte](len.toInt)
-
-        val tmpBuffer = dataBuffer.duplicate()
-        tmpBuffer.position(fileOff.toInt)
-        tmpBuffer.get(res)
-        res
-      }
-    } finally {
-      lock.readLock().unlock()
-    }
-  }
- */
 
 class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _indexing: DatabaseIndexing,
                            vertexIdTranslate: VertexIdTranslate) extends Column[T] {

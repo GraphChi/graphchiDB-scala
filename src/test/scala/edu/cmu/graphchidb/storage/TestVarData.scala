@@ -35,6 +35,11 @@ class TestVarData {
       val retrieved = varDataCol.get(id)
       ids += id
       assertEquals("testdata%d".format(i), new String(retrieved))
+
+       // halfway
+      val halfWayId = ids(i / 2)
+      val retrieved2 = varDataCol.get(halfWayId)
+      assertEquals("testdata%d".format(i / 2), new String(retrieved2))
     })
 
     var t = System.currentTimeMillis()
