@@ -54,15 +54,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         for(int i=0; i<shoveled.length; i++) {
             edgeTypeArray[i] = VertexIdTranslate.getType(shoveled2[i]);
             shoveled2[i] = VertexIdTranslate.getVertexId(shoveled2[i]);
-            // Temp check
-            if (shoveled2[i] < minTarget) {
-                throw new IllegalStateException("Encoding error: " + shoveled2[i] + ", " +
-                        VertexIdTranslate.getVertexId(shoveled2[i]) + " min target = " + minTarget);
-            }
-
         }
-
-
 
         int[] indices =  radixSortWithIndex(shoveled2);
 
@@ -75,9 +67,9 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             long curr = shoveled2[i];
             long next = shoveled2[i + 1];
             if (curr == next)  {
-                shoveled2[i] = VertexIdTranslate.encodeVertexPacket(edgeTypeArray[indices[i + 1]], curr, indices[i + 1]);
+                shoveled2[i] = VertexIdTranslate.encodeVertexPacket(edgeTypeArray[indices[i]], curr, indices[i + 1]);
             } else {
-                shoveled2[i] = VertexIdTranslate.encodeVertexPacket(edgeTypeArray[indices[i + 1]], curr, (1<<26) - 1);
+                shoveled2[i] = VertexIdTranslate.encodeVertexPacket(edgeTypeArray[indices[i]], curr, (1<<26) - 1);
             }
 
             if (VertexIdTranslate.getVertexId(shoveled2[i]) != curr) throw new IllegalStateException("Encoding error:" +
@@ -145,6 +137,12 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                         throw new IllegalStateException("Encoding error: " + shoveled2[j] + ", " +
                                 VertexIdTranslate.getVertexId(shoveled2[j]) + " min target = " + minTarget);
                     }
+                    if (curvid == 671088640 && ( VertexIdTranslate.getVertexId(shoveled2[j]) == 2650802847L)) {
+                        System.out.println(curvid + " --> " +  VertexIdTranslate.getVertexId(shoveled2[j]) +" going in shard " + adjFile.getName() + "" +
+                                " at index" + j + " all bytes=" + shoveled2[j] +", type="
+                                + VertexIdTranslate.getType(shoveled2[j]) + " istart=" + istart);
+                    }
+
                     adjOut.writeLong(shoveled2[j]);
                     edgeCounter++;
                 }

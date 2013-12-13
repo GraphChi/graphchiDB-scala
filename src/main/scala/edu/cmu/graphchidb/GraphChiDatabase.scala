@@ -46,13 +46,17 @@ object GraphChiDatabaseAdmin {
  * Defines a sharded graphchi database.
  * @author Aapo Kyrola
  */
-class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false) {
+class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false,
+                       enableVertexShardBits : Boolean= true) {
   var numShards = 256
   val bufferParents = 4
 
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
   val intervals = ChiFilenames.loadIntervals(baseFilename, numShards).toIndexedSeq
   val intervalLength = intervals(0).length()
+  // Used for shard bit optimization
+  val vertexIntervalBy64 = intervals.last.getLastVertex / 64
+
 
   /* This array keeps track of the largest vertex id currently present in each interval. Due to the modulo-shuffling scheme,
      the vertex Ids start from the "bottom" of the interval lower bound.
@@ -151,7 +155,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
 
 
-
     def checkSize : Unit = {
       persistentShardLock.writeLock().lock()
 
@@ -188,6 +191,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         edgeIterator.next()
         if (destInterval.contains(edgeIterator.getDst)) {
           workBuffer.rewind()
+
+          if (edgeIterator.getDst == 2650802847L && edgeIterator.getSrc == 671088640) {
+            println("Reading %s,%s from persistent shard %s %d".format(edgeIterator.getSrc, edgeIterator.getDst,
+              myInterval, shardId))
+          }
+
           edgeColumns.foreach(c => c._2.readValueBytes(shardId, i, workBuffer))
           thisBuffer.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
         }
@@ -269,7 +278,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
     }
 
-    def mergeToParents = mergeToAndClear(parentShards)
+    def mergeToParents() = mergeToAndClear(parentShards)
   }
 
   case class EdgeBufferAndInterval(buffer: EdgeBuffer, interval: VertexInterval)
@@ -283,7 +292,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
 
-  def bufferReference(bufferId: Int) = BufferRef(bufferId / buffersPerBufferShard, bufferId % buffersPerBufferShard)
+  private def bufferReference(bufferId: Int) = BufferRef(bufferId / buffersPerBufferShard, bufferId % buffersPerBufferShard)
 
 
   class BufferShard(bufferShardId: Int, _myInterval: VertexInterval,
@@ -373,12 +382,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
 
     /* Returns buffer pointer for given edge, if found */
-    def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
-      bufferLock.readLock().lock()
-      try {
-        bufferFor(src, dst).find(edgeType, src, dst).orElse(oldBufferFor(src, dst).find(edgeType, src, dst))
-      } finally {
-        bufferLock.readLock().unlock()
+    def find(edgeType: Byte, src: Long, dst: Long, srcShardBits: Long) : Option[Long] = {
+      if (compareShardBitsToInterval(srcShardBits, myInterval)) {
+        bufferLock.readLock().lock()
+        try {
+          bufferFor(src, dst).find(edgeType, src, dst).orElse(oldBufferFor(src, dst).find(edgeType, src, dst))
+        } finally {
+          bufferLock.readLock().unlock()
+        }
+      } else {
+        None
       }
     }
 
@@ -414,9 +427,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val flushLock = new Object
 
 
-    def update[T](edgeType: Byte, src: Long, dst: Long, columnIdx: Int, value: T) : Boolean  = {
+    def update[T](edgeType: Byte, src: Long, dst: Long, columnIdx: Int, value: T, srcShardBits: Long) : Boolean  = {
       // Note: for update we use readLock as it does not alter the size of the data or move data
-      if (find(edgeType, src, dst).isDefined) {
+      if (find(edgeType, src, dst, srcShardBits).isDefined) {
         flushLock.synchronized {         // Need flush lock
           bufferLock.readLock().lock()
           try {
@@ -447,9 +460,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
     }
 
-    def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
+    def deleteEdge(edgeType: Byte, src: Long, dst: Long, srcShardBits: Long) : Boolean = {
       flushLock.synchronized {         // Need flush lock
-        if (find(edgeType, src, dst).isDefined) {
+        if (find(edgeType, src, dst, srcShardBits).isDefined) {
           bufferLock.readLock().lock()
           try {
             val buffer = bufferFor(src, dst)
@@ -514,6 +527,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                     // TODO: write directly to buffer
                     if (!_myInterval.contains(edgeIterator.getDst)) {
                       throw new IllegalStateException()
+                    }
+
+                    if (edgeIterator.getDst == 2650802847L && edgeIterator.getSrc == 671088640) {
+                       println("Reading %s,%s from buffer type:%s %s".format(edgeIterator.getSrc, edgeIterator.getDst,
+                            edgeIterator.getType, myInterval))
                     }
 
                     myEdges.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
@@ -639,12 +657,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   val shards = shardTree.flatten.toIndexedSeq
 
 
-  val bufferIntervals = VertexInterval.createIntervals(intervals.last.getLastVertex, 4)
+  private val bufferIntervals = VertexInterval.createIntervals(intervals.last.getLastVertex, 4)
   val bufferShards = (0 until numBufferShards).map(i => new BufferShard(i, bufferIntervals(i),
     shardTree.last.filter(s => s.myInterval.intersects(bufferIntervals(i)))))
 
 
-  val shutdownHook = new Thread() {
+  private val shutdownHook = new Thread() {
     override def run() = {
       println("Run shutdown hook...")
       flushAllBuffers()
@@ -662,7 +680,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def close() = {
-      Runtime.getRuntime().removeShutdownHook(shutdownHook)
+    Runtime.getRuntime().removeShutdownHook(shutdownHook)
   }
 
   def shardForEdge(src: Long, dst: Long) = {
@@ -813,6 +831,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       incrementInDegree(dst)
       incrementOutDegree(src)
 
+      if (enableVertexShardBits) {
+        val curBits = shardBitsCol.get(src).getOrElse(0L)
+        val newBits = Util.setBit(curBits, (dst / vertexIntervalBy64).toInt)
+        if (curBits != newBits) {
+          shardBitsCol.set(src, newBits)
+        }
+      }
+
       bufferForEdge(src, dst).addEdge(edgeType, src, dst, values:_*)
     }
 
@@ -862,14 +888,30 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   // TODO: remove redundancy with updateEdge
-  def findEdgePointer(edgeType: Byte, src: Long, dst: Long)(updateFunc: Option[Long] => Unit) = {
+  def findEdgePointer(edgeType: Byte, src: Long, dst: Long, debug:Boolean=false)(updateFunc: Option[Long] => Unit) = {
     this.synchronized {
+      val shardbits = shardBits(src)
       val ptrOpt = {
         val bufferShard = bufferForEdge(src, dst)
-        val bufferOpt = bufferShard.find(edgeType, src, dst)
+        val bufferOpt = bufferShard.find(edgeType, src, dst, shardbits)
+        if (!bufferOpt.isDefined && debug) {
+            val doubleCheck = bufferShard.find(edgeType, src, dst, 0xffffffffffffffffL)
+            if (doubleCheck.isDefined) {
+               throw new IllegalStateException("Shard bit check did not work - buffers?? %s".format(shardbits))
+            }
+        }
         bufferOpt.orElse( {
           // Look first the most recent data, so reverse
-          val persistentPtrOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+          val persistentPtrOpt = shards.filter(s => s.myInterval.contains(dst) &&
+            compareShardBitsToInterval(shardbits, s.myInterval)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+
+          if (!persistentPtrOpt.isDefined && debug) {
+            val persistentPtrOptDouble = shards.filter(s => s.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+            if (persistentPtrOptDouble.isDefined) {
+              throw new IllegalStateException("Shard bit check did not work - persistent?? %s".format(shardbits))
+            }
+          }
+
           if (persistentPtrOpt.isDefined) { persistentPtrOpt.get} else { None }
         })
       }
@@ -889,9 +931,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def updateEdge[T](edgeType: Byte, src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
     /* First buffers */
     val bufferShard = bufferForEdge(src, dst)
-    if (!bufferShard.update(edgeType, src, dst, column.columnId, newValue)) {
+    val shardbits = shardBits(src)
+    if (!bufferShard.update(edgeType, src, dst, column.columnId, newValue, shardbits)) {
       /* And then persistent shard */
-      val possibleShards = shards.filter(_.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
+      val possibleShards = shards.filter(s => s.myInterval.contains(dst) &&
+        compareShardBitsToInterval(shardbits, s.myInterval )).reverse // Look first the most recent data, so reverse
       possibleShards.foreach( shard => {
         shard.persistentShardLock.writeLock().lock()
         try {
@@ -918,11 +962,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
     /* First buffers */
+    val shardbits = shardBits(src)
 
     val bufferShard = bufferForEdge(src, dst)
-    if (!bufferShard.deleteEdge(edgeType, src, dst)) {
+    if (!bufferShard.deleteEdge(edgeType, src, dst, shardbits)) {
       /* And then persistent shard */
-      val possibleShards = shards.filter(_.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
+      val possibleShards = shards.filter(s => s.myInterval.contains(dst) &&
+        compareShardBitsToInterval(shardbits, s.myInterval)).reverse // Look first the most recent data, so reverse
       possibleShards.foreach( shard => {
         shard.persistentShardLock.writeLock().lock()
         try {
@@ -951,18 +997,21 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     this.synchronized {
       val (inDeg, outDeg) =
         (outDegree(internalId), inDegree(internalId))
+      val shardbits = shardBits(internalId)
 
       if (inDeg + outDeg > 0) {
 
         // Need to pass all shards!
-        bufferShards.par.foreach(bufferShard => bufferShard.deleteAllEdgesForVertex(internalId, inDeg > 0, outDeg > 0))
+        bufferShards.filter(s => compareShardBitsToInterval(shardbits, s.myInterval)).par.foreach(bufferShard => bufferShard.deleteAllEdgesForVertex(internalId, inDeg > 0, outDeg > 0))
 
         shards.reverse.par.foreach(shard => {  // Reverse order to maintain same locking direction
-          shard.persistentShardLock.writeLock().lock()
-          try {
-            shard.persistentShard.deleteAllEdgesFor(internalId, inDeg > 0, outDeg > 0)
-          } finally {
-            shard.persistentShardLock.writeLock().unlock()
+          if (compareShardBitsToInterval(shardbits, shard.myInterval)) {
+            shard.persistentShardLock.writeLock().lock()
+            try {
+              shard.persistentShard.deleteAllEdgesFor(internalId, inDeg > 0, outDeg > 0)
+            } finally {
+              shard.persistentShardLock.writeLock().unlock()
+            }
           }
         })
 
@@ -1017,6 +1066,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val bufferOpt = bufferShard.getValue(edgeType, src, dst, column.columnId)
     bufferOpt.orElse( {
       // Look first the most recent data, so reverse
+      // TODO: use shardbits?
       val idxOpt = shards.filter(_.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst))
         .find(_.isDefined)
       idxOpt.map(idx => column.get(idx.get)).headOption.getOrElse(None)
@@ -1111,24 +1161,27 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
   // TODO: query needs to acquire ALL locks before doing query -- AVOID OR DETECT DEADLOCKS!
-  def queryOutMultiple(javaQueryIds: Set[java.lang.Long], edgeType: Byte)  = {
+  def queryOutMultiple(_javaQueryIds: Set[java.lang.Long], edgeType: Byte)  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out-multiple", {
-      val resultContainer =  new QueryResultContainer(javaQueryIds)
+      val resultContainer =  new QueryResultContainer(_javaQueryIds)
 
+      val idsWithQueryBits = _javaQueryIds.map(id => (id, shardBits(id)))
 
       timed("query-out-buffers", {
         bufferShards.par.foreach(bufferShard => {
           /* Look for buffers */
           bufferShard.bufferLock.readLock().lock()
           try {
-            javaQueryIds.par.foreach(internalId =>
+            idsWithQueryBits.par.foreach { case (internalId: java.lang.Long, shardBits: Long) =>
               bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
-                buf.buffer.findOutNeighborsCallback(internalId, resultContainer, edgeType)
-                if (!buf.interval.contains(internalId))
-                  throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
-              }))
+                if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
+                  buf.buffer.findOutNeighborsCallback(internalId, resultContainer, edgeType)
+                  if (!buf.interval.contains(internalId))
+                    throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
+                } else {
+                }})}
           } catch {
             case e: Exception  => {
               e.printStackTrace()
@@ -1140,20 +1193,21 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       })
 
 
-      val atc = new AtomicInteger(0)
       timed("query-out-persistent", {
         // TODO: fix this java-scala long mapping
         shards.par.foreach(shard => {
           try {
-            atc.incrementAndGet()
-            shard.persistentShardLock.readLock().lock()
-            try {
-              shard.persistentShard.queryOut(javaQueryIds, resultContainer, edgeType)
-            } finally {
-              shard.persistentShardLock.readLock().unlock()
+            val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1)
+            if (matchingIds.nonEmpty) {
+              shard.persistentShardLock.readLock().lock()
+              try {
+
+                shard.persistentShard.queryOut(matchingIds, resultContainer, edgeType)
+              } finally {
+                shard.persistentShardLock.readLock().unlock()
+              }
             }
 
-            val alive = atc.getAndDecrement
           } catch {
             case e: Exception  => {
               e.printStackTrace()
@@ -1161,6 +1215,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           }
         })
       })
+
 
       timed("query-out-combine", {
         new QueryResult(vertexIndexing, resultContainer.combinedResults(), this)
@@ -1217,6 +1272,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
   val degreeColumn = createLongColumn("degree", vertexIndexing)
+  val shardBitsCol = createLongColumn("shardbits", vertexIndexing)
 
   /* Initialize max vertex id by looking at the degree columns */
   val intervalMaxVertexId =  degreeColumn.blocks.zip(intervals).map {
@@ -1238,10 +1294,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       Util.setHi(Util.hiBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
   }
 
-  def incrementOutDegree(internalId: Long) : Unit =  if (!disableDegree) {
+  def incrementOutDegree(internalId: Long) : Unit = { if (!disableDegree) {
     degreeColumn.update(internalId, curOpt => {
       val curValue = curOpt.getOrElse(0L)
       Util.setLo(Util.loBytes(curValue) + 1, curValue) }, degreeEncodingBuffer)
+  }
+
   }
 
   def decrementInDegree(internalId: Long) : Unit =  if (!disableDegree) {
@@ -1256,6 +1314,24 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       Util.setLo(Util.loBytes(curValue) - 1, curValue) }, degreeEncodingBuffer)
   }
 
+
+  /* Optimization to keep track approximately that in which shards vertex has out-edges.
+     Note: these bits are not maintained for deletions and thus a bit set is not a guarantee
+     of existence of edges.
+   */
+  def shardBits(internalId: Long) : Long = {
+    if (enableVertexShardBits) {
+      shardBitsCol.get(internalId).getOrElse(0L)
+    } else {
+      0xffffffffffffffffL
+    }
+  }
+
+  def compareShardBitsToInterval(bits: Long, interval: VertexInterval) = {
+    val lowIdx = (interval.getFirstVertex / vertexIntervalBy64).toInt
+    val hiIdx = (interval.getLastVertex / vertexIntervalBy64).toInt
+    (lowIdx to hiIdx).exists(idx => Util.getBit(bits, idx))
+  }
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
   def outDegree(internalId: Long) = Util.loBytes(degreeColumn.get(internalId).getOrElse(0L))

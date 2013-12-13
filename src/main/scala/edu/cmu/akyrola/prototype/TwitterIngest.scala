@@ -19,6 +19,10 @@ object TwitterIngest  {
 
   import edu.cmu.akyrola.prototype.TwitterIngest._
   startIngest
+
+    DB.findEdgePointer(0, DB.originalToInternalId(20), 2650802847L, debug=true) (a => println(a))
+
+
     DB.runIteration(pagerankComputation, continuous=true)
 
     DB.queryOut(DB.originalToInternalId(20), edgeType=0)
@@ -53,7 +57,7 @@ object TwitterIngest  {
       val t = System.currentTimeMillis
       val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
 
-      val checkSet = Set(20, 13348, 14583144)
+      val checkSet = Set(20, 668, 100000, 13348, 383033, 14583144)
       val inCounters = scala.collection.mutable.HashMap[Int, Int]()
       val outCounters = scala.collection.mutable.HashMap[Int, Int]()
 
@@ -62,6 +66,7 @@ object TwitterIngest  {
 
 
       timed("ingest", {
+        var foundOnce = false
         Source.fromInputStream(new GZIPInputStream(new FileInputStream(source))).getLines().foreach( ln => {
           if (!ln.startsWith("#")) {
             val toks = ln.split(" ")
@@ -113,6 +118,22 @@ object TwitterIngest  {
 
                    if (!(ins.size + outs.size == expected)) {
                       printf("MISMATCH!\n")
+                   }
+
+                   if (id == 20) {
+                      var containsX = outs0.contains(2650802847L)
+                      println("Contains 2650802847L: %s".format(containsX))
+                      if (containsX) {
+                          foundOnce = true
+                         DB.findEdgePointer(0, DB.originalToInternalId(20), 2650802847L, debug=true)
+                         { a => { println(a)
+
+                          if (!a.isDefined) println("2650802847L  in 20's out list but not found! -- abort")  }
+                         }
+                      } else if (foundOnce) {
+                        println("2650802847L not in 20's out list anymore! -- abort")
+                        return
+                      }
                    }
                 }
                 )

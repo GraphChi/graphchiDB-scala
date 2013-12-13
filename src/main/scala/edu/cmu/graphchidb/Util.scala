@@ -6,6 +6,7 @@ package edu.cmu.graphchidb
  */
 object Util {
 
+
   def timed[R](blockName: String, block: => R): R = {
     val t0 = System.nanoTime()
     val result = block
@@ -22,5 +23,7 @@ object Util {
   def setLo(x: Int, y:Long) : Long = (y & 0xffffffff00000000L) | x
   def setHi(x: Int, y:Long) : Long = (y & 0x00000000ffffffffL) | (x.toLong << 32)
   def setHiLo(hi: Int, lo: Int) : Long = setHi(hi, setLo(lo, 0L))
+  def setBit(x: Long, idx:Int) = x | (1L << idx)
+  def getBit(x: Long, idx:Int): Boolean = (x & (1L << idx)) != 0
 
 }

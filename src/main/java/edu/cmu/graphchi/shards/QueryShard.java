@@ -104,15 +104,17 @@ public class QueryShard {
             long adjOffset = VertexIdTranslate.getAux(curPtr);
             tmpAdjBuffer.position((int)adjOffset);
             for(int i=0; i<n; i++) {
+
                 // TODO: binary search
                 long e = tmpAdjBuffer.get();
                 long v = VertexIdTranslate.getVertexId(e);
                 if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
-                    // Found
+
                     return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
                 } else if (v > dst) {
                     break;
                 }
+
             }
         }
         return null;
