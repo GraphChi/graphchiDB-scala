@@ -23,7 +23,7 @@ class TestVarData {
   @Test def testVarData() = {
     val db = new GraphChiDatabase(testDb)
 
-    val varDataCol = db.createVarDataColumn("testvardata", db.vertexIndexing, null)
+    val varDataCol = db.createVarDataColumn("testvardata", db.vertexIndexing)
     varDataCol.maxFileSize = 100000
 
     val ids = new ArrayBuffer[Long]()
@@ -52,7 +52,7 @@ class TestVarData {
     varDataCol.flushBuffer()
 
     // Second retrieval, with recreated column
-    val varDataCol2 = db.createVarDataColumn("testvardata", db.vertexIndexing, null)
+    val varDataCol2 = db.createVarDataColumn("testvardata", db.vertexIndexing)
     t = System.currentTimeMillis()
     (0 to 1000000).foreach(i => {
       val retrieved = varDataCol2.get(ids(i))

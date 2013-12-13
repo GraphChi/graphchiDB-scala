@@ -23,6 +23,7 @@ class Pagerank(db: GraphChiDatabase) extends Computation {
       db.sweepInEdgesWithJoin[Float, Long](intervalId, maxVertex, pagerankColumn, degreeColumn)(
         (src: Long, dst: Long, pagerank: Float, degree: Long) => {
             val outDeg = loBytes(degree)
+
             if (outDeg <= 0) {
                println("Outdegree <=0 %d vid=%d, %s, authority=%d".format(outDeg, src, degree, db.outDegree(src)))
             }

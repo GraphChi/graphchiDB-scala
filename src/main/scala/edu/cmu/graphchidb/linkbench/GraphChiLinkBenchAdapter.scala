@@ -7,6 +7,7 @@ import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
 import edu.cmu.graphchidb.storage.ByteConverter
 import java.nio.ByteBuffer
+import edu.cmu.graphchidb.compute.Pagerank
 
 
 class GraphChiLinkBenchAdapter extends GraphStore {
@@ -66,8 +67,8 @@ object GraphChiLinkBenchAdapter {
   case class NodeContainer(version: Byte, timestamp: Int, payloadId: Long)
 
   /* Edge columns */
-  var edgeDataColumn: Column[LinkContainer]
-  var vertexDataColumn: Column[NodeContainer]
+  var edgeDataColumn: Column[LinkContainer] = null
+  var vertexDataColumn: Column[NodeContainer] = null
 
   var type0Counters : Column[Int]  = null
   var type1Counters : Column[Int]  = null
@@ -151,10 +152,14 @@ object GraphChiLinkBenchAdapter {
 
       type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
       type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
+    //  val pagerankComputation = new Pagerank(DB)
 
       DB.initialize()
       initialized = true
       println("Thread " + threadId + " initialized")
+
+      /* Run pagerank */
+      //DB.runIteration(pagerankComputation, continuous = true)
     }
     println("Thread " + threadId + " waiting, this=" + this)
 
@@ -238,7 +243,7 @@ object GraphChiLinkBenchAdapter {
     val edgeTypeByte = edgeType(edge.link_type)
     /* Payload */
     val payloadId = edgePayloadColumn.insert(edge.data)
-    DB.addEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, NodeContainer(edge.version.toByte, edge.time.toInt, payloadId))
+    DB.addEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, LinkContainer(edge.version.toByte, edge.time.toInt, payloadId))
 
     /* Adjust counters */
     // NOTE: hard-coded only two types
@@ -319,9 +324,9 @@ object GraphChiLinkBenchAdapter {
     if (timestampFilter(edgeData.timestamp)) {
       val payload = edgePayloadColumn.get(edgeData.payloadId)
       // TODO: visibility
-      return new Link(id1, linkType, id2, LinkStore.VISIBILITY_DEFAULT, payload, edgeData.version, edgeData.timestamp)
+      new Link(id1, linkType, id2, LinkStore.VISIBILITY_DEFAULT, payload, edgeData.version, edgeData.timestamp)
     } else {
-      return null
+      null
     }
   }
 
