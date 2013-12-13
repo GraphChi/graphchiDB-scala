@@ -1,6 +1,5 @@
 package edu.cmu.graphchidb.compute
 
-import sun.jvm.hotspot.utilities.Interval
 import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.storage.Column
 import edu.cmu.graphchidb.Util._

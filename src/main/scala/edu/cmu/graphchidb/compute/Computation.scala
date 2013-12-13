@@ -1,8 +1,5 @@
 package edu.cmu.graphchidb.compute
 
-import sun.jvm.hotspot.utilities.Interval
-import edu.cmu.graphchidb.GraphChiDatabase
-
 /**
  * @author Aapo Kyrola
  */
