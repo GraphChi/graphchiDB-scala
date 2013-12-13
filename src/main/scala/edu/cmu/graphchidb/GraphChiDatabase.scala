@@ -24,7 +24,7 @@ import scala.actors.threadpool.locks.ReentrantReadWriteLock
 import edu.cmu.graphchi.util.Sorting
 import edu.cmu.graphchidb.compute.Computation
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
-import java.util.concurrent.TimeUnit
+import edu.cmu.graphchidb.storage.VarDataColumn
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -768,10 +768,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
-  def createVarDataColumn(name: String, indexing: DatabaseIndexing, blobType: String) : VarDataColumn = {
+  def createCustomTypeColumn[T](name: String, indexing: DatabaseIndexing, converter: ByteConverter[T]) = {
+     this.synchronized {
+       val col = new FileColumn[T](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_custom" + converter.sizeOf + "_" +  indexing.name + "_" + name.toLowerCase,
+         sparse=false, _indexing=indexing, converter=converter)
+       columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+       col
+     }
+  }
+
+  def createVarDataColumn(name: String, indexing: DatabaseIndexing) : VarDataColumn = {
     this.synchronized {
-      val pointerColumn = createLongColumn(name, indexing)
-      val col = new VarDataColumn(name, baseFilename, pointerColumn, blobType)
+      val col = new VarDataColumn(name, baseFilename, indexing)
       registerPurgeListener(Unit => col.flushBuffer())
       col
     }

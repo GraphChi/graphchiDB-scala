@@ -5,6 +5,8 @@ import java.util.Properties
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
+import edu.cmu.graphchidb.storage.ByteConverter
+import java.nio.ByteBuffer
 
 
 class GraphChiLinkBenchAdapter extends GraphStore {
@@ -60,14 +62,12 @@ object GraphChiLinkBenchAdapter {
   // TODO!
   def edgeType(typeValue: Long) = (typeValue % 2).toByte
 
-  /* Edge columns */
-  var edgeTimestamp : Column[Int] = null
-  var edgeVersion: Column[Byte]  = null    // Note, only 8 bits
-  // payload data
-  // var edgePayLoad: ....
+  case class LinkContainer(version: Byte, timestamp: Int, payloadId: Long)
+  case class NodeContainer(version: Byte, timestamp: Int, payloadId: Long)
 
-  var nodeTimestamp : Column[Int]  = null
-  var nodeVersion: Column[Byte]   = null
+  /* Edge columns */
+  var edgeDataColumn: Column[LinkContainer]
+  var vertexDataColumn: Column[NodeContainer]
 
   var type0Counters : Column[Int]  = null
   var type1Counters : Column[Int]  = null
@@ -98,6 +98,35 @@ object GraphChiLinkBenchAdapter {
     println("GraphChiLinkBenchAdapter: clear errors")
   }
 
+
+  object LinkToBytesConverter extends ByteConverter[LinkContainer] {
+    def fromBytes(bb: ByteBuffer) : LinkContainer = {
+         LinkContainer(bb.get, bb.getInt, bb.getLong)
+    }
+
+    def toBytes(v: LinkContainer, out: ByteBuffer) = {
+        out.put(v.version)
+        out.putInt(v.timestamp)
+        out.putLong(v.payloadId)
+    }
+
+    def sizeOf = 13
+  }
+
+  object NodeToBytesConverter extends ByteConverter[NodeContainer] {
+    def fromBytes(bb: ByteBuffer) : NodeContainer = {
+      NodeContainer(bb.get, bb.getInt, bb.getLong)
+    }
+
+    def toBytes(v: NodeContainer, out: ByteBuffer) = {
+      out.put(v.version)
+      out.putInt(v.timestamp)
+      out.putLong(v.payloadId)
+    }
+
+    def sizeOf = 13
+  }
+
   def initialize(p1: Properties, phase: Phase, threadId: Int) = {
     if (threadId == 0) {
       println("Initialize: %s, %s, %d".format(p1, currentPhase, threadId))
@@ -114,13 +143,11 @@ object GraphChiLinkBenchAdapter {
 
       DB = new GraphChiDatabase(baseFilename, disableDegree = true)
       /* Create columns */
-      edgeTimestamp = DB.createIntegerColumn("time", DB.edgeIndexing)
-      edgeVersion = DB.createByteColumn("vers", DB.edgeIndexing)
-      edgePayloadColumn = DB.createVarDataColumn("payload", DB.edgeIndexing, "blob")
+      edgeDataColumn = DB.createCustomTypeColumn[LinkContainer]("linkdata", DB.edgeIndexing, LinkToBytesConverter)
+      vertexDataColumn = DB.createCustomTypeColumn[NodeContainer]("nodedata", DB.vertexIndexing, NodeToBytesConverter)
 
-      nodeTimestamp = DB.createIntegerColumn("time", DB.vertexIndexing)
-      nodeVersion = DB.createByteColumn("vers", DB.vertexIndexing)
-      vertexPayloadColumn = DB.createVarDataColumn("payload", DB.vertexIndexing, "mediumblob")
+      edgePayloadColumn = DB.createVarDataColumn("payload", DB.edgeIndexing)
+      vertexPayloadColumn = DB.createVarDataColumn("payload", DB.vertexIndexing)
 
       type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
       type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
@@ -151,27 +178,22 @@ object GraphChiLinkBenchAdapter {
 
   def addNode(databaseId: String, node: Node) : Long = {
     /* Just insert. Note: nodetype is ignored. */
-    val newId = idSequence.getAndIncrement()
+    val newId = idSequence.getAndIncrement
     val newInternalId = DB.originalToInternalId(newId)
     DB.updateVertexRecords(newInternalId)
-    nodeTimestamp.set(newInternalId, node.time)
-    nodeVersion.set(newInternalId, node.version.toByte)
-
-    // Payload
     val payloadId = vertexPayloadColumn.insert(node.data)
-    vertexPayloadColumn.pointerColumn.set(newInternalId, payloadId)
+    vertexDataColumn.set(newInternalId, NodeContainer(node.version.toByte, node.time, payloadId))
 
     newId
   }
 
   def getNode(databaseId: String, nodeType: Int, id: Long) : Node = {
     val internalId = DB.originalToInternalId(id)
-    val payloadId = vertexPayloadColumn.pointerColumn.get(internalId).get
-    val payloadData = vertexPayloadColumn.get(payloadId)
-    val timestamp = nodeTimestamp.get(internalId).getOrElse(0)
-    if (timestamp > 0) {
-      val versionByte = nodeVersion.get(internalId).getOrElse(0.toByte)
-      new Node(id, 0, versionByte, timestamp, payloadData)
+
+    val vertexData = vertexDataColumn.get(internalId).getOrElse(NodeContainer(0,0,0))
+     if (vertexData.timestamp > 0) {
+       val payloadData = vertexPayloadColumn.get(vertexData.payloadId)
+       new Node(id, 0, vertexData.version, vertexData.timestamp, payloadData)
     } else {
       null
     }
@@ -180,20 +202,19 @@ object GraphChiLinkBenchAdapter {
   def updateNode(databaseId: String, node: Node) = {
     // TODO: payload
     val internalId = DB.originalToInternalId(node.id)
-    val timestamp = nodeTimestamp.get(internalId).getOrElse(0)
+    val vertexData = vertexDataColumn.get(internalId).getOrElse(NodeContainer(0,0,0))
 
-    if (timestamp > 0) {
-      nodeTimestamp.set(internalId, node.time)
-      nodeVersion.set(internalId, node.version.toByte)
-
-      val payloadId = vertexPayloadColumn.pointerColumn.get(internalId).get
+    if (vertexData.timestamp > 0) {
+      val payloadId = vertexData.payloadId
       val oldPayload = vertexPayloadColumn.get(payloadId)
-      if (!new String(oldPayload).equals(node.data)) {
+      val updatedPayloadId = if (!new String(oldPayload).equals(node.data)) {
         // Create new
         val newPayloadId = vertexPayloadColumn.insert(node.data)
-        vertexPayloadColumn.pointerColumn.set(internalId, newPayloadId)
-        vertexPayloadColumn.delete(payloadId)
-      }
+         vertexPayloadColumn.delete(payloadId)
+        newPayloadId
+      } else { payloadId }
+
+      vertexDataColumn.set(internalId, NodeContainer(node.version.toByte, node.time, updatedPayloadId))
       true
     } else {
       false
@@ -206,7 +227,7 @@ object GraphChiLinkBenchAdapter {
     type1Counters.set(internalId, 0)
     DB.deleteVertexOrigId(internalId) */
     // NOTE: as per the mysql link bench, only invalidate the node
-    nodeTimestamp.set(internalId, 0)
+    vertexDataColumn.set(internalId, NodeContainer(0,0,0))
     true
   }
 
@@ -217,7 +238,7 @@ object GraphChiLinkBenchAdapter {
     val edgeTypeByte = edgeType(edge.link_type)
     /* Payload */
     val payloadId = edgePayloadColumn.insert(edge.data)
-    DB.addEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, edge.time.toInt, edge.version.toByte, payloadId)
+    DB.addEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, NodeContainer(edge.version.toByte, edge.time.toInt, payloadId))
 
     /* Adjust counters */
     // NOTE: hard-coded only two types
@@ -270,17 +291,18 @@ object GraphChiLinkBenchAdapter {
       ptrOpt match {
         case Some(ptr) => {
 
-          DB.setByPointer(edgeTimestamp, ptr,  edge.time.toInt)
-          DB.setByPointer(edgeVersion, ptr,   edge.version.toByte)
+          val edgeData =  DB.getByPointer(edgeDataColumn, ptr).get
 
-          val payloadId = DB.getByPointer(edgePayloadColumn.pointerColumn, ptr).get
+          val payloadId = edgeData.payloadId
           val oldPayload = edgePayloadColumn.get(payloadId)
-          if (!new String(oldPayload).equals(new String(edge.data))) {
+          val updatedPayloadId = if (!new String(oldPayload).equals(new String(edge.data))) {
             val newPayloadId = edgePayloadColumn.insert(edge.data)
-            DB.setByPointer(edgePayloadColumn.pointerColumn, ptr, newPayloadId)
 
             edgePayloadColumn.delete(payloadId)
-          }
+            newPayloadId
+          } else { payloadId }
+
+          DB.setByPointer(edgeDataColumn, ptr, LinkContainer(edge.version.toByte, edge.time.toInt, updatedPayloadId))
 
           return true
         }
@@ -293,13 +315,11 @@ object GraphChiLinkBenchAdapter {
   }
 
   private def linkFromPointer(ptr: Long, id1: Long, linkType: Long, id2: Long, timestampFilter: Int => Boolean) : Link = {
-    val timestamp = DB.getByPointer(edgeTimestamp, ptr)
-    if (timestampFilter(timestamp.get)) {
-      val version = DB.getByPointer(edgeVersion, ptr)
-      val payloadId = DB.getByPointer(edgePayloadColumn.pointerColumn, ptr)
-      val payload = edgePayloadColumn.get(payloadId.get)
+    val edgeData  = DB.getByPointer(edgeDataColumn, ptr).get
+    if (timestampFilter(edgeData.timestamp)) {
+      val payload = edgePayloadColumn.get(edgeData.payloadId)
       // TODO: visibility
-      return new Link(id1, linkType, id2, LinkStore.VISIBILITY_DEFAULT, payload, version.get, timestamp.get)
+      return new Link(id1, linkType, id2, LinkStore.VISIBILITY_DEFAULT, payload, edgeData.version, edgeData.timestamp)
     } else {
       return null
     }
