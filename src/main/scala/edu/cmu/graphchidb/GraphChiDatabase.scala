@@ -529,11 +529,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                       throw new IllegalStateException()
                     }
 
-                    if (edgeIterator.getDst == 2650802847L && edgeIterator.getSrc == 671088640) {
-                       println("Reading %s,%s from buffer type:%s %s".format(edgeIterator.getSrc, edgeIterator.getDst,
-                            edgeIterator.getType, myInterval))
-                    }
-
                     myEdges.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
                     i += 1
                     j += i

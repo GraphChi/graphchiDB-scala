@@ -137,11 +137,6 @@ public class FastSharder <VertexValueType, EdgeValueType> {
                         throw new IllegalStateException("Encoding error: " + shoveled2[j] + ", " +
                                 VertexIdTranslate.getVertexId(shoveled2[j]) + " min target = " + minTarget);
                     }
-                    if (curvid == 671088640 && ( VertexIdTranslate.getVertexId(shoveled2[j]) == 2650802847L)) {
-                        System.out.println(curvid + " --> " +  VertexIdTranslate.getVertexId(shoveled2[j]) +" going in shard " + adjFile.getName() + "" +
-                                " at index" + j + " all bytes=" + shoveled2[j] +", type="
-                                + VertexIdTranslate.getType(shoveled2[j]) + " istart=" + istart);
-                    }
 
                     adjOut.writeLong(shoveled2[j]);
                     edgeCounter++;
