@@ -382,17 +382,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
 
     /* Returns buffer pointer for given edge, if found */
-    def find(edgeType: Byte, src: Long, dst: Long, srcShardBits: Long) : Option[Long] = {
-      if (compareShardBitsToInterval(srcShardBits, myInterval)) {
+    def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
         bufferLock.readLock().lock()
         try {
           bufferFor(src, dst).find(edgeType, src, dst).orElse(oldBufferFor(src, dst).find(edgeType, src, dst))
         } finally {
           bufferLock.readLock().unlock()
         }
-      } else {
-        None
-      }
     }
 
     def getValue[T](edgeType: Byte, src:Long, dst:Long, columnIdx: Int) : Option[T] = {
@@ -427,9 +423,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val flushLock = new Object
 
 
-    def update[T](edgeType: Byte, src: Long, dst: Long, columnIdx: Int, value: T, srcShardBits: Long) : Boolean  = {
+    def update[T](edgeType: Byte, src: Long, dst: Long, columnIdx: Int, value: T) : Boolean  = {
       // Note: for update we use readLock as it does not alter the size of the data or move data
-      if (find(edgeType, src, dst, srcShardBits).isDefined) {
+      if (find(edgeType, src, dst).isDefined) {
         flushLock.synchronized {         // Need flush lock
           bufferLock.readLock().lock()
           try {
@@ -460,9 +456,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
     }
 
-    def deleteEdge(edgeType: Byte, src: Long, dst: Long, srcShardBits: Long) : Boolean = {
+    def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
       flushLock.synchronized {         // Need flush lock
-        if (find(edgeType, src, dst, srcShardBits).isDefined) {
+        if (find(edgeType, src, dst).isDefined) {
           bufferLock.readLock().lock()
           try {
             val buffer = bufferFor(src, dst)
@@ -883,34 +879,40 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   // TODO: remove redundancy with updateEdge
-  def findEdgePointer(edgeType: Byte, src: Long, dst: Long, debug:Boolean=false)(updateFunc: Option[Long] => Unit) = {
-    this.synchronized {
-      val shardbits = shardBits(src)
-      val ptrOpt = {
-        val bufferShard = bufferForEdge(src, dst)
-        val bufferOpt = bufferShard.find(edgeType, src, dst, shardbits)
-        if (!bufferOpt.isDefined && debug) {
-            val doubleCheck = bufferShard.find(edgeType, src, dst, 0xffffffffffffffffL)
-            if (doubleCheck.isDefined) {
-               throw new IllegalStateException("Shard bit check did not work - buffers?? %s".format(shardbits))
-            }
-        }
-        bufferOpt.orElse( {
-          // Look first the most recent data, so reverse
-          val persistentPtrOpt = shards.filter(s => s.myInterval.contains(dst) &&
-            compareShardBitsToInterval(shardbits, s.myInterval)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
+  def findEdgePointer(edgeType: Byte, src: Long, dst: Long, debug:Boolean=false)(updateFunc: Option[Long] => Unit) : Unit= {
+    val bufferShard = bufferForEdge(src, dst)
+    val bufferOpt = bufferShard.find(edgeType, src, dst)
 
-          if (!persistentPtrOpt.isDefined && debug) {
-            val persistentPtrOptDouble = shards.filter(s => s.myInterval.contains(dst)).reverseIterator.map(_.find(edgeType, src, dst)).find(_.isDefined)
-            if (persistentPtrOptDouble.isDefined) {
-              throw new IllegalStateException("Shard bit check did not work - persistent?? %s".format(shardbits))
-            }
-          }
-
-          if (persistentPtrOpt.isDefined) { persistentPtrOpt.get} else { None }
-        })
+    if (bufferOpt.isDefined) {
+      bufferShard.bufferLock.readLock().lock()
+      try {
+        updateFunc(bufferOpt)
+      } finally {
+        bufferShard.bufferLock.readLock().unlock()
       }
-      updateFunc(ptrOpt)
+    } else {
+      // TODO: more scala-like
+      var found = false
+      // Look first the most recent data, so reverse
+      val shardIter = shards.filter(s => s.myInterval.contains(dst)).reverseIterator
+      shardIter.foreach(
+        s => {
+          s.persistentShardLock.readLock().lock()
+          try {
+            val ptrOpt = s.find(edgeType, src, dst)
+            if (ptrOpt.isDefined) {
+              updateFunc(ptrOpt)
+              found = true
+              return
+            }
+          } finally {
+            s.persistentShardLock.readLock().unlock()
+          }
+        }
+      )
+      if (!found) {
+        updateFunc(None)
+      }
     }
   }
 
@@ -926,13 +928,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def updateEdge[T](edgeType: Byte, src: Long, dst: Long, column: Column[T], newValue: T) : Boolean = {
     /* First buffers */
     val bufferShard = bufferForEdge(src, dst)
-    val shardbits = shardBits(src)
-    if (!bufferShard.update(edgeType, src, dst, column.columnId, newValue, shardbits)) {
+    if (!bufferShard.update(edgeType, src, dst, column.columnId, newValue)) {
       /* And then persistent shard */
-      val possibleShards = shards.filter(s => s.myInterval.contains(dst) &&
-        compareShardBitsToInterval(shardbits, s.myInterval )).reverse // Look first the most recent data, so reverse
+      val possibleShards = shards.filter(s => s.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
       possibleShards.foreach( shard => {
-        shard.persistentShardLock.writeLock().lock()
+        shard.persistentShardLock.readLock().lock()
         try {
           val idx = shard.persistentShard.find(edgeType, src, dst)
           if (idx != null) {
@@ -940,7 +940,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
             return true
           }
         } finally {
-          shard.persistentShardLock.writeLock().unlock()
+          shard.persistentShardLock.readLock().unlock()
         }
       })
       false
@@ -957,13 +957,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def deleteEdge(edgeType: Byte, src: Long, dst: Long) : Boolean = {
     /* First buffers */
-    val shardbits = shardBits(src)
 
     val bufferShard = bufferForEdge(src, dst)
-    if (!bufferShard.deleteEdge(edgeType, src, dst, shardbits)) {
+    if (!bufferShard.deleteEdge(edgeType, src, dst)) {
+
       /* And then persistent shard */
-      val possibleShards = shards.filter(s => s.myInterval.contains(dst) &&
-        compareShardBitsToInterval(shardbits, s.myInterval)).reverse // Look first the most recent data, so reverse
+      val possibleShards = shards.filter(s => s.myInterval.contains(dst)).reverse // Look first the most recent data, so reverse
       possibleShards.foreach( shard => {
         shard.persistentShardLock.writeLock().lock()
         try {
@@ -1322,10 +1321,15 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
-  def compareShardBitsToInterval(bits: Long, interval: VertexInterval) = {
+  def compareShardBitsToInterval(bits: Long, interval: VertexInterval) : Boolean = {
     val lowIdx = (interval.getFirstVertex / vertexIntervalBy64).toInt
     val hiIdx = (interval.getLastVertex / vertexIntervalBy64).toInt
-    (lowIdx to hiIdx).exists(idx => Util.getBit(bits, idx))
+    var j = lowIdx
+    while(j<=hiIdx) {    // Ugly while instead of (lowIdx to hiIdx) for performance
+      if (Util.getBit(bits, j)) return true
+      j += 1
+    }
+    false
   }
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
