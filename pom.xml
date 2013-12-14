@@ -11,7 +11,11 @@
     
     
     <repositories>
-    <repository>
+             <repository>
+                <id>my</id>
+                <url>file://${basedir}/my-repo</url>
+            </repository>
+     <repository>
         <id>SonatypeNexusSnapshots</id>
         <name>Sonatype Nexus Snapshots</name>
         <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
@@ -26,6 +30,12 @@
   </repositories>
 
     <dependencies>
+        <dependency>
+            <groupId>com.facebook.linkbench</groupId>
+            <artifactId>FacebookLinkBench</artifactId>
+            <version>1.0</version>
+        </dependency>
+
         <dependency>
         <groupId>com.yammer.metrics</groupId>
         <artifactId>metrics-core</artifactId>
