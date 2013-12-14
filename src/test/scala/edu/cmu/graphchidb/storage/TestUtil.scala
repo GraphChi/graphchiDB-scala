@@ -29,5 +29,11 @@ class TestUtil {
 
   }
 
+  @Test def intConversions() = {
+    (0 until 10000).foreach( x => {
+        val a = x * 999
+        assertEquals(a, Util.intFromByteArray(Util.intToByteArray(a)))
+    })
+  }
 
 }

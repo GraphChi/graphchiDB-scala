@@ -1,5 +1,7 @@
 package edu.cmu.graphchidb
 
+import java.nio.ByteBuffer
+
 /**
  * Random utility functions
  * @author Aapo Kyrola
@@ -25,5 +27,13 @@ object Util {
   def setHiLo(hi: Int, lo: Int) : Long = setHi(hi, setLo(lo, 0L))
   def setBit(x: Long, idx:Int) = x | (1L << idx)
   def getBit(x: Long, idx:Int): Boolean = (x & (1L << idx)) != 0
+
+  def intToByteArray(x: Int) = {
+     ByteBuffer.allocate(4).putInt(x).array()
+  }
+
+  def intFromByteArray(arr : Array[Byte]) : Int = {
+     ByteBuffer.wrap(arr).getInt
+  }
 
 }
