@@ -691,6 +691,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       val interval = intervals(shardForIndex(idx))
       idx - interval.getFirstVertex
     }
+
+
+    def localToGlobal(shardIdx: Int, localIdx: Long) = intervals(shardIdx).getFirstVertex + localIdx
+
     override def allowAutoExpansion: Boolean = true  // Is this the right place?
     override def name = "vertex"
   }
@@ -700,6 +704,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     def shardForIndex(idx: Long) = PointerUtil.decodeShardNum(idx)
     def shardSize(idx: Int) = shards(idx).numEdges
     def nShards = shards.size
+
+
+    def localToGlobal(shardIdx: Int, idx: Long) = throw new NotImplementedException
+
     def globalToLocal(idx: Long) = PointerUtil.decodeShardPos(idx)
     override def name = "edge"
 
@@ -1358,7 +1366,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   /** Computational functionality **/
-  def sweepInEdgesWithJoin[T1, T2](intervalId: Int, maxVertex: Long, col1: Column[T1], col2: Column[T2])(updateFunc: (Long, Long, T1, T2) => Unit) = {
+  def sweepInEdgesWithJoin[T1, T2](intervalId: Int, maxVertex: Long, col1: Column[T1], col2: Column[T2])(updateFunc: (Long, Long, Byte, T1, T2) => Unit) = {
     val interval = intervals(intervalId)
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
 
@@ -1373,7 +1381,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           if (interval.contains(dst) && dst <= maxVertex) {
             val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, shard.shardId)
             val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, shard.shardId)
-            updateFunc(src, dst, v1, v2)
+            updateFunc(src, dst, edgeIterator.getType, v1, v2)
           }
           idx += 1
         }
@@ -1385,18 +1393,93 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val bufferToSweep = bufferShards.find(_.myInterval.intersects(interval)).get
     bufferToSweep.bufferLock.readLock().lock()
     try {
-      var matches = 0 // debug
       bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
         val edgeIterator = buf.buffer.edgeIterator
         var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
-          if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit ackward
+          if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
           val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
             val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
-            updateFunc(src, dst, v1, v2)
-            matches += 1
+            updateFunc(src, dst, edgeIterator.getType, v1, v2)
+          }
+          idx += 1
+        }
+      })
+    } finally {
+      bufferToSweep.bufferLock.readLock().unlock()
+    }
+  }
+
+
+  def sweepAllEdges( )(updateFunc: (Long, Long, Byte) => Unit) = {
+     val shardsToSweep = shards
+
+    shardsToSweep.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
+        val edgeIterator = shard.persistentShard.edgeIterator()
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+            updateFunc(src, dst, edgeIterator.getType)
+        }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
+
+    bufferShards.foreach( bufferToSweep => {
+    bufferToSweep.bufferLock.readLock().lock()
+    try {
+      bufferToSweep.buffers.flatten.foreach(buf => {
+        val edgeIterator = buf.buffer.edgeIterator
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+            updateFunc(src, dst, edgeIterator.getType)
+        }
+      })
+    } finally {
+      bufferToSweep.bufferLock.readLock().unlock()
+    }
+    })
+  }
+
+  def sweepInEdges(intervalId: Int, maxVertex: Long)(updateFunc: (Long, Long, Byte) => Unit) = {
+    val interval = intervals(intervalId)
+    val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
+
+    shardsToSweep.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
+        val edgeIterator = shard.persistentShard.edgeIterator()
+        var idx = 0
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst) && dst <= maxVertex) {
+            updateFunc(src, dst, edgeIterator.getType)
+          }
+          idx += 1
+        }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
+
+    val bufferToSweep = bufferShards.find(_.myInterval.intersects(interval)).get
+    bufferToSweep.bufferLock.readLock().lock()
+    try {
+      bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
+        val edgeIterator = buf.buffer.edgeIterator
+        var idx = 0
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
+            updateFunc(src, dst, edgeIterator.getType)
           }
           idx += 1
         }
@@ -1440,6 +1523,7 @@ trait DatabaseIndexing {
   def shardForIndex(idx: Long) : Int
   def shardSize(shardIdx: Int) : Long
   def globalToLocal(idx: Long) : Long
+  def localToGlobal(shardIdx: Int, localIdx: Long) : Long
   def allowAutoExpansion: Boolean = false  // Is this the right place?
 }
 

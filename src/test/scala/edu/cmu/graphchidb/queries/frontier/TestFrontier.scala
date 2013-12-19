@@ -18,6 +18,8 @@ class TestFrontier {
 
     def globalToLocal(idx: Long) = (idx % 10000).toInt
 
+    def localToGlobal(shardIdx: Int, localIdx: Long) = shardIdx * 10000 + localIdx
+
     def nShards = 128
   }
 
@@ -37,7 +39,7 @@ class TestFrontier {
     val sparseFrontier1 = new SparseVertexFrontier(vertexIndexing)
 
 
-    List(denseFrontier1, sparseFrontier1).foreach( frontier => {
+    List(denseFrontier1, sparseFrontier1, denseFrontier1.toSparse, sparseFrontier1.toDense).foreach( frontier => {
       println("Test frontier: %s", frontier)
       assertEquals(0, frontier.size)
       assertTrue(frontier.isEmpty)

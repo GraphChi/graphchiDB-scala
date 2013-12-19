@@ -8,12 +8,15 @@ import edu.cmu.graphchidb.GraphChiDatabase
  */
 object Queries {
 
-  def twoHopOut(internalId: Long, edgeType: Byte)(implicit DB: GraphChiDatabase) = {
+  /** Finds friends of friends of search vertex and groups by the number of common
+    * followers. Excludes the immediate friends.
+    * @param internalId
+    * @param edgeType
+    * @param DB
+    * @return
+    */
+  def friendsOfFriends(internalId: Long, edgeType: Byte)(implicit DB: GraphChiDatabase) = {
       val firstHop = DB.queryOut(internalId, edgeType)
-      val secondHop = DB.queryOutMultiple(firstHop.getInternalIds.toSet, edgeType)
-
-      /* Group by */
-     secondHop.getVertices.groupBy(identity).mapValues(_.size)
   }
 
 
