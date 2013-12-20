@@ -16,6 +16,12 @@ trait VertexFrontier {
   def isEmpty : Boolean
   def size: Int
 
+  def toSet: Set[Long]
+
+  def apply[T](f : VertexFrontier => T) = f(this)
+
+  def ->[T](f : VertexFrontier => T) = f(this)
+
 }
 
 
@@ -45,6 +51,8 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
     } )
     sparseFrontier
   }
+
+  def toSet = toSparse.toSet
 }
 
 

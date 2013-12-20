@@ -11,8 +11,9 @@ object FrontierQueries {
   type queryFunction = (VertexFrontier) => VertexFrontier
 
 
-  def queryVertex(vid: Long)(implicit db:GraphChiDatabase) : VertexFrontier =
-    new SparseVertexFrontier(db.vertexIndexing, Set(vid), db)
+  def queryVertex[T](vid: Long,  db:GraphChiDatabase) : VertexFrontier = {
+     new SparseVertexFrontier(db.vertexIndexing, Set(vid), db)
+  }
 
   def step[R](sparseBlock: (SparseVertexFrontier) => R,
               denseBlock: (DenseVertexFrontier) => R):  (VertexFrontier) => R = {
@@ -62,20 +63,24 @@ object FrontierQueries {
   }
 
 
+  // TODO: optimization for bottomUp: set min and max src for sweepAll
+
   /* Emits each out-neighbor for the frontier */
-  def selectOut(edgeType: Byte, resultReceiver: VertexResultReceiver) = {
-       def topDown(frontier: SparseVertexFrontier) : Unit = {
+  def selectOut[RV <: VertexResultReceiver](edgeType: Byte, resultReceiver: RV) = {
+       def topDown(frontier: SparseVertexFrontier) : RV = {
          println("Top down -- select: %d".format(frontier.size))
          val edgeList = frontier.db.queryOutMultiple(frontier.toSet, edgeType)
          edgeList.getInternalIds.foreach(vid => resultReceiver(vid))
+         resultReceiver
        }
-      def bottomUp(frontier: DenseVertexFrontier) : Unit = {
+      def bottomUp(frontier: DenseVertexFrontier) : RV = {
         println("Bottom up -- select: %d".format(frontier.size))
         frontier.db.sweepAllEdges() {
            (src: Long, dst: Long, eType: Byte ) => {
              if (edgeType == eType && frontier.hasVertex(src)) resultReceiver(dst)
            }
          }
+        resultReceiver
       }
     step(topDown, bottomUp)
   }
@@ -92,9 +97,15 @@ object FrontierQueries {
     }
 
     def results: Map[Long, T] = resultMap.toMap[Long, T]
+
+    def -=(frontier: VertexFrontier) = {
+      val dset = frontier.toSet
+      resultMap --= dset
+      this
+    }
   }
 
 
-  def groupByCount() = new GroupBy[Int]((Long, cursum: Int) => cursum + 1, 0)
+  def groupByCount = new GroupBy[Int]((Long, cursum: Int) => cursum + 1, 0)
 
 }
