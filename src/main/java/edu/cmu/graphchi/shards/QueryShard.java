@@ -8,6 +8,7 @@ import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.queries.QueryCallback;
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 
 import java.io.File;
@@ -140,6 +141,17 @@ public class QueryShard {
     }
 
     class DeleteCallBack implements QueryCallback {
+
+        @Override
+        public boolean immediateReceive() {
+            return false;
+        }
+
+        @Override
+        public void receiveEdge(long src, long dst, byte edgeType, long dataPtr) {
+           throw new IllegalStateException();
+        }
+
         @Override
         public void receiveOutNeighbors(long vertexId, ArrayList<Long> neighborIds, ArrayList<Byte> edgeTypes, ArrayList<Long> dataPointers) {
             // A bit wasteful, but not a big deal
@@ -162,7 +174,7 @@ public class QueryShard {
             queryIn(vertexId, new DeleteCallBack(), (byte)0, true);
         }
         if (hasOut)
-          queryOut(Collections.singleton(vertexId), new DeleteCallBack(), (byte)0, true);
+            queryOut(Collections.singleton(vertexId), new DeleteCallBack(), (byte)0, true);
     }
 
 
@@ -195,9 +207,9 @@ public class QueryShard {
                     long nextPtr = tmpPointerIdxBuffer.get();
                     int n = (int) (VertexIdTranslate.getAux(nextPtr) - VertexIdTranslate.getAux(curPtr));
 
-                    ArrayList<Long> res = new ArrayList<Long>(n);
-                    ArrayList<Long> resPointers = new ArrayList<Long>(n);
-                    ArrayList<Byte> resTypes = new ArrayList<Byte>(n);
+                    ArrayList<Long> res = (callback.immediateReceive() ? null : new ArrayList<Long>(n));
+                    ArrayList<Long> resPointers = (callback.immediateReceive() ? null :new ArrayList<Long>(n));
+                    ArrayList<Byte> resTypes = (callback.immediateReceive() ? null :new ArrayList<Byte>(n));
 
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
                     tmpAdjBuffer.position((int)adjOffset);
@@ -206,14 +218,19 @@ public class QueryShard {
                         byte etype = VertexIdTranslate.getType(e);
 
                         if (ignoreType || etype == edgeType) {
-                            res.add(VertexIdTranslate.getVertexId(e));
-                            resPointers.add(PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
-                            resTypes.add(etype);
+                            if (!callback.immediateReceive()) {
+                                res.add(VertexIdTranslate.getVertexId(e));
+                                resPointers.add(PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
+                                resTypes.add(etype);
+                            } else {
+                                callback.receiveEdge(sortedIds.get(qIdx), VertexIdTranslate.getVertexId(e),
+                                        VertexIdTranslate.getType(e), VertexIdTranslate.getAux(e));
+                            }
                         }
                     }
-                    callback.receiveOutNeighbors(vertexId, res, resTypes, resPointers);
+                    if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, res, resTypes, resPointers);
                 } else {
-                    callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
+                    if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
                 }
             }
         } catch (Exception err) {
@@ -256,6 +273,7 @@ public class QueryShard {
 
         final LongBuffer tmpBuffer = adjBuffer.duplicate();
 
+        if(!callback.immediateReceive()) throw new NotImplementedException();
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);

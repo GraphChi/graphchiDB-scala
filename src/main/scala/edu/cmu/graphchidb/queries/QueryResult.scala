@@ -3,19 +3,22 @@ package edu.cmu.graphchidb.queries
 import edu.cmu.graphchidb.storage.Column
 import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
 import edu.cmu.graphchidb.Util.timed
-import edu.cmu.graphchidb.queries.internal.ResultEdges
+import edu.cmu.graphchidb.queries.internal.{QueryResultContainer, ResultEdges}
 
 
 case class VertexId(originalId: Long, internalId: Long)
 
 /**
+ * TODO: this needs refactoring
  * @author Aapo Kyrola
  */
-class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: GraphChiDatabase) {
+class QueryResult(indexing: DatabaseIndexing, result: QueryResultContainer,  database: GraphChiDatabase) {
+
+  lazy val rows = result.combinedResults()
 
   // TODO: multijoin
   def join[T](column: Column[T]) = {
-    if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
+     if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
     column.indexing match {
       case database.edgeIndexing => {
         val joins1 = database.edgeColumnValues(column, rows.pointers.toSet)
@@ -34,8 +37,7 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
   def join[T, V](column: Column[T], column2: Column[V]) = {
     if (column.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
     if (column2.indexing != indexing) throw new RuntimeException("Cannot join results with different indexing!")
-
-    val idSet = rows.pointers.toSet
+     val idSet = rows.pointers.toSet
     val joins1 = timed("join1",  column.getMany(idSet))
     val rows2 = idSet.intersect(joins1.keySet)
     val joins2 = timed ("join2", column2.getMany(rows2) )
@@ -43,17 +45,22 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
   }
 
 
+  /* Combined results */
   def getVertices = rows.ids.map(vid => VertexId(database.originalToInternalId(vid), vid))
 
   def getInternalIds : Seq[Long] = rows.ids
 
   def getPointers = rows.pointers
 
+  /* Multiresults */
+  def resultsForVertex(vertexId: Long) = result.resultsFor(vertexId)
+
+  def size = result.size
 
   override def toString() = "Query result: %d rows".format(rows.ids.size)
 
   def withIndexing(desiredIndexing: DatabaseIndexing) = {
-    new QueryResult(desiredIndexing, rows, database)
+    new QueryResult(desiredIndexing, result, database)
   }
 }
 

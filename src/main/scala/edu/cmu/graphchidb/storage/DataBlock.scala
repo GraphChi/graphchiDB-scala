@@ -70,7 +70,6 @@ object ByteConverters {
 trait DataBlock[T] extends IndexedByteStorageBlock {
 
 
-
   def get(idx: Int, byteBuffer: ByteBuffer)(implicit converter: ByteConverter[T]) : Option[T] = {
     if (readIntoBuffer(idx, byteBuffer)) {
       byteBuffer.rewind()
@@ -94,6 +93,8 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
     val bb = ByteBuffer.allocate(converter.sizeOf)  // TODO reuse
     set(idx, value, bb)
   }
+
+  def delete(): Unit
 
 }
 

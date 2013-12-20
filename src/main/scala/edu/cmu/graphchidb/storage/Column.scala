@@ -45,10 +45,12 @@ trait Column[T] {
 
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit
 
+  def delete : Unit
+
 }
 
 class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: DatabaseIndexing,
-                    converter: ByteConverter[T]) extends Column[T] {
+                    converter: ByteConverter[T], deleteOnExit:Boolean=false) extends Column[T] {
 
   override def columnId = id
 
@@ -63,13 +65,16 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
   var blocks = (0 until indexing.nShards).map {
     shard =>
       if (!sparse) {
-        new  MemoryMappedDenseByteStorageBlock(new File(blockFilename(shard)), None,
+        val f = new File(blockFilename(shard))
+        if (deleteOnExit) f.deleteOnExit()
+        new  MemoryMappedDenseByteStorageBlock(f, None,
           converter.sizeOf) with DataBlock[T]
       } else {
         throw new NotImplementedException()
       }
   }.toArray
 
+  def delete = blocks.foreach(b => b.delete)
 
   private def checkSize(block: MemoryMappedDenseByteStorageBlock, localIdx: Int) = {
     if (block.size <= localIdx && _indexing.allowAutoExpansion) {
@@ -89,6 +94,9 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
     checkSize(block, localIdx)
     block.get(localIdx)(converter)
   }
+
+  def getOrElse[T](idx:Long, default: T) = get(idx).getOrElse(default)
+
   def getName(idx: Long) = get(idx).map(a => a.toString).headOption
 
   def set(idx: Long, value: T) : Unit = {
@@ -119,8 +127,9 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
   }
 }
 
-class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String])
-  extends FileColumn[Byte](id, filePrefix, sparse=false, indexing, ByteByteConverter) {
+class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String],
+                         deleteOnExit: Boolean = false)
+  extends FileColumn[Byte](id, filePrefix, sparse=false, indexing, ByteByteConverter, deleteOnExit) {
 
   def byteToInt(b: Byte) : Int = if (b < 0) 256 + b  else b
 
@@ -145,6 +154,9 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
   override def columnId = id
 
   override  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = throw new UnsupportedOperationException
+
+  def delete = throw new NotImplementedException
+
 
   // TODO: temporary code
   val dbConnection = {

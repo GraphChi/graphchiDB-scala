@@ -33,7 +33,12 @@ object LiveJournalTest  {
   DB.queryIn(DB.originalToInternalId(8737))
 
   import edu.cmu.graphchidb.queries.Queries._
-    twoHopOut(DB.originalToInternalId(8737))(DB)
+  val sp = singleSourceShortestPath(DB.originalToInternalId(8737), 0)(DB)
+  sp.pathTo(DB.originalToInternalId(2419))
+  val sp2 = singleSourceShortestPath(DB.originalToInternalId(8737), 1)(DB)
+  sp2.pathTo(DB.originalToInternalId(2419))
+
+    friendsOfFriends(DB.originalToInternalId(8737))(DB)
 
 
     */

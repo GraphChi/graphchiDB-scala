@@ -19,6 +19,11 @@ class QueryResultContainer(queryIds: Set[Long]) extends QueryCallback {
   private var resultList = List[Tuple2[Long, ResultEdges]]()
 
 
+  def immediateReceive = false
+
+
+  def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = throw new IllegalStateException()
+
   def receiveOutNeighbors(vertexId: Long, neighborIdsJava: util.ArrayList[lang.Long],
                           edgeTypesJava: util.ArrayList[lang.Byte],
                           dataPointersJava: util.ArrayList[lang.Long]) : Unit = {
@@ -30,7 +35,7 @@ class QueryResultContainer(queryIds: Set[Long]) extends QueryCallback {
        while(i < n) {
           neighborIds(i) = neighborIdsJava(i)
           edgeTypes(i) = edgeTypesJava(i)
-          dataPointers(i) = dataPointers(i)
+          dataPointers(i) = dataPointersJava(i)
           i += 1
        }
        receiveOutNeighbors(vertexId, neighborIds, edgeTypes, dataPointers)
@@ -48,7 +53,7 @@ class QueryResultContainer(queryIds: Set[Long]) extends QueryCallback {
     while(i < n) {
       neighborIds(i) = neighborIdsJava(i)
       edgeTypes(i) = edgeTypesJava(i)
-      dataPointers(i) = dataPointers(i)
+      dataPointers(i) = dataPointersJava(i)
       i += 1
     }
     receiveInNeighbors(vertexId, neighborIds, edgeTypes, dataPointers)
@@ -97,6 +102,8 @@ class QueryResultContainer(queryIds: Set[Long]) extends QueryCallback {
   def resultsFor(queryId: Long) = results.getOrElse(queryId, ResultEdges(Seq[Long](), Seq[Byte](), Seq[Long]()))
 
   def combinedResults() =  results.values.foldLeft(ResultEdges(Seq[Long](), Seq[Byte](), Seq[Long]()))(_+_)
+
+  def size = results.values.foldLeft(0)(_ + _.size)
 }
 
 case class ResultEdges(ids: Seq[Long], types: Seq[Byte], pointers: Seq[Long]) {

@@ -10,6 +10,8 @@ import edu.cmu.akyrola.prototype.TwitterPrototypeDatabase._
      DB.queryOut(DB.originalToInternalId(20))
 
 DB.runIteration(pagerankComputation)
+           import edu.cmu.graphchidb.queries.Queries._
+    friendsOfFriends(DB.originalToInternalId(20), 0)(DB)
 
  */
 

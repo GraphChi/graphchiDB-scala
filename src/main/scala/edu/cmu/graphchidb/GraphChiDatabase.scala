@@ -721,66 +721,67 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
   /* Columns */
-  def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing) = {
+  def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing,
+                               temporary: Boolean=false) = {
     this.synchronized {
       val col =  new CategoricalColumn(columns(indexing).size, filePrefix=baseFilename + "_COLUMN_cat_" + indexing.name + "_" + name.toLowerCase,
-        indexing, values)
+        indexing, values, deleteOnExit = temporary)
 
-      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+      if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
       col
     }
   }
 
-  def createFloatColumn(name: String, indexing: DatabaseIndexing) = {
+  def createFloatColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
     this.synchronized {
       val col = new FileColumn[Float](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_float_" +  indexing.name + "_" + name.toLowerCase,
-        sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter)
-      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+        sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter, deleteOnExit = temporary)
+      if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
       col
     }
   }
 
-  def createIntegerColumn(name: String, indexing: DatabaseIndexing) = {
+  def createIntegerColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
     this.synchronized {
       val col = new FileColumn[Int](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
-        sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter)
-      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+        sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter, deleteOnExit = temporary)
+      if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
       col
     }
   }
 
-  def createShortColumn(name: String, indexing: DatabaseIndexing) = {
+  def createShortColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
     this.synchronized {
       val col = new FileColumn[Short](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_short_" +  indexing.name + "_" + name.toLowerCase,
-        sparse=false, _indexing=indexing, converter = ByteConverters.ShortByteConverter)
-      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+        sparse=false, _indexing=indexing, converter = ByteConverters.ShortByteConverter, deleteOnExit = temporary)
+      if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
       col
     }
   }
 
-  def createByteColumn(name: String, indexing: DatabaseIndexing) = {
+  def createByteColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
     this.synchronized {
       val col = new FileColumn[Byte](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_byte_" +  indexing.name + "_" + name.toLowerCase,
-        sparse=false, _indexing=indexing, converter = ByteConverters.ByteByteConverter)
-      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+        sparse=false, _indexing=indexing, converter = ByteConverters.ByteByteConverter, deleteOnExit = temporary)
+      if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
       col
     }
   }
 
-  def createLongColumn(name: String, indexing: DatabaseIndexing) = {
+  def createLongColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
     this.synchronized {
       val col = new FileColumn[Long](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
-        sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter)
-      columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+        sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter, deleteOnExit = temporary)
+      if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
       col
     }
   }
 
-  def createCustomTypeColumn[T](name: String, indexing: DatabaseIndexing, converter: ByteConverter[T]) = {
+  def createCustomTypeColumn[T](name: String, indexing: DatabaseIndexing, converter: ByteConverter[T], temporary: Boolean=false) = {
      this.synchronized {
        val col = new FileColumn[T](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_custom" + converter.sizeOf + "_" +  indexing.name + "_" + name.toLowerCase,
-         sparse=false, _indexing=indexing, converter=converter)
-       columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
+         sparse=false, _indexing=indexing, converter=converter, deleteOnExit = temporary)
+       if (!temporary) columns(indexing) = columns(indexing) :+ (name, col.asInstanceOf[Column[Any]])
        col
      }
   }
@@ -807,6 +808,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       None
     }
   }
+
 
 
   /* Adding edges */
@@ -1154,7 +1156,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       })
       log("Total in-results: %d,  : %d".format(result.combinedResults().size, result.resultsFor(internalId).size))
 
-      new QueryResult(edgeIndexing, result.resultsFor(internalId), this)
+      new QueryResult(edgeIndexing, result, this)
     } )
   }
 
@@ -1167,6 +1169,47 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       // Note, change indexing
       res.withIndexing(edgeIndexing)
     } )
+  }
+
+
+  def queryOutMultiple(queryIds: Set[Long], edgeType: Byte, callback: QueryCallback)  = {
+    if (!initialized) throw new IllegalStateException("You need to initialize first!")
+      val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
+        bufferShards.par.foreach(bufferShard => {
+          /* Look for buffers */
+          bufferShard.bufferLock.readLock().lock()
+          try {
+            idsWithQueryBits.par.foreach { case (internalId: Long, shardBits: Long) =>
+              bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
+                if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
+                  buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
+                  if (!buf.interval.contains(internalId))
+                    throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
+                } else {
+                }})}
+          } catch {
+            case e: Exception  => e.printStackTrace()
+          } finally {
+            bufferShard.bufferLock.readLock().unlock()
+          }
+        })
+
+        shards.par.foreach(shard => {
+          try {
+            val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
+            if (matchingIds.nonEmpty) {
+              shard.persistentShardLock.readLock().lock()
+              try {
+                shard.persistentShard.queryOut(matchingIds, callback, edgeType)
+              } finally {
+                shard.persistentShardLock.readLock().unlock()
+              }
+            }
+          } catch {
+            case e: Exception  =>  e.printStackTrace()
+          }
+        })
+
   }
 
 
@@ -1228,7 +1271,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
       timed("query-out-combine", {
-        new QueryResult(vertexIndexing, resultContainer.combinedResults(), this)
+        new QueryResult(vertexIndexing, resultContainer, this)
       })
     } )
   }
@@ -1415,7 +1458,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def sweepAllEdges( )(updateFunc: (Long, Long, Byte) => Unit) = {
      val shardsToSweep = shards
 
-    shardsToSweep.foreach(shard => {
+    shardsToSweep.par.foreach(shard => {
       shard.persistentShardLock.readLock().lock()
       try {
         val edgeIterator = shard.persistentShard.edgeIterator()
@@ -1429,7 +1472,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
     })
 
-    bufferShards.foreach( bufferToSweep => {
+    bufferShards.par.foreach( bufferToSweep => {
     bufferToSweep.bufferLock.readLock().lock()
     try {
       bufferToSweep.buffers.flatten.foreach(buf => {

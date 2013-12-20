@@ -30,6 +30,11 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Option[Long], element
     }
   }
 
+  def delete() : Unit = {
+    byteBuffer = null
+    file.delete()
+  }
+
   private def mmap(size: Long) =
   {
     val channel = new RandomAccessFile(file, "rw").getChannel

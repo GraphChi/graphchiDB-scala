@@ -2,17 +2,21 @@ package edu.cmu.graphchidb.queries.frontier
 
 import edu.cmu.graphchidb.GraphChiDatabase
 import scala.collection.mutable
+import edu.cmu.graphchi.queries.QueryCallback
+import java.{lang, util}
 
 /**
  * @author Aapo Kyrola
  */
 object FrontierQueries {
 
+  // TODO: queryShard.queryOut with direct one-edge callback
+
   type queryFunction = (VertexFrontier) => VertexFrontier
 
 
   def queryVertex[T](vid: Long,  db:GraphChiDatabase) : VertexFrontier = {
-     new SparseVertexFrontier(db.vertexIndexing, Set(vid), db)
+    new SparseVertexFrontier(db.vertexIndexing, Set(vid), db)
   }
 
   def step[R](sparseBlock: (SparseVertexFrontier) => R,
@@ -29,7 +33,7 @@ object FrontierQueries {
       }
 
       // TODO: proper cost analysis
-      if (frontierSize < frontier.db.numShards * 2) {
+      if (frontierSize < frontier.db.numEdges / 1000) {
         sparseBlock(sparseFrontier)
       } else {
         denseBlock(denseFrontier)
@@ -37,51 +41,103 @@ object FrontierQueries {
     }
   }
 
-    /* Creates new frontier of the out-neighbors of the frontier */
+  /* Creates new frontier of the out-neighbors of the frontier */
   def traverseOut(edgeType: Byte) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
-         println("Top down: %d".format(frontier.size))
-         val edgeList = frontier.db.queryOutMultiple(frontier.toSet, edgeType)
-         VertexFrontier.createFrontier(edgeList.getInternalIds, frontier.db)
+      println("Top down: %d".format(frontier.size))
+      val edgeList = frontier.db.queryOutMultiple(frontier.toSet, edgeType)
+      VertexFrontier.createFrontier(edgeList.getInternalIds, frontier.db)
     }
 
     def bottomUp(frontier:DenseVertexFrontier) : VertexFrontier  = {
-        println("Bottom up: %d".format(frontier.size))
-        val outFrontier = new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
-        frontier.db.sweepAllEdges() (
-          (src: Long, dst: Long, eType: Byte ) => {
-             if (edgeType == eType && frontier.hasVertex(src)) outFrontier.insert(dst)
-          }
-       )
-        outFrontier
+      println("Bottom up: %d".format(frontier.size))
+      val outFrontier = new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      frontier.db.sweepAllEdges() (
+        (src: Long, dst: Long, eType: Byte ) => {
+          if (edgeType == eType && frontier.hasVertex(src)) outFrontier.insert(dst)
+        }
+      )
+      outFrontier
     }
     step(topDown, bottomUp)
   }
 
+
+  // Function returns item to add to frontier and a boolean that determines whether to continue
+  def traverseOut(edgeType: Byte, fn: (Long, Long) => Option[Long]) : queryFunction = {
+    def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
+      println("Top down: %d".format(frontier.size))
+      val frontierSet = frontier.toSet
+
+      val newFrontier = if (frontierSet.size > 2000) {   // TODO: remove hard coding
+        new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      } else {
+        new SparseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      }
+
+       frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
+         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
+
+         def immediateReceive() = true
+         def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
+            val v = fn(src, dst)
+            if (v.isDefined) newFrontier.insert(v.get)
+         }
+       })
+
+      newFrontier
+    }
+
+    def bottomUp(frontier:DenseVertexFrontier) : VertexFrontier  = {
+      println("Bottom up: %d".format(frontier.size))
+      val outFrontier = new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      frontier.db.sweepAllEdges() (
+        (src: Long, dst: Long, eType: Byte ) => {
+          if (edgeType == eType && frontier.hasVertex(src))  {
+            val v = fn(src, dst)
+            if (v.isDefined) outFrontier.insert(v.get)
+          }
+        }
+      )
+      outFrontier
+    }
+    step(topDown, bottomUp)
+  }
+
+
   trait VertexResultReceiver {
-     def apply(vid: Long) : Unit
+    def apply(vid: Long) : Unit
   }
 
 
   // TODO: optimization for bottomUp: set min and max src for sweepAll
 
   /* Emits each out-neighbor for the frontier */
-  def selectOut[RV <: VertexResultReceiver](edgeType: Byte, resultReceiver: RV) = {
-       def topDown(frontier: SparseVertexFrontier) : RV = {
-         println("Top down -- select: %d".format(frontier.size))
-         val edgeList = frontier.db.queryOutMultiple(frontier.toSet, edgeType)
-         edgeList.getInternalIds.foreach(vid => resultReceiver(vid))
-         resultReceiver
-       }
-      def bottomUp(frontier: DenseVertexFrontier) : RV = {
-        println("Bottom up -- select: %d".format(frontier.size))
-        frontier.db.sweepAllEdges() {
-           (src: Long, dst: Long, eType: Byte ) => {
-             if (edgeType == eType && frontier.hasVertex(src)) resultReceiver(dst)
-           }
-         }
-        resultReceiver
+  def selectOut[RV <: VertexResultReceiver](edgeType: Byte, resultReceiver: RV, condition: ( Long) => Boolean = (u) => true) = {
+    def topDown(frontier: SparseVertexFrontier) : RV = {
+      println("Top down -- select: %d".format(frontier.size))
+     frontier.db.queryOutMultiple(frontier.toSet, edgeType, new QueryCallback {
+        def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {}
+        def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = { }
+
+        def immediateReceive() = true
+
+        def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
+           if (condition(dst)) resultReceiver(dst)
+        }
+      })
+      resultReceiver
+    }
+    def bottomUp(frontier: DenseVertexFrontier) : RV = {
+      println("Bottom up -- select: %d".format(frontier.size))
+      frontier.db.sweepAllEdges() {
+        (src: Long, dst: Long, eType: Byte ) => {
+          if (edgeType == eType && frontier.hasVertex(src) && condition(dst)) resultReceiver(dst)
+        }
       }
+      resultReceiver
+    }
     step(topDown, bottomUp)
   }
 
