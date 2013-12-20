@@ -40,7 +40,7 @@ object FrontierQueries {
   def traverseOut(edgeType: Byte) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
          println("Top down: %d".format(frontier.size))
-         val edgeList = frontier.db.queryOutMultiple(frontier.toSeq, edgeType)
+         val edgeList = frontier.db.queryOutMultiple(frontier.toSet, edgeType)
          VertexFrontier.createFrontier(edgeList.getInternalIds, frontier.db)
     }
 
@@ -63,10 +63,10 @@ object FrontierQueries {
 
 
   /* Emits each out-neighbor for the frontier */
-  def selectOut(edgeType: Byte)(resultReceiver: VertexResultReceiver) {
+  def selectOut(edgeType: Byte, resultReceiver: VertexResultReceiver) = {
        def topDown(frontier: SparseVertexFrontier) : Unit = {
          println("Top down -- select: %d".format(frontier.size))
-         val edgeList = frontier.db.queryOutMultiple(frontier.toSeq, edgeType)
+         val edgeList = frontier.db.queryOutMultiple(frontier.toSet, edgeType)
          edgeList.getInternalIds.foreach(vid => resultReceiver(vid))
        }
       def bottomUp(frontier: DenseVertexFrontier) : Unit = {

@@ -45,7 +45,7 @@ class QueryResult(indexing: DatabaseIndexing, rows: ResultEdges, database: Graph
 
   def getVertices = rows.ids.map(vid => VertexId(database.originalToInternalId(vid), vid))
 
-  def getInternalIds = rows.ids
+  def getInternalIds : Seq[Long] = rows.ids
 
   def getPointers = rows.pointers
 

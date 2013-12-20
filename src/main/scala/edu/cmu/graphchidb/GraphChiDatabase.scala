@@ -1095,7 +1095,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def numEdges = shards.map(_.numEdges).sum + bufferShards.map(_.numEdges).sum
 
   /* Column value lookups */
-  def edgeColumnValues[T](column: Column[T], pointers: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
+  def edgeColumnValues[T](column: Column[T], pointers: Set[Long]) : Map[Long, Option[T]] = {
     val persistentPointers = pointers.filter(ptr => !PointerUtil.isBufferPointer(ptr))
     val bufferPointers = pointers.filter(ptr => PointerUtil.isBufferPointer(ptr))
 
@@ -1163,7 +1163,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out", {
-      val res =  queryOutMultiple(Set[java.lang.Long](internalId), edgeType)
+      val res =  queryOutMultiple(Set[Long](internalId), edgeType)
       // Note, change indexing
       res.withIndexing(edgeIndexing)
     } )
@@ -1171,20 +1171,20 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
   // TODO: query needs to acquire ALL locks before doing query -- AVOID OR DETECT DEADLOCKS!
-  def queryOutMultiple(_javaQueryIds: Set[java.lang.Long], edgeType: Byte)  = {
+  def queryOutMultiple(queryIds: Set[Long], edgeType: Byte)  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     timed ("query-out-multiple", {
-      val resultContainer =  new QueryResultContainer(_javaQueryIds)
+      val resultContainer =  new QueryResultContainer(queryIds)
 
-      val idsWithQueryBits = _javaQueryIds.map(id => (id, shardBits(id)))
+      val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
 
       timed("query-out-buffers", {
         bufferShards.par.foreach(bufferShard => {
           /* Look for buffers */
           bufferShard.bufferLock.readLock().lock()
           try {
-            idsWithQueryBits.par.foreach { case (internalId: java.lang.Long, shardBits: Long) =>
+            idsWithQueryBits.par.foreach { case (internalId: Long, shardBits: Long) =>
               bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
                 if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
                   buf.buffer.findOutNeighborsCallback(internalId, resultContainer, edgeType)
@@ -1207,7 +1207,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         // TODO: fix this java-scala long mapping
         shards.par.foreach(shard => {
           try {
-            val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1)
+            val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
             if (matchingIds.nonEmpty) {
               shard.persistentShardLock.readLock().lock()
               try {
@@ -1232,7 +1232,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       })
     } )
   }
-  def queryOutMultiple(internalIds: Seq[Long], edgeType: Byte) : QueryResult = queryOutMultiple(internalIds.map(_.asInstanceOf[java.lang.Long]).toSet, edgeType)
 
   /**
    * High-performance reusable object for encoding edges into bytes

@@ -10,14 +10,51 @@ import scala.collection.mutable
  * TODO: think if better to use immutable map with var or mutable map
  * @author Aapo Kyrola
  */
-class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback {
+class QueryResultContainer(queryIds: Set[Long]) extends QueryCallback {
+
 
   //private val results = mutable.Map[Long, ResultEdges]() ++ queryIds.map(i => i ->
   //ResultEdges(IndexedSeq[java.lang.Long](), IndexedSeq[java.lang.Long]())).toMap
 
   private var resultList = List[Tuple2[Long, ResultEdges]]()
 
-  def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], types: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {
+
+  def receiveOutNeighbors(vertexId: Long, neighborIdsJava: util.ArrayList[lang.Long],
+                          edgeTypesJava: util.ArrayList[lang.Byte],
+                          dataPointersJava: util.ArrayList[lang.Long]) : Unit = {
+       val neighborIds = new Array[Long](neighborIdsJava.size())
+       val edgeTypes = new Array[Byte](edgeTypesJava.size())
+       val dataPointers = new Array[Long](dataPointersJava.size())
+       val n = neighborIds.size
+       var i = 0
+       while(i < n) {
+          neighborIds(i) = neighborIdsJava(i)
+          edgeTypes(i) = edgeTypesJava(i)
+          dataPointers(i) = dataPointers(i)
+          i += 1
+       }
+       receiveOutNeighbors(vertexId, neighborIds, edgeTypes, dataPointers)
+  }
+
+
+  def receiveInNeighbors(vertexId: Long, neighborIdsJava: util.ArrayList[lang.Long],
+                         edgeTypesJava: util.ArrayList[lang.Byte],
+                         dataPointersJava: util.ArrayList[lang.Long]) : Unit = {
+    val neighborIds = new Array[Long](neighborIdsJava.size())
+    val edgeTypes = new Array[Byte](edgeTypesJava.size())
+    val dataPointers = new Array[Long](dataPointersJava.size())
+    val n = neighborIds.size
+    var i = 0
+    while(i < n) {
+      neighborIds(i) = neighborIdsJava(i)
+      edgeTypes(i) = edgeTypesJava(i)
+      dataPointers(i) = dataPointers(i)
+      i += 1
+    }
+    receiveInNeighbors(vertexId, neighborIds, edgeTypes, dataPointers)
+  }
+
+  def receiveInNeighbors(vertexId: Long, neighborIds: Array[Long], types: Array[Byte], dataPointers: Array[Long]) = {
     if (!neighborIds.isEmpty) {
       this.synchronized {
         resultList = resultList :+ (vertexId, ResultEdges(neighborIds, types, dataPointers))
@@ -26,7 +63,7 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
   }
 
   // TODO: use flat arrays?
-  def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], types: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= {
+  def receiveOutNeighbors(vertexId: Long, neighborIds: Array[Long], types: Array[Byte], dataPointers: Array[Long])= {
     if (!neighborIds.isEmpty) {
       this.synchronized {
         resultList = resultList :+ (vertexId, ResultEdges(neighborIds, types, dataPointers))
@@ -37,9 +74,9 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
   // Unscalaish --- but the basic merge is too slow for very large results
   private def fastMerge(results: Seq[ResultEdges]) : ResultEdges = {
     val totalLen = results.map(_.size).sum
-    val ids = new Array[lang.Long](totalLen)
-    val types = new Array[lang.Byte](totalLen)
-    val pointers = new Array[lang.Long](totalLen)
+    val ids = new Array[Long](totalLen)
+    val types = new Array[Byte](totalLen)
+    val pointers = new Array[Long](totalLen)
     var i = 0
     results.foreach( r => {
       r.ids.copyToArray(ids, i)
@@ -57,12 +94,12 @@ class QueryResultContainer(queryIds: Set[java.lang.Long]) extends QueryCallback 
     grouped.toMap
   }
 
-  def resultsFor(queryId: Long) = results.getOrElse(queryId, ResultEdges(Seq[lang.Long](), Seq[lang.Byte](), Seq[lang.Long]()))
+  def resultsFor(queryId: Long) = results.getOrElse(queryId, ResultEdges(Seq[Long](), Seq[Byte](), Seq[Long]()))
 
-  def combinedResults() =  results.values.foldLeft(ResultEdges(Seq[lang.Long](), Seq[lang.Byte](), Seq[lang.Long]()))(_+_)
+  def combinedResults() =  results.values.foldLeft(ResultEdges(Seq[Long](), Seq[Byte](), Seq[Long]()))(_+_)
 }
 
-case class ResultEdges(ids: Seq[java.lang.Long], types: Seq[lang.Byte], pointers: Seq[java.lang.Long]) {
+case class ResultEdges(ids: Seq[Long], types: Seq[Byte], pointers: Seq[Long]) {
   def +(that: ResultEdges) = ResultEdges(ids ++ that.ids, types ++ that.types, pointers ++ that.pointers)
   def size = ids.size
   def idForPointer(pointer: java.lang.Long) = ids(pointers.indexOf(pointer)) // Note, optimize for large result sets!

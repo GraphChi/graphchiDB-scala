@@ -29,7 +29,7 @@ object TwitterIngest  {
            DB.queryIn(DB.originalToInternalId(20), edgeType=1)
 
   import edu.cmu.graphchidb.queries.Queries._
-    twoHopOut(DB.originalToInternalId(20))(DB)
+    friendsOfFriends(DB.originalToInternalId(20), 0)(DB)
 
     DB.shardTree.map( shs => (shs.size, shs.map(_.numEdges).sum) )
 

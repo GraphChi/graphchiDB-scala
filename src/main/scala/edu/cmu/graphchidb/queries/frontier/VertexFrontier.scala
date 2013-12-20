@@ -65,7 +65,7 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
   def hasVertex(vertexId: Long) = backingSet.contains(vertexId)
   def isEmpty = backingSet.isEmpty
   def size = backingSet.size
-  def toSeq : Seq[Long] = backingSet.toSeq
+  def toSet : Set[Long] = backingSet.toSet
 
   def toDense = {
     val denseFrontier = new DenseVertexFrontier(indexing, db_)
@@ -78,13 +78,14 @@ object VertexFrontier {
 
   val sparseLimit = 10000
 
-  def createFrontier(internalIds: Seq[java.lang.Long], db: GraphChiDatabase) = {
+  def createFrontier(internalIds: Seq[Long], db: GraphChiDatabase) = {
       if (internalIds.size > sparseLimit) {
          val dense = new DenseVertexFrontier(db.vertexIndexing, db)
          internalIds.foreach(id => dense.insert(id))
          dense
       } else {
-         new SparseVertexFrontier(db.vertexIndexing, internalIds.toSet[Long], db)
+        // TODO: get rid of the java-long stuff
+         new SparseVertexFrontier(db.vertexIndexing, internalIds.toSet, db)
       }
   }
 

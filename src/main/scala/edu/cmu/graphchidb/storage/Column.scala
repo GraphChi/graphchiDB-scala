@@ -30,7 +30,7 @@ trait Column[T] {
   def elementSize: Int
 
   def get(idx: Long) : Option[T]
-  def getMany(idxs: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
+  def getMany(idxs: Set[Long]) : Map[Long, Option[T]] = {
     idxs.map(idx => idx -> get(idx)).toMap
   }
   def getName(idx: Long) : Option[String]
@@ -168,7 +168,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
   override def getName(idx: Long) = get(idx).map(a => a.toString).headOption
 
 
-  override def getMany(_idxs: Set[java.lang.Long]) : Map[java.lang.Long, Option[T]] = {
+  override def getMany(_idxs: Set[Long]) : Map[Long, Option[T]] = {
     val idxs = new Array[Long](_idxs.size)
     _idxs.zipWithIndex.foreach { tp=> { idxs(tp._2) = vertexIdTranslate.backward(tp._1) } }
 
@@ -177,7 +177,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
     try {
       val rs = pstmt.executeQuery()
 
-      new Iterator[(java.lang.Long, Option[T])] {
+      new Iterator[(Long, Option[T])] {
         def hasNext = rs.next()
         def next() = (vertexIdTranslate.forward(rs.getLong(1)), Some(rs.getObject(2).asInstanceOf[T]))
       }.toStream.toMap

@@ -18,8 +18,12 @@ object Queries {
     */
   def friendsOfFriends(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
       val initialFrontier = queryVertex(internalId)
-      val firstHop =  traverseOut(edgeType)(db, initialFrontier)
-      val secondHop = traverseOut(edgeType)
+      val firstHop =  traverseOut(edgeType)(initialFrontier)
+      val secondHop = traverseOut(edgeType)(firstHop)
+
+      val result = groupByCount()
+      selectOut(edgeType, result)(secondHop)
+      result.results
   }
 
 

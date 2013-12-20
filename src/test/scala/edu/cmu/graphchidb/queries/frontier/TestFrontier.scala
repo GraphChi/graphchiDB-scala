@@ -35,8 +35,8 @@ class TestFrontier {
 
     println("Setsize: %d".format(setSize))
 
-    val denseFrontier1 = new DenseVertexFrontier(vertexIndexing)
-    val sparseFrontier1 = new SparseVertexFrontier(vertexIndexing)
+    val denseFrontier1 = new DenseVertexFrontier(vertexIndexing, null)
+    val sparseFrontier1 = new SparseVertexFrontier(vertexIndexing,null)
 
 
     List(denseFrontier1, sparseFrontier1, denseFrontier1.toSparse, sparseFrontier1.toDense).foreach( frontier => {
