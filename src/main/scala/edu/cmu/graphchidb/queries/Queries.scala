@@ -1,6 +1,7 @@
 package edu.cmu.graphchidb.queries
 
 import edu.cmu.graphchidb.GraphChiDatabase
+import edu.cmu.graphchidb.queries.frontier.FrontierQueries._
 
 /**
  * Advanced queries
@@ -12,11 +13,13 @@ object Queries {
     * followers. Excludes the immediate friends.
     * @param internalId
     * @param edgeType
-    * @param DB
+    * @param db
     * @return
     */
-  def friendsOfFriends(internalId: Long, edgeType: Byte)(implicit DB: GraphChiDatabase) = {
-      val firstHop = DB.queryOut(internalId, edgeType)
+  def friendsOfFriends(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
+      val initialFrontier = queryVertex(internalId)
+      val firstHop =  traverseOut(edgeType)(db, initialFrontier)
+      val secondHop = traverseOut(edgeType)
   }
 
 
