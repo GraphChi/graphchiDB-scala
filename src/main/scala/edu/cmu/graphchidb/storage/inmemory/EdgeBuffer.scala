@@ -149,13 +149,19 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     var i = 0
     while( i < n) {      // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
       if (srcArray(i) == src &&  extractType(dstArrayWithType(i)) == edgeType) {
-        ids.add(extractVertexId(dstArrayWithType(i)))
-        types.add(extractType(dstArrayWithType(i)))
-        pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
+        if (!callback.immediateReceive()) {
+          ids.add(extractVertexId(dstArrayWithType(i)))
+          types.add(extractType(dstArrayWithType(i)))
+          pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
+        } else {
+          callback.receiveEdge(src, extractVertexId(dstArrayWithType(i)), extractType(dstArrayWithType(i)), PointerUtil.encodeBufferPointer(bufferId, i))
+        }
       }
       i += 1
     }
-    callback.receiveOutNeighbors(src, ids, types, pointers)
+    if (!callback.immediateReceive()) {
+      callback.receiveOutNeighbors(src, ids, types, pointers)
+    }
   }
 
   def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
@@ -194,13 +200,20 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     var i = 0
     while(i < n) {   // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
       if (extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
-        ids.add(srcArray(i))
-        types.add(extractType(dstArrayWithType(i)))
-        pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
+        if (!callback.immediateReceive()) {
+          ids.add(srcArray(i))
+          types.add(extractType(dstArrayWithType(i)))
+          pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
+        } else {
+          callback.receiveEdge(  extractVertexId(dstArrayWithType(i)), dst, extractType(dstArrayWithType(i)), PointerUtil.encodeBufferPointer(bufferId, i))
+
+        }
       }
       i += 1
     }
-    callback.receiveInNeighbors(dst, ids, types, pointers)
+    if (!callback.immediateReceive()) {
+      callback.receiveInNeighbors(dst, ids, types, pointers)
+    }
   }
 
 

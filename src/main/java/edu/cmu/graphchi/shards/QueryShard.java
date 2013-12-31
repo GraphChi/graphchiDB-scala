@@ -74,6 +74,9 @@ public class QueryShard {
         loadInEdgeStartBuffer();
     }
 
+    public boolean isEmpty() {
+        return numEdges == 0;
+    }
 
     public long getNumEdges()  {
         return numEdges;
@@ -224,8 +227,8 @@ public class QueryShard {
                                 resPointers.add(PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
                                 resTypes.add(etype);
                             } else {
-                                callback.receiveEdge(sortedIds.get(qIdx), VertexIdTranslate.getVertexId(e),
-                                        VertexIdTranslate.getType(e), VertexIdTranslate.getAux(e));
+                                callback.receiveEdge(vertexId, VertexIdTranslate.getVertexId(e),
+                                        etype, PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
                             }
                         }
                     }

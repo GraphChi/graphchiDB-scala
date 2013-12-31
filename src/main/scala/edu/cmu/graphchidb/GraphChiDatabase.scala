@@ -1,9 +1,8 @@
 package edu.cmu.graphchidb
 
-import edu.cmu.graphchi.ChiFilenames
+import edu.cmu.graphchi.{GraphChiEnvironment, ChiFilenames, VertexInterval}
 import edu.cmu.graphchi.preprocessing.{EdgeProcessor, VertexProcessor, FastSharder, VertexIdTranslate}
 import java.io.{IOException, FileOutputStream, File}
-import edu.cmu.graphchi.VertexInterval
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
@@ -690,6 +689,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       println("Run shutdown hook...")
       flushAllBuffers()
       println("Finished shutdown hook")
+
+      GraphChiEnvironment.reportMetrics()
     }
   }
 
@@ -857,6 +858,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def totalBufferedEdges = bufferShards.map(_.numEdgesInclDeletions).sum
 
+  def reportBufferStats = {
+    println("Edges in buffers=%d".format(totalBufferedEdges))
+    bufferShards.zipWithIndex.foreach(tp => println("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
+  }
+
   def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
@@ -897,6 +903,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           Thread.sleep(200)
         }
 
+        reportBufferStats
         /* TODO: rethink... */
         if (totalBufferedEdges > bufferLimit * 0.5) {
           pendingBufferFlushes.incrementAndGet()
@@ -918,6 +925,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def flushAllBuffers() = {
     log("Flushing all buffers...")
+    reportBufferStats
     this.synchronized {
       bufferShards.foreach(bufferShard => bufferShard.mergeToParentsAndClear())
     }
@@ -1224,7 +1232,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       /* Look for buffers */
       bufferShard.bufferLock.readLock().lock()
       try {
-        idsWithQueryBits.par.foreach { case (internalId: Long, shardBits: Long) =>
+        idsWithQueryBits.foreach { case (internalId: Long, shardBits: Long) =>
           bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
             if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
               buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
@@ -1239,7 +1247,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
     })
 
-    shards.par.foreach(shard => {
+    shards.filterNot(_.persistentShard.isEmpty).par.foreach(shard => {
       try {
         val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
         if (matchingIds.nonEmpty) {
@@ -1258,21 +1266,32 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
 
+  // Timers
+  val timer_out_buffers = GraphChiEnvironment.metrics.timer("queryout-buffers")
+  val timer_out_persistent = GraphChiEnvironment.metrics.timer("queryout-persistent")
+  val timer_querybits = GraphChiEnvironment.metrics.timer("queryout-querybits")
+  val timer_out_total =  GraphChiEnvironment.metrics.timer("queryout-total")
+  val timer_out_combine =  GraphChiEnvironment.metrics.timer("queryout-combine")
+
   // TODO: query needs to acquire ALL locks before doing query -- AVOID OR DETECT DEADLOCKS!
   def queryOutMultiple(queryIds: Set[Long], edgeType: Byte)  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
-    timed ("query-out-multiple", {
+    val _totaltime = timer_out_total.time()
+    val res = timed ("query-out-multiple", {
       val resultContainer =  new QueryResultContainer(queryIds)
 
+      val _timeqbits = timer_querybits.time()
       val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
+      _timeqbits.stop()
 
+      val _timebuffers = timer_out_buffers.time()
       timed("query-out-buffers", {
         bufferShards.par.foreach(bufferShard => {
           /* Look for buffers */
           bufferShard.bufferLock.readLock().lock()
           try {
-            idsWithQueryBits.par.foreach { case (internalId: Long, shardBits: Long) =>
+            idsWithQueryBits.foreach { case (internalId: Long, shardBits: Long) =>
               bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
                 if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
                   buf.buffer.findOutNeighborsCallback(internalId, resultContainer, edgeType)
@@ -1290,10 +1309,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         })
       })
 
+      _timebuffers.stop()
 
+      val timer_pers = timer_out_persistent.time()
       timed("query-out-persistent", {
         // TODO: fix this java-scala long mapping
-        shards.par.foreach(shard => {
+        shards.filterNot(_.persistentShard.isEmpty).par.foreach(shard => {
           try {
             val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
             if (matchingIds.nonEmpty) {
@@ -1313,12 +1334,17 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           }
         })
       })
+      timer_pers.stop()
 
-
-      timed("query-out-combine", {
+      val _timer_combine = timer_out_combine.time()
+      val res = timed("query-out-combine", {
         new QueryResult(vertexIndexing, resultContainer, this)
       })
+      _timer_combine.stop()
+      res
     } )
+    _totaltime.stop()
+    res
   }
 
   /**

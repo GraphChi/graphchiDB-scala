@@ -8,6 +8,8 @@ import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
 import edu.cmu.graphchidb.storage.ByteConverter
 import java.nio.ByteBuffer
 import edu.cmu.graphchidb.compute.Pagerank
+import edu.cmu.graphchi.GraphChiEnvironment
+import edu.cmu.graphchidb.queries.QueryResultWithJoin
 
 
 class GraphChiLinkBenchAdapter extends GraphStore {
@@ -91,6 +93,8 @@ object GraphChiLinkBenchAdapter {
       DB.close()
       DB = null
       println("Done.")
+      GraphChiEnvironment.reportMetrics()
+
       initialized = false
     }
   }
@@ -347,19 +351,18 @@ object GraphChiLinkBenchAdapter {
   }
 
   def getLinkList(databaseId: String, id1: Long, linkType: Long) : Array[Link]    = {
-    val results = DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType))
-    results.getPointers.zip(results.getInternalIds).
-      map( row  => linkFromPointer(row._1.asInstanceOf[Long], id1, linkType, DB.internalToOriginalId(row._2.asInstanceOf[Long]), t=>true)
-    ).toArray[Link]
+    val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) => linkFromPointer(ptr, src, etype, dst,
+      t => true))
+    DB.queryOutMultiple(Set(DB.originalToInternalId(id1)), edgeType(linkType), resultReceiver)
+    resultReceiver.get.filter(_ != null).toArray[Link]
   }
 
   def getLinkList(databaseId: String, id1: Long, linkType: Long, minTimestamp: Long, maxTimestamp: Long,
                   offset: Int, limit: Int) : Array[Link]   = {
-    val results = DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType))
-    results.getPointers.zip(results.getInternalIds).
-      map( row  => linkFromPointer(row._1.asInstanceOf[Long], id1, linkType, DB.internalToOriginalId(row._2.asInstanceOf[Long]),
-      t => (t >= minTimestamp && t <= maxTimestamp))
-    ).filter(_ != null).toArray[Link]
+    val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) => linkFromPointer(ptr, src, etype, dst,
+      t => (t >= minTimestamp && t <= maxTimestamp)))
+    DB.queryOutMultiple(Set(DB.originalToInternalId(id1)), edgeType(linkType), resultReceiver)
+    resultReceiver.get.filter(_ != null).toArray[Link]
   }
 
   def countLinks(databaseId: String, id1: Long, linkType: Long) = {
