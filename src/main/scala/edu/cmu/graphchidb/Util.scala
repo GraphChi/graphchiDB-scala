@@ -1,6 +1,7 @@
 package edu.cmu.graphchidb
 
 import java.nio.ByteBuffer
+import scala.util.Random
 
 /**
  * Random utility functions
@@ -34,6 +35,22 @@ object Util {
 
   def intFromByteArray(arr : Array[Byte]) : Int = {
      ByteBuffer.wrap(arr).getInt
+  }
+
+  // http://rosettacode.org/wiki/Quickselect_algorithm#Scala  (modified by A.K)
+  object QuickSelect {
+    def quickSelect[A](seq: Seq[A], n: Int, comp: (A, A) => Boolean, rand: Random = new Random): A = {
+      val pivotIdx =  rand.nextInt(seq.length)
+      val pivot = seq(pivotIdx)
+      val (left, right) = seq.partition(a => comp(a, pivot))
+      if (left.length == n) {
+        seq(pivotIdx)
+      } else if (left.length < n) {
+        quickSelect(right, n - left.length, comp, rand)
+      } else {
+        quickSelect(left, n, comp, rand)
+      }
+    }
   }
 
 }
