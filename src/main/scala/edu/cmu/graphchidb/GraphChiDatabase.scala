@@ -24,6 +24,7 @@ import edu.cmu.graphchi.util.Sorting
 import edu.cmu.graphchidb.compute.Computation
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import edu.cmu.graphchidb.storage.VarDataColumn
+import java.util.concurrent.Semaphore
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -141,12 +142,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     def numEdges = persistentShard.getNumEdges
 
     def reset() : Unit = {
-      persistentShardLock.writeLock().lock()
-      try {
-        persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
-      } finally {
-        persistentShardLock.writeLock().unlock()
-      }
+      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
     }
 
 
@@ -213,14 +209,15 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     def mergeToAndClear(destShards: Seq[DiskShard]) : Unit = {
       var totalMergedEdges = 0
       val edgeSize = edgeEncoderDecoder.edgeSize
+      val success = mergeInProgress.compareAndSet(false, true)
 
+      println("Starting merge and clear (%d) thread:%s".format(shardId, Thread.currentThread().getName))
+
+      if (!success) {
+        println("Warning: merge was in progress already (%d)".format(shardId))
+        return
+      }
       try {
-        val success = mergeInProgress.compareAndSet(false, true)
-
-        if (!success) {
-          print("Warning: merge was in progress already")
-          return
-        }
 
         modifyLock.readLock().lock()
         persistentShardLock.readLock().lock()
@@ -230,6 +227,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
             println("Waiting for parent shard to merge....")
             Thread.sleep(200)
           }
+
+          println("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
+
 
           val myEdges = readIntoBuffer(destShard.myInterval)
 
@@ -281,13 +281,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         })
 
         // Empty my shard
+        persistentShardLock.readLock().unlock()
+
         timed("diskshard-merge,emptymyshards", {
           persistentShardLock.writeLock().lock()
           FastSharder.createEmptyShard(baseFilename, numShards, shardId)
           (0 until columns(edgeIndexing).size).foreach(columnIdx => {
             columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardId, new Array[Byte](0)) // Empty
           })
-          persistentShardLock.writeLock().unlock()
         })
         reset
       } catch {
@@ -297,16 +298,19 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         }
       } finally {
         modifyLock.readLock().unlock()
+        persistentShardLock.writeLock().unlock()
 
-        persistentShardLock.readLock().unlock()
         mergeInProgress.compareAndSet(true, false)
       }
 
       // Check if upstream shards are too big  -- not in parallel but in background thread
       // (lock guarantees that only one purge takes place at once)
+      println("Finish merge - check for upstream (%d)".format(shardId))
       async  {
         destShards.foreach(destShard => destShard.checkSize)
       }
+      println("Finish merge - did check for upstream (%d, %s)".format(shardId, Thread.currentThread().getName))
+
     }
 
     def mergeToParents() = mergeToAndClear(parentShards)
@@ -391,6 +395,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
 
     }
+
+
 
     /* Returns buffer pointer for given edge, if found */
     def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
@@ -493,12 +499,17 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     def numEdges  = buffers.map(_.map(b => b.buffer.numEdges ).sum).sum
 
 
+
+    def hasPendingMerge =  oldBuffers.flatten.map(_.buffer.numEdges).sum > 0
+
     def mergeToParentsAndClear() : Unit = {
       if (numEdges  == 0) return
       flushLock.synchronized {
         var totalMergedEdges = 0
 
         val edgeSize = edgeEncoderDecoder.edgeSize
+
+        println("Buffer %d starting merge %s".format(bufferShardId, Thread.currentThread().getName))
 
         timed("mergeToAndClear %d".format(bufferShardId), {
           bufferLock.writeLock().lock()
@@ -557,7 +568,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                   invokePurgeListeners()
 
                   while(!destShard.mergeInProgress.compareAndSet(false, true)) {
-                    println("Buffer: waiting for parent to merge...")
+                    println("Buffer: waiting for parent to merge... (%d) %s".format(destShard.shardId, Thread.currentThread().getName))
                     Thread.sleep(200)
                   }
 
@@ -587,6 +598,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
                   log("Merging buffer %d -> %d (%d buffered edges, %d from old)".format(bufferShardId, destShard.shardId,
                     myEdges.numEdges, destEdges.numEdges))
+                  println("Merging buffer %d -> %d (%d buffered edges, %d from old, thread: %s)".format(bufferShardId, destShard.shardId,
+                    myEdges.numEdges, destEdges.numEdges, Thread.currentThread().getName))
 
                   // Write shard
                   timed("buffermerge-writeshard", {
@@ -615,7 +628,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                   destShard.mergeInProgress.compareAndSet(true, false)
                   log("Remove from oldBuffers: %d/%d %s".format(bufferShardId, parentIdx, parentIntervals(parentIdx)))
                   // Remove the edges from the buffer since they are now assumed to be in the persistent shard
-
+                  println("Finished Merging buffer %d -> %d  thread: %s)".format(bufferShardId, destShard.shardId,
+                    Thread.currentThread().getName))
                   oldBufferLock.synchronized {
                     oldBuffers = oldBuffers.patch(parentIdx, IndexedSeq(intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
                       bufferId=edgeBufferId(bufferShardId, parentIdx, interval.getId)), interval))), 1)
@@ -641,10 +655,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           }
 
         })
-        /* Check if upstream shards too big - not in parallel to limit memory consumption */
-        async  {
-          parentShards.foreach(destShard => destShard.checkSize)
-        }
+
         myAssert(oldBuffers.size == buffers.size)
 
         if (oldBuffers.map(_.map(_.buffer.numEdges).sum).sum != 0) {
@@ -653,7 +664,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
         myAssert(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum == 0)
       }
+      /* Check if upstream shards too big - not in parallel to limit memory consumption */
+      async  {
+        parentShards.foreach(destShard => destShard.checkSize())
+      }
+      println("Buffer %d finished merge %s".format(bufferShardId, Thread.currentThread().getName))
+
     }
+
   }
 
 
@@ -847,7 +865,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   /* Adding edges */
   // TODO: bulk version
   val counter = new AtomicLong(0)
-  val pendingBufferFlushes = new AtomicInteger(0)
 
 
   val bufferIntervalLength = bufferShards(0).myInterval.length()
@@ -862,6 +879,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     println("Edges in buffers=%d".format(totalBufferedEdges))
     bufferShards.zipWithIndex.foreach(tp => println("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
   }
+
+  val bufferDrainSemaphore = new Semaphore(2)
 
   def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
@@ -893,33 +912,41 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
     if (counter.incrementAndGet() % 100000 == 0) {
       if (totalBufferedEdges > bufferLimit * 0.9) {
-        if (pendingBufferFlushes.get() > 0) {
+        if (bufferDrainSemaphore.availablePermits() == 0) {
           if (totalBufferedEdges < bufferLimit) {
             return
           }
         }
-        while(pendingBufferFlushes.get() > 0 && totalBufferedEdges > bufferLimit * 0.9) {
-          log("Waiting for pending flush")
-          Thread.sleep(200)
+        while(bufferDrainSemaphore.availablePermits() == 0 && totalBufferedEdges > bufferLimit * 0.9) {
+          log("Waiting for pending flush permits: %d, totalbuffered: %d".format(bufferDrainSemaphore.availablePermits(), totalBufferedEdges))
+          Thread.sleep(500)
         }
+        this.synchronized {
+          /* TODO: rethink... */
+          if (totalBufferedEdges > bufferLimit * 0.5) {
+            reportBufferStats
 
-        reportBufferStats
-        /* TODO: rethink... */
-        if (totalBufferedEdges > bufferLimit * 0.5) {
-          pendingBufferFlushes.incrementAndGet()
-          async {
-            val maxBuffer = bufferShards.maxBy(_.numEdgesInclDeletions)
-            if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
-              maxBuffer.mergeToParentsAndClear()
+            val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
+            if (nonPendings.nonEmpty) {
+              val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
+              bufferDrainSemaphore.acquire()
+               async {
+                try {
+                  if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
+                    maxBuffer.mergeToParentsAndClear()
+                  }
+                } catch {
+                  case e : Exception => e.printStackTrace()
+                } finally {
+                  bufferDrainSemaphore.release()
+                }
+              }
             }
-
-            pendingBufferFlushes.decrementAndGet()
+          } else {
+            log("Already drained enough ...");
           }
-        } else {
-          log("Already drained enough ...");
         }
       }
-
     }
   }
 
