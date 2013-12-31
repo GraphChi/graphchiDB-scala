@@ -106,13 +106,13 @@ object GraphChiLinkBenchAdapter {
 
   object LinkToBytesConverter extends ByteConverter[LinkContainer] {
     def fromBytes(bb: ByteBuffer) : LinkContainer = {
-         LinkContainer(bb.get, bb.getInt, bb.getLong)
+      LinkContainer(bb.get, bb.getInt, bb.getLong)
     }
 
     def toBytes(v: LinkContainer, out: ByteBuffer) = {
-        out.put(v.version)
-        out.putInt(v.timestamp)
-        out.putLong(v.payloadId)
+      out.put(v.version)
+      out.putInt(v.timestamp)
+      out.putLong(v.payloadId)
     }
 
     def sizeOf = 13
@@ -156,7 +156,7 @@ object GraphChiLinkBenchAdapter {
 
       type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
       type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
-    //  val pagerankComputation = new Pagerank(DB)
+      //  val pagerankComputation = new Pagerank(DB)
 
       DB.initialize()
       initialized = true
@@ -200,9 +200,9 @@ object GraphChiLinkBenchAdapter {
     val internalId = DB.originalToInternalId(id)
 
     val vertexData = vertexDataColumn.get(internalId).getOrElse(NodeContainer(0,0,0))
-     if (vertexData.timestamp > 0) {
-       val payloadData = vertexPayloadColumn.get(vertexData.payloadId)
-       new Node(id, 0, vertexData.version, vertexData.timestamp, payloadData)
+    if (vertexData.timestamp > 0) {
+      val payloadData = vertexPayloadColumn.get(vertexData.payloadId)
+      new Node(id, 0, vertexData.version, vertexData.timestamp, payloadData)
     } else {
       null
     }
@@ -219,7 +219,7 @@ object GraphChiLinkBenchAdapter {
       val updatedPayloadId = if (!new String(oldPayload).equals(node.data)) {
         // Create new
         val newPayloadId = vertexPayloadColumn.insert(node.data)
-         vertexPayloadColumn.delete(payloadId)
+        vertexPayloadColumn.delete(payloadId)
         newPayloadId
       } else { payloadId }
 
@@ -247,6 +247,7 @@ object GraphChiLinkBenchAdapter {
     val edgeTypeByte = edgeType(edge.link_type)
     /* Payload */
     val payloadId = edgePayloadColumn.insert(edge.data)
+    println(edge.time)
     DB.addEdgeOrigId(edgeTypeByte, edge.id1, edge.id2, LinkContainer(edge.version.toByte, edge.time.toInt, payloadId))
 
     /* Adjust counters */
@@ -323,12 +324,12 @@ object GraphChiLinkBenchAdapter {
     throw new IllegalArgumentException("Edge does not exist: %s".format(edge))
   }
 
-  private def linkFromPointer(ptr: Long, id1: Long, linkType: Long, id2: Long, timestampFilter: Int => Boolean) : Link = {
+  private def linkFromPointer(ptr: Long, origid1: Long, linkType: Long, origid2: Long, timestampFilter: Int => Boolean) : Link = {
     val edgeData  = DB.getByPointer(edgeDataColumn, ptr).get
     if (timestampFilter(edgeData.timestamp)) {
       val payload = edgePayloadColumn.get(edgeData.payloadId)
       // TODO: visibility
-      new Link(id1, linkType, id2, LinkStore.VISIBILITY_DEFAULT, payload, edgeData.version, edgeData.timestamp)
+      new Link(origid1, linkType, origid2, LinkStore.VISIBILITY_DEFAULT, payload, edgeData.version, edgeData.timestamp)
     } else {
       null
     }
@@ -351,18 +352,26 @@ object GraphChiLinkBenchAdapter {
   }
 
   def getLinkList(databaseId: String, id1: Long, linkType: Long) : Array[Link]    = {
-    val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) => linkFromPointer(ptr, src, etype, dst,
-      t => true))
+    val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) =>
+      linkFromPointer(ptr, DB.internalToOriginalId(src), etype, DB.internalToOriginalId(dst),
+        t => true))
     DB.queryOutMultiple(Set(DB.originalToInternalId(id1)), edgeType(linkType), resultReceiver)
-    resultReceiver.get.filter(_ != null).toArray[Link]
+    val res = resultReceiver.get.filter(_ != null).toArray[Link]
+    //println("res/2 : %d / %d".format(res.size, resultReceiver.get.size))
+    res
   }
+
+  val counter = new AtomicLong()
 
   def getLinkList(databaseId: String, id1: Long, linkType: Long, minTimestamp: Long, maxTimestamp: Long,
                   offset: Int, limit: Int) : Array[Link]   = {
-    val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) => linkFromPointer(ptr, src, etype, dst,
-      t => (t >= minTimestamp && t <= maxTimestamp)))
+    val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) =>
+      linkFromPointer(ptr, DB.internalToOriginalId(src), etype, DB.internalToOriginalId(dst),
+        t => (t >= minTimestamp && t <= maxTimestamp)))
     DB.queryOutMultiple(Set(DB.originalToInternalId(id1)), edgeType(linkType), resultReceiver)
-    resultReceiver.get.filter(_ != null).toArray[Link]
+    val res = resultReceiver.get.filter(_ != null).toArray[Link]
+    println("%d res : %d / %d  [ %d --- %d]".format(counter.incrementAndGet(), res.size, resultReceiver.get.size, minTimestamp, maxTimestamp))
+    res
   }
 
   def countLinks(databaseId: String, id1: Long, linkType: Long) = {
