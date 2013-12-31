@@ -29,7 +29,7 @@ object Queries {
 
   // Returns a shortest path tree for unweighted shortest path (basically directed BFS)
   def singleSourceShortestPath(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase)  : ShortestPathTree = {
-    val ssspColumn = db.createLongColumn("sssp_%s".format(internalId), db.vertexIndexing, temporary = true)
+    val ssspColumn = db.createLongColumn("sssp_%s_%s".format(internalId, System.currentTimeMillis()), db.vertexIndexing, temporary = true)
     var frontier = queryVertex(internalId, db)
     ssspColumn.set(internalId, internalId + 1) // ssspColumn has 0 for "infinity" and vertexid + 1 for parent
 
@@ -44,6 +44,8 @@ object Queries {
     }
     new ShortestPathTree(ssspColumn)
   }
+
+   // def inducedSubgraph(vertices: Seq[Long]) : Graph = { }
 
 }
 

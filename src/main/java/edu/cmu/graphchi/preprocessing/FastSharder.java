@@ -3,6 +3,8 @@ package edu.cmu.graphchi.preprocessing;
 import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.ChiLogger;
 import edu.cmu.graphchi.datablocks.BytesToValueConverter;
+import scala.actors.threadpool.locks.Lock;
+
 import static edu.cmu.graphchi.util.Sorting.*;
 
 import java.io.*;
@@ -34,8 +36,10 @@ public class FastSharder <VertexValueType, EdgeValueType> {
      */
     public static  void writeAdjacencyShard(String baseFilename, int shardNum, int numShards, int
             sizeOf, long[] shoveled, long[] shoveled2, byte[] edgeValues, long minTarget, long maxTarget,
-                                                boolean alreadySorted) throws IOException {
+                                            boolean alreadySorted, Lock writeLock) throws IOException {
     /* Sort the edges */
+
+        final String TEMPSUFFIX = ".tmp_" + System.currentTimeMillis();
 
         if (shoveled.length != shoveled2.length) {
             throw new IllegalStateException("src and dst array lengths differ:" + shoveled.length + "/" + shoveled2.length);
@@ -58,7 +62,9 @@ public class FastSharder <VertexValueType, EdgeValueType> {
 
         int[] indices =  radixSortWithIndex(shoveled2);
 
-        File startIdxFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)));
+        File startIdxFile =
+                new File(
+                        ChiFilenames.getFilenameShardsAdjStartIndices(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards)) + TEMPSUFFIX);
         DataOutputStream startOutFile = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(startIdxFile)));
 
         long prev = -1;
@@ -100,11 +106,11 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         /**
          * Step 1: ADJACENCY SHARD
          */
-        File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards));
+        File adjFile = new File(ChiFilenames.getFilenameShardsAdj(baseFilename, shardNum, numShards) + TEMPSUFFIX);
         DataOutputStream adjOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(adjFile)));
-        File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
+        File ptrFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()) + TEMPSUFFIX);
         DataOutputStream ptrOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(ptrFile)));
-        File indexFile = new File(adjFile.getAbsolutePath() + ".index");
+        File indexFile = new File(adjFile.getAbsolutePath() + ".index"  + TEMPSUFFIX);
         DataOutputStream indexOut = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(indexFile)));
         long curvid = 0;
         int istart = 0;
@@ -153,6 +159,15 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         adjOut.close();
         indexOut.close();
         ptrOut.close();
+
+        /* Rename files under a lock  -- lock is kept locked */
+        if (writeLock != null)
+            writeLock.lock();
+        adjFile.renameTo(new File(adjFile.getAbsolutePath().replace(TEMPSUFFIX, "")));
+        ptrFile.renameTo(new File(ptrFile.getAbsolutePath().replace(TEMPSUFFIX, "")));
+        indexFile.renameTo(new File(indexFile.getAbsolutePath().replace(TEMPSUFFIX, "")));
+        startIdxFile.renameTo(new File(startIdxFile.getAbsolutePath().replace(TEMPSUFFIX, "")));
+
     }
 
     private static Random random = new Random();

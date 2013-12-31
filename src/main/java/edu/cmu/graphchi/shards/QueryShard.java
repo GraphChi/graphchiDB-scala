@@ -8,6 +8,7 @@ import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.queries.QueryCallback;
+import scala.actors.threadpool.locks.Lock;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 
@@ -149,7 +150,7 @@ public class QueryShard {
 
         @Override
         public void receiveEdge(long src, long dst, byte edgeType, long dataPtr) {
-           throw new IllegalStateException();
+            throw new IllegalStateException();
         }
 
         @Override
@@ -273,7 +274,7 @@ public class QueryShard {
 
         final LongBuffer tmpBuffer = adjBuffer.duplicate();
 
-        if(!callback.immediateReceive()) throw new NotImplementedException();
+        if(callback.immediateReceive()) throw new NotImplementedException();
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
