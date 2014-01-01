@@ -10,6 +10,8 @@ object LinkBenchAccess {
 
   /*
     import edu.cmu.graphchidb.linkbench.LinkBenchAccess._
+    DB.initialize()
+            DB.shardTree.map( shs => (shs.size, shs.map(_.numEdges).sum) )
 
    */
 

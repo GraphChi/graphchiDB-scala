@@ -89,8 +89,6 @@ object GraphChiLinkBenchAdapter {
     // Last one flushes the buffers
     if (workerCounter.decrementAndGet() == 0) {
       println("Last one -- flushing buffers")
-      DB.flushAllBuffers
-      DB.close()
       DB = null
       println("Done.")
       GraphChiEnvironment.reportMetrics()
@@ -360,7 +358,7 @@ object GraphChiLinkBenchAdapter {
     val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) =>
       linkFromPointer(ptr, DB.internalToOriginalId(src), etype, DB.internalToOriginalId(dst),
         t => true))
-    DB.queryOutMultiple(Set(DB.originalToInternalId(id1)), edgeType(linkType), resultReceiver)
+    DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType), resultReceiver)
     val res = resultReceiver.get.filter(_ != null).toArray[Link]
     //println("res/2 : %d / %d".format(res.size, resultReceiver.get.size))
 
@@ -379,7 +377,7 @@ object GraphChiLinkBenchAdapter {
     val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) =>
       linkFromPointer(ptr, DB.internalToOriginalId(src), etype, DB.internalToOriginalId(dst),
         t => (t >= minTimestamp && t <= maxTimestamp)))
-    DB.queryOutMultiple(Set(DB.originalToInternalId(id1)), edgeType(linkType), resultReceiver)
+    DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType), resultReceiver)
     val res = resultReceiver.get.filter(_ != null).toArray[Link]
     println("%d id1: %d res : %d / %d  [ %d --- %d, limit: %d]".format(counter.incrementAndGet(), id1, res.size, resultReceiver.get.size, minTimestamp, maxTimestamp, limit))
     if (res.size > 10000) {
@@ -394,7 +392,7 @@ object GraphChiLinkBenchAdapter {
 
   def countLinks(databaseId: String, id1: Long, linkType: Long) = {
     val internalId = DB.originalToInternalId(id1)
-    val c = if (edgeType(linkType) == 1) {
+    val c = if (edgeType(linkType) == 0) {
       type0Counters.get(internalId).getOrElse(0)
     } else {
       type1Counters.get(internalId).getOrElse(0)

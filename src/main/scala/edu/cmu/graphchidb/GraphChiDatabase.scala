@@ -930,7 +930,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
             if (nonPendings.nonEmpty) {
               val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
               bufferDrainSemaphore.acquire()
-               async {
+              async {
                 try {
                   if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
                     maxBuffer.mergeToParentsAndClear()
@@ -1252,9 +1252,48 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
 
+  def queryOut(internalId: Long, edgeType: Byte, callback: QueryCallback)  = {
+    if (!initialized) throw new IllegalStateException("You need to initialize first!")
+    val qshardBits =   shardBits(internalId)
+    bufferShards.foreach(bufferShard => {
+      /* Look for buffers */
+      bufferShard.bufferLock.readLock().lock()
+      try {
+        bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
+          if (compareShardBitsToInterval(qshardBits, bufferShard.myInterval)) {
+            buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
+            if (!buf.interval.contains(internalId))
+              throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
+          } else {
+          }})
+      } catch {
+        case e: Exception  => e.printStackTrace()
+      } finally {
+        bufferShard.bufferLock.readLock().unlock()
+      }
+    })
+
+    val filteredShards = shards.filterNot(_.persistentShard.isEmpty).filter(shard => compareShardBitsToInterval(qshardBits, shard.myInterval))
+    filteredShards.foreach(shard => {
+      try {
+        shard.persistentShardLock.readLock().lock()
+        try {
+          shard.persistentShard.queryOut(Collections.singleton(internalId), callback, edgeType)
+        } finally {
+          shard.persistentShardLock.readLock().unlock()
+        }
+      } catch {
+        case e: Exception  =>  e.printStackTrace()
+      }
+    })
+
+  }
+
+
   def queryOutMultiple(queryIds: Set[Long], edgeType: Byte, callback: QueryCallback)  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
+
     bufferShards.par.foreach(bufferShard => {
       /* Look for buffers */
       bufferShard.bufferLock.readLock().lock()
@@ -1274,7 +1313,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
     })
 
-    shards.filterNot(_.persistentShard.isEmpty).par.foreach(shard => {
+    val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
+    filteredShards.par.foreach(shard => {
       try {
         val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
         if (matchingIds.nonEmpty) {
