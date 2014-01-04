@@ -24,7 +24,7 @@ import edu.cmu.graphchi.util.Sorting
 import edu.cmu.graphchidb.compute.Computation
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import edu.cmu.graphchidb.storage.VarDataColumn
-import java.util.concurrent.Semaphore
+
 
 // TODO: refactor: separate database creation and definition from the graphchidatabase class
 
@@ -354,6 +354,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       if (oldBuffers.isEmpty) oldBuffers = parentIntervals.map(parentInterval =>
         intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
           bufferId=edgeBufferId(bufferShardId, parentInterval.getId - parentIntervals.head.getId, interval.getId)), interval)))
+
+
     }
 
     // Note, to call these methods the acquirer need to hold the readlock
@@ -712,6 +714,31 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
+
+
+  def reportBufferStats = {
+    println("Edges in buffers=%d".format(totalBufferedEdges))
+    bufferShards.zipWithIndex.foreach(tp => println("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
+  }
+
+  def checkBuffers(): Unit = {
+    val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
+    val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
+    if (nonPendings.nonEmpty) {
+      val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
+      try {
+        if (maxBuffer.numEdges >= perBufferTrigger) {
+          reportBufferStats
+          maxBuffer.mergeToParentsAndClear()
+        }
+      } catch {
+        case e : Exception => e.printStackTrace()
+      }
+    }
+  }
+
+  val bufferDrainMonitor = new Object
+
   def initialize() : Unit = {
     bufferShards.foreach(_.init())
 
@@ -719,6 +746,31 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     Runtime.getRuntime.addShutdownHook(shutdownHook)
 
     initialized = true
+    log("Start buffer flusher")
+    val flusherThread =new Thread(new Runnable {
+      def run() {
+        var expectedTimeUntil75pFull = 1000
+        while(true) {
+          val t1 = System.currentTimeMillis()
+          val bufferedEdgesBefore = totalBufferedEdges
+          bufferDrainMonitor.synchronized {
+            try {
+              bufferDrainMonitor.wait(math.max(100, math.min(2000, expectedTimeUntil75pFull)))   // Need at least some waiting time to get idea of ingest speed
+            } catch { case ie : InterruptedException => ie.printStackTrace()}
+          }
+          val t2 = System.currentTimeMillis()
+          val edgesPerMillis = (totalBufferedEdges - bufferedEdgesBefore) / (t2 - t1)
+          val bufferedNow = totalBufferedEdges
+
+          expectedTimeUntil75pFull = ((bufferLimit * 0.75 - bufferedNow) / (1 + edgesPerMillis)).toInt
+          println("Edges per millis = %d, currently buffered = %d, until 75perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil75pFull))
+
+          checkBuffers()
+        }
+      }
+    })
+    flusherThread.setDaemon(true)
+    flusherThread.start()
   }
 
   def close() = {
@@ -875,12 +927,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def totalBufferedEdges = bufferShards.map(_.numEdgesInclDeletions).sum
 
-  def reportBufferStats = {
-    println("Edges in buffers=%d".format(totalBufferedEdges))
-    bufferShards.zipWithIndex.foreach(tp => println("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
-  }
-
-  val bufferDrainSemaphore = new Semaphore(2)
 
   def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
@@ -911,41 +957,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     /* Buffer flushing. TODO: make smarter. */
 
     if (counter.incrementAndGet() % 100000 == 0) {
-      if (totalBufferedEdges > bufferLimit * 0.9) {
-        if (bufferDrainSemaphore.availablePermits() == 0) {
-          if (totalBufferedEdges < bufferLimit) {
-            return
-          }
+      while(totalBufferedEdges > bufferLimit) {
+        log("Buffers full, waiting... %d / %d".format(totalBufferedEdges, bufferLimit))
+        bufferDrainMonitor.synchronized {
+           bufferDrainMonitor.notifyAll()
         }
-        while(bufferDrainSemaphore.availablePermits() == 0 && totalBufferedEdges > bufferLimit * 0.9) {
-          log("Waiting for pending flush permits: %d, totalbuffered: %d".format(bufferDrainSemaphore.availablePermits(), totalBufferedEdges))
-          Thread.sleep(500)
-        }
-        this.synchronized {
-          /* TODO: rethink... */
-          if (totalBufferedEdges > bufferLimit * 0.5) {
-            reportBufferStats
+        Thread.sleep(200)
 
-            val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
-            if (nonPendings.nonEmpty) {
-              val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
-              bufferDrainSemaphore.acquire()
-              async {
-                try {
-                  if (maxBuffer.numEdges > bufferLimit / bufferShards.size / 2) {
-                    maxBuffer.mergeToParentsAndClear()
-                  }
-                } catch {
-                  case e : Exception => e.printStackTrace()
-                } finally {
-                  bufferDrainSemaphore.release()
-                }
-              }
-            }
-          } else {
-            log("Already drained enough ...");
-          }
-        }
       }
     }
   }
