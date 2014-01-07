@@ -31,10 +31,10 @@ import edu.cmu.graphchidb.storage.VarDataColumn
 
 object GraphChiDatabaseAdmin {
 
-  def createDatabase(baseFilename: String) : Boolean= {
+  def createDatabase(baseFilename: String, numShards:Int = 256, maxId: Long = 1L<<33) : Boolean= {
 
     // Temporary code!
-    FastSharder.createEmptyGraph(baseFilename, 256, 1L<<33)
+    FastSharder.createEmptyGraph(baseFilename, numShards, maxId)
     true
   }
 
@@ -47,9 +47,21 @@ object GraphChiDatabaseAdmin {
  * @author Aapo Kyrola
  */
 class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false,
-                       enableVertexShardBits : Boolean= true) {
-  var numShards = 256
-  val bufferParents = 4
+                       enableVertexShardBits : Boolean= true, numShards: Int = 256) {
+  // Create a tree of shards... think about more elegant way
+  val shardSizes = {
+    def appendIf(szs:List[Int]) : List[Int] = if (szs.head > 16) appendIf(szs.head / 4 :: szs) else szs
+    val list = appendIf(List(numShards)).reverse
+    if (list.last % 4 != 0) {
+      throw new IllegalArgumentException("Last shardtree level must be dividable by 4")    // FIXME
+    } else {
+      list
+    }
+  }
+
+  val shardIdStarts = shardSizes.scan(0)(_+_)
+
+  val bufferParents = shardSizes.last / 4
 
   val vertexIdTranslate = VertexIdTranslate.fromFile(new File(ChiFilenames.getVertexTranslateDefFile(baseFilename, numShards)))
   val intervals = ChiFilenames.loadIntervals(baseFilename, numShards).toIndexedSeq
@@ -192,11 +204,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         edgeIterator.next()
         if (destInterval.contains(edgeIterator.getDst)) {
           workBuffer.rewind()
-
-          if (edgeIterator.getDst == 2650802847L && edgeIterator.getSrc == 671088640) {
-            println("Reading %s,%s from persistent shard %s %d".format(edgeIterator.getSrc, edgeIterator.getDst,
-              myInterval, shardId))
-          }
 
           edgeColumns.foreach(c => c._2.readValueBytes(shardId, i, workBuffer))
           thisBuffer.addEdge(edgeIterator.getType, edgeIterator.getSrc, edgeIterator.getDst, workBuffer.array())
@@ -687,9 +694,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       upperLevel.filter(_.myInterval.intersects(levelIntervals(i))))).toIndexedSeq
   }
 
-  // Create a tree of shards... think about more elegant way
-  val shardSizes = List(256, 64, 16)
-  val shardIdStarts = shardSizes.scan(0)(_+_)
+
   val shardTree =  {
     (0 until shardSizes.size).foldLeft(Seq[Seq[DiskShard]]())((tree : Seq[Seq[DiskShard]], treeLevel: Int) => {
       tree :+ createShards(shardSizes(treeLevel), shardIdStarts(treeLevel), tree.lastOption.getOrElse(Seq[DiskShard]()))
@@ -706,6 +711,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   private val shutdownHook = new Thread() {
     override def run() = {
+      databaseOpen = false
       println("Run shutdown hook...")
       flushAllBuffers()
       println("Finished shutdown hook")
@@ -715,6 +721,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
 
+  val bufferDrainLock = new Object
 
   def reportBufferStats = {
     println("Edges in buffers=%d".format(totalBufferedEdges))
@@ -729,7 +736,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       try {
         if (maxBuffer.numEdges >= perBufferTrigger) {
           reportBufferStats
-          maxBuffer.mergeToParentsAndClear()
+          this.bufferDrainLock.synchronized { // assure only one parallel drain happening at once (to save memory)
+            maxBuffer.mergeToParentsAndClear()
+          }
         }
       } catch {
         case e : Exception => e.printStackTrace()
@@ -738,6 +747,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   val bufferDrainMonitor = new Object
+  var databaseOpen : Boolean = true
 
   def initialize() : Unit = {
     bufferShards.foreach(_.init())
@@ -750,7 +760,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val flusherThread =new Thread(new Runnable {
       def run() {
         var expectedTimeUntil75pFull = 1000
-        while(true) {
+        while(databaseOpen) {
           val t1 = System.currentTimeMillis()
           val bufferedEdgesBefore = totalBufferedEdges
           bufferDrainMonitor.synchronized {
@@ -759,13 +769,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
             } catch { case ie : InterruptedException => ie.printStackTrace()}
           }
           val t2 = System.currentTimeMillis()
-          val edgesPerMillis = (totalBufferedEdges - bufferedEdgesBefore) / (t2 - t1)
+          val edgesPerMillis = (totalBufferedEdges - bufferedEdgesBefore) / (1 + t2 - t1)
           val bufferedNow = totalBufferedEdges
 
           expectedTimeUntil75pFull = ((bufferLimit * 0.75 - bufferedNow) / (1 + edgesPerMillis)).toInt
-          println("Edges per millis = %d, currently buffered = %d, until 75perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil75pFull))
-
-          checkBuffers()
+          if (bufferedNow > 0 && edgesPerMillis > 0) {
+            println("Edges per millis = %d, currently buffered = %d, until 75perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil75pFull))
+            checkBuffers()
+          }
         }
       }
     })
@@ -775,6 +786,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def close() = {
     Runtime.getRuntime().removeShutdownHook(shutdownHook)
+    shutdownHook.run()
   }
 
   def shardForEdge(src: Long, dst: Long) = {
@@ -960,7 +972,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       while(totalBufferedEdges > bufferLimit) {
         log("Buffers full, waiting... %d / %d".format(totalBufferedEdges, bufferLimit))
         bufferDrainMonitor.synchronized {
-           bufferDrainMonitor.notifyAll()
+          bufferDrainMonitor.notifyAll()
         }
         Thread.sleep(200)
 
@@ -971,7 +983,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def flushAllBuffers() = {
     log("Flushing all buffers...")
     reportBufferStats
-    this.synchronized {
+    this.bufferDrainLock.synchronized{
       bufferShards.foreach(bufferShard => bufferShard.mergeToParentsAndClear())
     }
   }
@@ -1212,14 +1224,16 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   /* Queries */
-  def queryIn(internalId: Long, edgeType: Byte) = {
+  def queryIn(internalId: Long, edgeType: Byte) : QueryResult = {
+    val result = new QueryResultContainer(Set(internalId))
+    queryIn(internalId, edgeType, result)
+    new QueryResult(edgeIndexing, result, this)
+  }
+
+
+  def queryIn(internalId: Long, edgeType: Byte, result: QueryCallback) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     timed ("query-in", {
-
-      val result = new QueryResultContainer(Set(internalId))
-
-
-      log("In-query in: %d".format(internalId))
       /* Look for buffers (in parallel, of course) -- TODO: profile if really a good idea */
       bufferShards.filter(_.myInterval.contains(internalId)).foreach( bufferShard => {
         bufferShard.bufferLock.readLock().lock()
@@ -1239,38 +1253,52 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       })
 
       /* Look for persistent shards */
-      val targetShards = shards.filter(_.myInterval.contains(internalId))
-      targetShards.par.foreach(shard => {
-        shard.persistentShardLock.readLock().lock()
-        try {
+      val targetShards = shards.filter(shard => shard.myInterval.contains(internalId) && !shard.persistentShard.isEmpty)
+
+      if (targetShards.size > 1) {
+        targetShards.par.foreach(shard => {
+          shard.persistentShardLock.readLock().lock()
           try {
-            shard.persistentShard.queryIn(internalId, result, edgeType)
-          } catch {
-            case e: Exception => e.printStackTrace()
+            try {
+              shard.persistentShard.queryIn(internalId, result, edgeType)
+            } catch {
+              case e: Exception => e.printStackTrace()
+            }
+          } finally {
+            shard.persistentShardLock.readLock().unlock()
           }
-        } finally {
-          shard.persistentShardLock.readLock().unlock()
-        }
-      })
-      log("Total in-results: %d,  : %d".format(result.combinedResults().size, result.resultsFor(internalId).size))
+        })
+      } else {
+        targetShards.foreach(shard => {
+          shard.persistentShardLock.readLock().lock()
+          try {
+            try {
+              shard.persistentShard.queryIn(internalId, result, edgeType)
+            } catch {
+              case e: Exception => e.printStackTrace()
+            }
+          } finally {
+            shard.persistentShardLock.readLock().unlock()
+          }
+        })
+      }
 
-      new QueryResult(edgeIndexing, result, this)
+
     } )
   }
 
 
-  def queryOut(internalId: Long, edgeType: Byte) = {
+  def queryOut(internalId: Long, edgeType: Byte) : QueryResult = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
-
+    val resultContainer =  new QueryResultContainer(Set(internalId))
     timed ("query-out", {
-      val res =  queryOutMultiple(Set[Long](internalId), edgeType)
-      // Note, change indexing
-      res.withIndexing(edgeIndexing)
+      queryOut(internalId, edgeType, resultContainer)
     } )
+    new QueryResult(edgeIndexing, resultContainer, this)
   }
 
 
-  def queryOut(internalId: Long, edgeType: Byte, callback: QueryCallback)  = {
+  def queryOut(internalId: Long, edgeType: Byte, callback: QueryCallback) : Unit  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     val qshardBits =   shardBits(internalId)
     bufferShards.foreach(bufferShard => {
@@ -1312,7 +1340,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
 
-    bufferShards.par.foreach(bufferShard => {
+    bufferShards.foreach(bufferShard => {
       /* Look for buffers */
       bufferShard.bufferLock.readLock().lock()
       try {
@@ -1332,7 +1360,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     })
 
     val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
-    filteredShards.par.foreach(shard => {
+
+    filteredShards.foreach(shard => {
       try {
         val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
         if (matchingIds.nonEmpty) {
@@ -1372,7 +1401,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
       val _timebuffers = timer_out_buffers.time()
       timed("query-out-buffers", {
-        bufferShards.par.foreach(bufferShard => {
+        bufferShards.foreach(bufferShard => {
           /* Look for buffers */
           bufferShard.bufferLock.readLock().lock()
           try {
@@ -1399,7 +1428,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       val timer_pers = timer_out_persistent.time()
       timed("query-out-persistent", {
         // TODO: fix this java-scala long mapping
-        shards.filterNot(_.persistentShard.isEmpty).par.foreach(shard => {
+        shards.filterNot(_.persistentShard.isEmpty).foreach(shard => {
           try {
             val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
             if (matchingIds.nonEmpty) {

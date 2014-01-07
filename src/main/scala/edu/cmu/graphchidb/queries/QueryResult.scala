@@ -64,4 +64,4 @@ class QueryResult(indexing: DatabaseIndexing, result: QueryResultContainer,  dat
   }
 }
 
-
+                 // Returns a set of ids

@@ -111,3 +111,13 @@ case class ResultEdges(ids: Seq[Long], types: Seq[Byte], pointers: Seq[Long]) {
   def size = ids.size
   def idForPointer(pointer: java.lang.Long) = ids(pointers.indexOf(pointer)) // Note, optimize for large result sets!
 }
+
+class SimpleSetReceiver extends QueryCallback {
+  val set = new collection.mutable.HashSet[Long] with mutable.SynchronizedSet[Long]
+  def immediateReceive() = true
+  def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = set += dst
+
+  def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+  def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+
+}

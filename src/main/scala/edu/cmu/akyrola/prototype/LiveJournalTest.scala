@@ -61,6 +61,19 @@ object LiveJournalTest  {
   val pagerankComputation = new Pagerank(DB)
   val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
 
+
+  def testIn(origId: Long) = {
+     val x = DB.originalToInternalId(origId)
+     val ins = DB.queryIn(x, 0).getInternalIds
+     ins.foreach { a =>
+       val outs = DB.queryOut(a, 0).getInternalIds
+       if (!outs.contains(x)) {
+         throw new IllegalStateException()
+       }
+     }
+    true
+  }
+
   def startIngest() {
     async {
       var i = 0

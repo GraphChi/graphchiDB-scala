@@ -91,8 +91,6 @@ class VarDataColumn(name: String,  filePrefix: String, indexing: DatabaseIndexin
 
       partialDataFiles(partialDataFiles.size - 1) = initPartialData(partialDataFiles.last.id)
 
-      println("flush: %s %d".format(prefixFilename, currentBufferPartId))
-
       bufferCounter.set(0)
       buffer.reset()
 

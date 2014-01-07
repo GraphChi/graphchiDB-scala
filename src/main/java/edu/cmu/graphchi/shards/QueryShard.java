@@ -269,6 +269,52 @@ public class QueryShard {
         return -1L;
     }
 
+    private long findPointerForOff(long qoff, final LongBuffer tmpBuffer) {
+        // Binary search to find the start of the vertex
+        int n = tmpBuffer.capacity();
+        int high = n-1;
+        int low = tmpBuffer.position();
+
+        // Check if we are close
+        long cur = tmpBuffer.get();
+        long curoff = VertexIdTranslate.getAux(cur);
+
+        // TODO
+        if (qoff > curoff && qoff - curoff < 1024) {
+            long last = cur;
+            while(curoff <= qoff) {
+                last = cur;
+                cur = tmpBuffer.get();
+                curoff = VertexIdTranslate.getAux(cur);
+            }
+            return last;
+        }
+
+        if (curoff > qoff) low = 0;
+
+        while(low <= high) {
+            int idx = ((high + low) / 2);
+            if (idx == n - 1) idx--;
+            tmpBuffer.position(idx);
+            long x = tmpBuffer.get();
+            long x_next = tmpBuffer.get();
+            long off = VertexIdTranslate.getAux(x);
+            long off_next = VertexIdTranslate.getAux(x_next);
+
+            if (off_next > qoff && off <= qoff) {
+                tmpBuffer.position(idx);
+                return x;
+            }
+            if (off < qoff) {
+                low = idx + 1;
+            } else {
+                high = idx - 1;
+            }
+        }
+        throw new RuntimeException("Could not find " + qoff);
+    }
+
+
     public void queryIn(Long queryId, QueryCallback callback, byte edgeType) {
         queryIn(queryId, callback, edgeType, false);
     }
@@ -277,7 +323,6 @@ public class QueryShard {
 
         final LongBuffer tmpBuffer = adjBuffer.duplicate();
 
-        if(callback.immediateReceive()) throw new NotImplementedException();
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
@@ -318,7 +363,9 @@ public class QueryShard {
             while(off != END) {
                 tmpBuffer.position(off);
                 long edge = tmpBuffer.get();
+
                 if (VertexIdTranslate.getVertexId(edge) != queryId) {
+                    System.out.println("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
                     throw new RuntimeException("Mismatch in edge linkage: " + VertexIdTranslate.getVertexId(edge) + " !=" + queryId);
                 }
                 if (ignoreType || VertexIdTranslate.getType(edge) == edgeType) {
@@ -341,9 +388,9 @@ public class QueryShard {
             /* Find beginning */
 
 
-            ArrayList<Long> inNeighbors = new ArrayList<Long>(offsets.size());
-            ArrayList<Long> inNeighborsPtrs = new ArrayList<Long>(offsets.size());
-            ArrayList<Byte> edgeTypes = new ArrayList<Byte>(offsets.size());
+            ArrayList<Long> inNeighbors =   (callback.immediateReceive() ? null : new ArrayList<Long>(offsets.size()));
+            ArrayList<Long> inNeighborsPtrs =  (callback.immediateReceive() ? null :new ArrayList<Long>(offsets.size()));
+            ArrayList<Byte> edgeTypes =  (callback.immediateReceive() ? null : new ArrayList<Byte>(offsets.size()));
 
 
             final LongBuffer tmpPointerIdxBuffer = pointerIdxBuffer.duplicate();
@@ -359,24 +406,23 @@ public class QueryShard {
 
                 tmpPointerIdxBuffer.position(startIndex.vertexSeq);
 
-                long last = tmpPointerIdxBuffer.get();
                 while (offsetIterator.hasNext()) {
                     off = offsetIterator.next();
-                    long ptr = last;
-
-                    while(VertexIdTranslate.getAux(ptr) <= off) {
-                        last = ptr;
-                        ptr = tmpPointerIdxBuffer.get();
+                    long ptr = findPointerForOff(off, tmpPointerIdxBuffer);
+                    if (!callback.immediateReceive()) {
+                        inNeighbors.add(VertexIdTranslate.getVertexId(ptr));
+                        inNeighborsPtrs.add(PointerUtil.encodePointer(shardNum, off));
+                        edgeTypes.add(edgeType); // TODO with wild card
+                    } else {
+                        callback.receiveEdge(VertexIdTranslate.getVertexId(ptr), queryId, edgeType, PointerUtil.encodePointer(shardNum, off));
                     }
-                    inNeighbors.add(VertexIdTranslate.getVertexId(last));
-                    inNeighborsPtrs.add(PointerUtil.encodePointer(shardNum, off));
-                    edgeTypes.add(edgeType); // TODO with wild card
                 }
                 _timer2.stop();
 
             }
-            callback.receiveInNeighbors(queryId, inNeighbors, edgeTypes, inNeighborsPtrs);
-
+            if (!callback.immediateReceive()) {
+                callback.receiveInNeighbors(queryId, inNeighbors, edgeTypes, inNeighborsPtrs);
+            }
 
         } catch (Exception err) {
             throw new RuntimeException(err);

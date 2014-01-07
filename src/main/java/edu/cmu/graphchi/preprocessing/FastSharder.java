@@ -44,9 +44,17 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         if (shoveled.length != shoveled2.length) {
             throw new IllegalStateException("src and dst array lengths differ:" + shoveled.length + "/" + shoveled2.length);
         }
-        if (shoveled.length != edgeValues.length / sizeOf) {
-            throw new IllegalStateException("Mismatch in array size: expected " + shoveled.length + " / got: " +
-                    (edgeValues.length / sizeOf) + "; sizeof=" + sizeOf);
+
+        if (shoveled.length >= (1<<26)) {
+            System.err.println("Shard is too big: " + shoveled.length + " >" + (1<<26));
+            throw new IllegalStateException("Shard is too big: " + shoveled.length + " >" + (1<<26));
+        }
+
+        if (sizeOf > 0) {
+            if (shoveled.length != edgeValues.length / sizeOf) {
+                throw new IllegalStateException("Mismatch in array size: expected " + shoveled.length + " / got: " +
+                        (edgeValues.length / sizeOf) + "; sizeof=" + sizeOf);
+            }
         }
 
         if (!alreadySorted) {
@@ -59,6 +67,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
             edgeTypeArray[i] = VertexIdTranslate.getType(shoveled2[i]);
             shoveled2[i] = VertexIdTranslate.getVertexId(shoveled2[i]);
         }
+
 
         int[] indices =  radixSortWithIndex(shoveled2);
 

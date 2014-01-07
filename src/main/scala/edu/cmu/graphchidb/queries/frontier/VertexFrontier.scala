@@ -30,16 +30,21 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
 
   def db = db_
 
+  var counter = 0
   var empty = true
   val shardBitSets = (0 until indexing.nShards).map(i => new scala.collection.mutable.BitSet(indexing.shardSize(i).toInt)).toIndexedSeq
 
   def insert(vertexId: Long) : Unit = {
-    if (empty) empty = false
-    shardBitSets(indexing.shardForIndex(vertexId)).+=(indexing.globalToLocal(vertexId).toInt)
+     val bitset = shardBitSets(indexing.shardForIndex(vertexId))
+     val localIdx = indexing.globalToLocal(vertexId).toInt
+     if (!bitset(localIdx)) {
+       bitset.+=(localIdx)
+       counter += 1 // not thread-safe!
+     }
   }
   def hasVertex(vertexId: Long) = shardBitSets(indexing.shardForIndex(vertexId))(indexing.globalToLocal(vertexId).toInt)
-  def isEmpty = empty
-  def size: Int = shardBitSets.map(_.count(i => true)).sum
+  def isEmpty = counter == 0
+  def size: Int = counter  // shardBitSets.map(_.count(i => true)).sum
 
   def toSparse = {
     val sparseFrontier = new SparseVertexFrontier(indexing, db_)
@@ -84,7 +89,7 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
 
 object VertexFrontier {
 
-  val sparseLimit = 10000
+  val sparseLimit = 100
 
   def createFrontier(internalIds: Seq[Long], db: GraphChiDatabase) = {
       if (internalIds.size > sparseLimit) {

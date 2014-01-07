@@ -19,11 +19,16 @@ object Queries {
     * @param db
     * @return
     */
-  def friendsOfFriends(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
+  def friendsOfFriendsExcl(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
     db.timed("FoF", {
       val friends = queryVertex(internalId, db)
       val result = friends->traverseOut(edgeType)->traverseOut(edgeType)->selectOut(edgeType, groupByCount, dst => !friends.hasVertex(dst))
       result.results })
+  }
+
+  def friendsOfFriendsSet(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
+      val friends = queryVertex(internalId, db)
+      friends->traverseOut(edgeType)->traverseOut(edgeType)
   }
 
 
