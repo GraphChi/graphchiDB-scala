@@ -775,8 +775,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           expectedTimeUntil75pFull = ((bufferLimit * 0.75 - bufferedNow) / (1 + edgesPerMillis)).toInt
           if (bufferedNow > 0 && edgesPerMillis > 0) {
             println("Edges per millis = %d, currently buffered = %d, until 75perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil75pFull))
-            checkBuffers()
           }
+          checkBuffers()
+
         }
       }
     })
@@ -1233,58 +1234,56 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   def queryIn(internalId: Long, edgeType: Byte, result: QueryCallback) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
-    timed ("query-in", {
-      /* Look for buffers (in parallel, of course) -- TODO: profile if really a good idea */
-      bufferShards.filter(_.myInterval.contains(internalId)).foreach( bufferShard => {
-        bufferShard.bufferLock.readLock().lock()
-        try {
-          bufferShard.buffersForDstQuery(internalId).par.foreach(
-            buf => {
-              try {
-                buf.buffer.findInNeighborsCallback(internalId, result, edgeType)
-              } catch {
-                case e: Exception => e.printStackTrace()
-              }
+    /* Look for buffers (in parallel, of course) -- TODO: profile if really a good idea */
+
+    val matchingBuffers = bufferShards.filter(_.myInterval.contains(internalId))
+
+    matchingBuffers.foreach( bufferShard => {
+      bufferShard.bufferLock.readLock().lock()
+      try {
+        bufferShard.buffersForDstQuery(internalId).foreach(
+          buf => {
+            try {
+              buf.buffer.findInNeighborsCallback(internalId, result, edgeType)
+            } catch {
+              case e: Exception => e.printStackTrace()
             }
-          )
+          }
+        )
+      } finally {
+        bufferShard.bufferLock.readLock().unlock()
+      }
+    })
+
+    /* Look for persistent shards */
+    val targetShards = shards.filter(shard => shard.myInterval.contains(internalId) && !shard.persistentShard.isEmpty)
+    if (targetShards.size > 1) {
+      targetShards.par.foreach(shard => {
+        shard.persistentShardLock.readLock().lock()
+        try {
+          try {
+            shard.persistentShard.queryIn(internalId, result, edgeType)
+          } catch {
+            case e: Exception => e.printStackTrace()
+          }
         } finally {
-          bufferShard.bufferLock.readLock().unlock()
+          shard.persistentShardLock.readLock().unlock()
         }
       })
-
-      /* Look for persistent shards */
-      val targetShards = shards.filter(shard => shard.myInterval.contains(internalId) && !shard.persistentShard.isEmpty)
-
-      if (targetShards.size > 1) {
-        targetShards.par.foreach(shard => {
-          shard.persistentShardLock.readLock().lock()
+    } else {
+      targetShards.foreach(shard => {
+        shard.persistentShardLock.readLock().lock()
+        try {
           try {
-            try {
-              shard.persistentShard.queryIn(internalId, result, edgeType)
-            } catch {
-              case e: Exception => e.printStackTrace()
-            }
-          } finally {
-            shard.persistentShardLock.readLock().unlock()
+            shard.persistentShard.queryIn(internalId, result, edgeType)
+          } catch {
+            case e: Exception => e.printStackTrace()
           }
-        })
-      } else {
-        targetShards.foreach(shard => {
-          shard.persistentShardLock.readLock().lock()
-          try {
-            try {
-              shard.persistentShard.queryIn(internalId, result, edgeType)
-            } catch {
-              case e: Exception => e.printStackTrace()
-            }
-          } finally {
-            shard.persistentShardLock.readLock().unlock()
-          }
-        })
-      }
-
-
-    } )
+        } finally {
+          shard.persistentShardLock.readLock().unlock()
+        }
+      })
+    }
   }
 
 

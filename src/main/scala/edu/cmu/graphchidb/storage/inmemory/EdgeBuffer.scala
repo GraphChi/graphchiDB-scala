@@ -193,26 +193,28 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
 
   def findInNeighborsCallback(dst: Long, callback: QueryCallback, edgeType: Byte) : Unit = {
     val n = numEdges
-    val ids = new util.ArrayList[java.lang.Long]()
-    val types = new util.ArrayList[java.lang.Byte]()
-    val pointers = new util.ArrayList[java.lang.Long]()
-    // Not the most functional way, but should be faster
-    var i = 0
-    while(i < n) {   // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
-      if (extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
-        if (!callback.immediateReceive()) {
-          ids.add(srcArray(i))
-          types.add(extractType(dstArrayWithType(i)))
-          pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
-        } else {
-          callback.receiveEdge(  extractVertexId(dstArrayWithType(i)), dst, extractType(dstArrayWithType(i)), PointerUtil.encodeBufferPointer(bufferId, i))
+    if (n > 0) {
+      val ids = new util.ArrayList[java.lang.Long]()
+      val types = new util.ArrayList[java.lang.Byte]()
+      val pointers = new util.ArrayList[java.lang.Long]()
+      // Not the most functional way, but should be faster
+      var i = 0
+      while(i < n) {   // Unfortunately, need to use non-functional while instead of "0 until n" for MUCH better performance
+        if (extractVertexId(dstArrayWithType(i)) == dst && extractType(dstArrayWithType(i)) == edgeType) {
+          if (!callback.immediateReceive()) {
+            ids.add(srcArray(i))
+            types.add(extractType(dstArrayWithType(i)))
+            pointers.add(PointerUtil.encodeBufferPointer(bufferId, i))
+          } else {
+            callback.receiveEdge(  extractVertexId(dstArrayWithType(i)), dst, extractType(dstArrayWithType(i)), PointerUtil.encodeBufferPointer(bufferId, i))
 
+          }
         }
+        i += 1
       }
-      i += 1
-    }
-    if (!callback.immediateReceive()) {
-      callback.receiveInNeighbors(dst, ids, types, pointers)
+      if (!callback.immediateReceive()) {
+        callback.receiveInNeighbors(dst, ids, types, pointers)
+      }
     }
   }
 

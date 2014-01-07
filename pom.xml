@@ -31,6 +31,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>commons-collections</groupId>
+            <artifactId>commons-collections</artifactId>
+            <version>3.2.1</version>
+        </dependency>
+        <dependency>
             <groupId>com.facebook.linkbench</groupId>
             <artifactId>FacebookLinkBench</artifactId>
             <version>1.0</version>

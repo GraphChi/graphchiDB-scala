@@ -2,12 +2,14 @@ package edu.cmu.graphchi.shards;
 
 import static com.codahale.metrics.MetricRegistry.name;
 
+import com.codahale.metrics.Counter;
 import com.codahale.metrics.Timer;
 import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.queries.QueryCallback;
+import org.apache.commons.collections.map.LRUMap;
 import scala.actors.threadpool.locks.Lock;
 import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
@@ -18,10 +20,7 @@ import java.nio.BufferUnderflowException;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.nio.channels.FileChannel;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
+import java.util.*;
 
 /**
  * Shard query support
@@ -45,8 +44,19 @@ public class QueryShard {
 
     private final Timer inEdgePhase1Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase1"));
     private final Timer inEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase2"));
+    private final Counter cacheMissCounter = GraphChiEnvironment.metrics.counter("querycache-misses");
+    private final Counter cacheHitCounter = GraphChiEnvironment.metrics.counter("querycache-hits");
 
     private int numEdges;
+
+    public static int queryCacheSize = Integer.parseInt(System.getProperty("queryshard.cachesize", "0"));
+    public static boolean freezeCache = false;
+
+    private Map queryCache =  (queryCacheSize == 0 ? null : new HashMap(queryCacheSize));
+
+    static {
+        System.out.println("Query cache size: " + queryCacheSize);
+    }
 
     public QueryShard(String filename, int shardNum, int numShards) throws IOException {
         this(filename, shardNum, numShards, ChiFilenames.loadIntervals(filename, numShards).get(shardNum));
@@ -81,6 +91,16 @@ public class QueryShard {
     public long getNumEdges()  {
         return numEdges;
     }
+
+    private Long incacheKey(long vertexId, byte edgeType) {
+        return -(vertexId * 16 + edgeType);
+    }
+
+    private Long outcachekey(long vertexId, byte edgeType) {
+        return (vertexId * 16 + edgeType);
+    }
+
+
 
     private void loadInEdgeStartBuffer() throws IOException {
         File inEdgeStartBufferFile = new File(ChiFilenames.getFilenameShardsAdjStartIndices(adjFile.getAbsolutePath()));
@@ -193,6 +213,33 @@ public class QueryShard {
             ArrayList<Long> sortedIds = new ArrayList<Long>(queryIds);
             Collections.sort(sortedIds);
 
+
+            if (queryCacheSize > 0 && !queryCache.isEmpty()) {
+                if (callback.immediateReceive()) {
+                    ArrayList<Long> misses = new ArrayList<Long>(queryIds.size());
+                    for(int i=0; i<sortedIds.size(); i++) {
+                        Long cacheKey = outcachekey(sortedIds.get(i), edgeType);
+                        long[] cached = (long[]) queryCache.get(cacheKey);
+                        if (cached != null) {
+                            for(int j=0; j<cached.length; j++) {
+                                long vpacket = cached[j];
+                                callback.receiveEdge(sortedIds.get(i), VertexIdTranslate.getVertexId(vpacket), edgeType,
+                                        PointerUtil.encodePointer(shardNum, (int)VertexIdTranslate.getAux(vpacket)));
+                            }
+                        } else {
+                            misses.add(sortedIds.get(i));
+                        }
+                    }
+                    sortedIds = misses;
+
+                    cacheMissCounter.inc(misses.size());
+                    cacheHitCounter.inc(queryIds.size() - misses.size());
+                    if (sortedIds.isEmpty()) return;
+                } else {
+                    System.err.println("Caching without immediatereceive not implemented yet");
+                }
+            }
+
             ArrayList<ShardIndex.IndexEntry> indexEntries = new ArrayList<ShardIndex.IndexEntry>(sortedIds.size());
             for(Long a : sortedIds) {
                 indexEntries.add(index.lookup(a));
@@ -217,6 +264,10 @@ public class QueryShard {
 
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
                     tmpAdjBuffer.position((int)adjOffset);
+
+                    long[] cached = (queryCache.size() >= queryCacheSize || freezeCache ? null : new long[n * 2]);
+                    int cachek = 0;
+
                     for(int i=0; i<n; i++) {
                         long e = tmpAdjBuffer.get();
                         byte etype = VertexIdTranslate.getType(e);
@@ -229,10 +280,19 @@ public class QueryShard {
                             } else {
                                 callback.receiveEdge(vertexId, VertexIdTranslate.getVertexId(e),
                                         etype, PointerUtil.encodePointer(shardNum, (int) adjOffset + i));
+                                if (cached != null) {
+                                    cached[cachek++] = VertexIdTranslate.encodeVertexPacket(edgeType, VertexIdTranslate.getVertexId(e),
+                                            adjOffset+1);
+                                }
                             }
                         }
                     }
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, res, resTypes, resPointers);
+                    if (cached != null ) {
+                        synchronized (queryCache) {
+                            queryCache.put(outcachekey(vertexId, edgeType), cached);
+                        }
+                    }
                 } else {
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
                 }
@@ -280,7 +340,7 @@ public class QueryShard {
         long curoff = VertexIdTranslate.getAux(cur);
 
         // TODO
-        if (qoff > curoff && qoff - curoff < 1024) {
+        if (qoff > curoff && qoff - curoff < 100) {
             long last = cur;
             while(curoff <= qoff) {
                 last = cur;
@@ -290,7 +350,7 @@ public class QueryShard {
             return last;
         }
 
-        if (curoff > qoff) low = 0;
+        if (curoff >= qoff) low = 0;
 
         while(low <= high) {
             int idx = ((high + low) / 2);
@@ -320,13 +380,25 @@ public class QueryShard {
     }
 
     private void queryIn(Long queryId, QueryCallback callback, byte edgeType, boolean ignoreType) {
-
-        final LongBuffer tmpBuffer = adjBuffer.duplicate();
-
+        if (queryCache != null && callback.immediateReceive()) {
+            long[] cached = (long[]) queryCache.get(incacheKey(queryId, edgeType));
+            if (cached != null && callback.immediateReceive()) {
+                for(int j=0; j<cached.length; j++) {
+                    long ptr = cached[j];
+                    callback.receiveEdge(VertexIdTranslate.getVertexId(ptr), queryId, edgeType,
+                            PointerUtil.encodePointer(shardNum, (int) VertexIdTranslate.getAux(ptr)));
+                }
+               // cacheHitCounter.inc();
+                return;
+            } else {
+                cacheMissCounter.inc();
+            }
+        }
 
         if (queryId < interval.getFirstVertex() || queryId > interval.getLastVertex()) {
             throw new IllegalArgumentException("Vertex " + queryId + " not part of interval:" + interval);
         }
+        final LongBuffer tmpBuffer = adjBuffer.duplicate();
 
         try {
             /* Step 1: collect adj file offsets for the in-edges */
@@ -357,8 +429,14 @@ public class QueryShard {
             }
 
             if (off == (-1)) {
+                if (queryCacheSize > queryCache.size()) {
+                    synchronized (queryCache){
+                        queryCache.put(incacheKey(queryId, edgeType), new long[0]);
+                    }
+                }
                 return;
             }
+
 
             while(off != END) {
                 tmpBuffer.position(off);
@@ -392,6 +470,7 @@ public class QueryShard {
             ArrayList<Long> inNeighborsPtrs =  (callback.immediateReceive() ? null :new ArrayList<Long>(offsets.size()));
             ArrayList<Byte> edgeTypes =  (callback.immediateReceive() ? null : new ArrayList<Byte>(offsets.size()));
 
+            ArrayList<Long> cached = (queryCache.size() >= queryCacheSize || freezeCache ? null : new ArrayList<Long>());
 
             final LongBuffer tmpPointerIdxBuffer = pointerIdxBuffer.duplicate();
 
@@ -416,9 +495,19 @@ public class QueryShard {
                     } else {
                         callback.receiveEdge(VertexIdTranslate.getVertexId(ptr), queryId, edgeType, PointerUtil.encodePointer(shardNum, off));
                     }
+                    if (cached != null) {
+                        cached.add(VertexIdTranslate.encodeVertexPacket(edgeType, VertexIdTranslate.getVertexId(ptr), off));
+                    }
                 }
                 _timer2.stop();
 
+                if (cached != null) {
+                    long[] cachedArr = new long[cached.size()];
+                    for(int j=0; j<cached.size(); j++) cachedArr[j] = cached.get(j);
+                    synchronized (queryCache) {
+                        queryCache.put(incacheKey(queryId, edgeType), cachedArr);
+                    }
+                }
             }
             if (!callback.immediateReceive()) {
                 callback.receiveInNeighbors(queryId, inNeighbors, edgeTypes, inNeighborsPtrs);

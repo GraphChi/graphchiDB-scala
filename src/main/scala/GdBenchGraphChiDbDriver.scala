@@ -3,7 +3,7 @@ import edu.cmu.graphchidb.queries.internal.SimpleSetReceiver
 import edu.cmu.graphchidb.queries.Queries
 import edu.cmu.graphchidb.{GraphChiDatabaseAdmin, GraphChiDatabase}
 import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
-
+import java.io.{FileOutputStream, PrintStream}
 
 
 /**
@@ -23,7 +23,6 @@ class GdBenchGraphChiDbDriver extends TestDriver {
   var type0Counters : Column[Int]  = null
   var type1Counters : Column[Int]  = null
 
-  var firstWebpageId = 0L // TODO
 
 
   val baseFilename = "/Users/akyrola/graphs/DB/gdbench/gdbench"
@@ -43,13 +42,15 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
     type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
 
+  //System.setOut(new PrintStream(new FileOutputStream("gdbench.log")))
+
     DB.initialize()
-    true
+     true
   }
 
   def closeDB() = {
-     DB.close()
-     true
+    DB.close()
+    true
   }
 
   def openTransaction() = true
@@ -70,15 +71,14 @@ class GdBenchGraphChiDbDriver extends TestDriver {
 
 
   def insertPerson(id: Long, name: String, age: String, location: String) = {
-      val payload = "" + name + "/" + age + "/" + location
-      val payloadId = varDataColumn.insert(payload.getBytes)
-      varDataIndexColumn.set(DB.originalToInternalId(id), payloadId)
-      firstWebpageId = math.max(firstWebpageId, id + 1)
-      true
+    val payload = "" + name + "/" + age + "/" + location
+    val payloadId = varDataColumn.insert(payload.getBytes)
+    varDataIndexColumn.set(DB.originalToInternalId(id), payloadId)
+    true
   }
 
   def insertWebPage(wpId: Long, url: String, date: String) = {
-    val vertexId = firstWebpageId + wpId
+    val vertexId = wpId
     val payload =  "" + url + "/" + date
     val payloadId = varDataColumn.insert(payload.getBytes)
     varDataIndexColumn.set(DB.originalToInternalId(vertexId), payloadId)
@@ -102,16 +102,19 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     friendCount += 1
 
     if (friendCount % 333333 == 0) {
-       // Test query for debug
-       DB.queryIn(DB.originalToInternalId(personId), FRIENDSHIP)
-       DB.queryIn(DB.originalToInternalId(person2Id), FRIENDSHIP)
+      // Test query for debug
+      println("Inquery test")
+      DB.queryIn(DB.originalToInternalId(personId), FRIENDSHIP)
+      DB.queryIn(DB.originalToInternalId(person2Id), FRIENDSHIP)
+      println("Inquery test -- end")
+
     }
 
     true
   }
 
   def insertLike(personId: Long, webPageId: Long) = {
-    DB.addEdgeOrigId(LIKE, personId, firstWebpageId + webPageId)
+    DB.addEdgeOrigId(LIKE, personId, webPageId)
     type1Counters.update(DB.originalToInternalId(personId), c=>c.getOrElse(0) + 1)
     if (likeCount % 1000000 == 0) println("Likes %d".format(likeCount))
 
@@ -121,6 +124,16 @@ class GdBenchGraphChiDbDriver extends TestDriver {
       + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
     likeCount += 1
 
+
+    if (friendCount % 333333 == 0) {
+      // Test query for debug
+      println("Inquery test")
+      val r=DB.queryIn(DB.originalToInternalId(webPageId), LIKE)
+      assert(r.getInternalIds.size > 0)
+      println("Inquery test -- end")
+
+    }
+
     true
   }
 
@@ -129,14 +142,19 @@ class GdBenchGraphChiDbDriver extends TestDriver {
 
   // People that like a given web page W
   def Q2(webPageId: Long) = {
-     val webPageInternalId = DB.originalToInternalId(firstWebpageId + webPageId)
-     DB.queryIn(webPageInternalId, LIKE).size
+    val recv = new SimpleSetReceiver(outEdges = false)
+    val webPageInternalId = DB.originalToInternalId(webPageId)
+    DB.queryIn(webPageInternalId, LIKE, recv)
+    recv.set.size
   }
 
   // The web pages that person P likes
   def Q3(p1: Long) = {
-     val personInternalId = DB.originalToInternalId(p1)
-     DB.queryOut(personInternalId, LIKE).size
+    val recv = new SimpleSetReceiver(outEdges = true)
+
+    val personInternalId = DB.originalToInternalId(p1)
+    DB.queryOut(personInternalId, LIKE, recv)
+    recv.set.size
   }
 
   // The name of the person with given PID
@@ -156,9 +174,9 @@ class GdBenchGraphChiDbDriver extends TestDriver {
   // The web pages liked by the friends of given person P
   def Q6(p1: Long) = {
     val personInternalId = DB.originalToInternalId(p1)
-    val friendReceiver = new SimpleSetReceiver
+    val friendReceiver = new SimpleSetReceiver(outEdges = true)
     DB.queryOut(personInternalId, FRIENDSHIP, friendReceiver)
-    val webPageReceiver = new SimpleSetReceiver
+    val webPageReceiver = new SimpleSetReceiver(outEdges = true)
     DB.queryOutMultiple(friendReceiver.set.toSet, LIKE, webPageReceiver)
     webPageReceiver.set.size
   }
@@ -166,10 +184,10 @@ class GdBenchGraphChiDbDriver extends TestDriver {
   // Get people that likes a web page which a person P likes
   def Q7(p1: Long) = {
     val personInternalId = DB.originalToInternalId(p1)
-    val webPageRecv = new SimpleSetReceiver
+    val webPageRecv = new SimpleSetReceiver(outEdges = true)
     DB.queryOut(personInternalId, LIKE, webPageRecv)
     val webPagesLiked = webPageRecv.set.toSeq
-    val peopleLikingReceiver = new SimpleSetReceiver
+    val peopleLikingReceiver = new SimpleSetReceiver(outEdges = false)
     webPagesLiked.par.foreach(pageId => DB.queryIn(pageId, LIKE, peopleLikingReceiver))
     peopleLikingReceiver.set.size
   }
@@ -182,20 +200,20 @@ class GdBenchGraphChiDbDriver extends TestDriver {
 
   /// The common friends between people P1 and P2
   def Q10(p1: Long, p2: Long) = {
-    val friends1Recv =  new SimpleSetReceiver
-    DB.queryOut(DB.originalToInternalId(p1), FRIENDSHIP, friends1Recv)
-    val friends2Recv =  new SimpleSetReceiver
-    DB.queryOut(DB.originalToInternalId(p1), FRIENDSHIP, friends2Recv)
+    val friends1Recv =  new SimpleSetReceiver(outEdges = false)
+    val friends2Recv =  new SimpleSetReceiver(outEdges = false)
+    val qs = Seq((p1, friends1Recv), (p2, friends2Recv))
+    qs.par.foreach(p => DB.queryIn(DB.originalToInternalId(p._1), FRIENDSHIP, p._2))
     friends1Recv.set.intersect(friends2Recv.set).size
   }
 
   // The common web pages that P1 and P2 like
   def Q11(p1: Long, p2: Long) = {
-    val pages1Recv =  new SimpleSetReceiver
-    val pages2Recv =  new SimpleSetReceiver
+    val pages1Recv =  new SimpleSetReceiver(outEdges = true)
+    val pages2Recv =  new SimpleSetReceiver(outEdges = true)
 
-    val pages1 = DB.queryOut(DB.originalToInternalId(p1), LIKE, pages1Recv)
-    val pages2 = DB.queryOut(DB.originalToInternalId(p1), LIKE, pages2Recv)
+    DB.queryOut(DB.originalToInternalId(p1), LIKE, pages1Recv)
+    DB.queryOut(DB.originalToInternalId(p1), LIKE, pages2Recv)
     pages1Recv.set.intersect(pages2Recv.set).size
   }
 
