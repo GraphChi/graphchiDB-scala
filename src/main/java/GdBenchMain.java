@@ -61,6 +61,7 @@ public class GdBenchMain {
             return;
         }
 
+        long t = System.currentTimeMillis();
         if (D) {
             testdriver.runDataLoading();
         }
@@ -70,6 +71,7 @@ public class GdBenchMain {
         if (q != 0) {
             testdriver.runQueryTestByQuery(q, i, m);
         }
+        System.err.println("Finished in " + (System.currentTimeMillis() - t) + "ms");
     }
 
 }

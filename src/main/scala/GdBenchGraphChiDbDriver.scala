@@ -42,7 +42,7 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
     type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
 
-  //System.setOut(new PrintStream(new FileOutputStream("gdbench.log")))
+    //System.setOut(new PrintStream(new FileOutputStream("gdbench.log")))
 
     DB.initialize()
      true
@@ -154,6 +154,7 @@ class GdBenchGraphChiDbDriver extends TestDriver {
 
     val personInternalId = DB.originalToInternalId(p1)
     DB.queryOut(personInternalId, LIKE, recv)
+
     recv.set.size
   }
 
@@ -173,6 +174,7 @@ class GdBenchGraphChiDbDriver extends TestDriver {
 
   // The web pages liked by the friends of given person P
   def Q6(p1: Long) = {
+    // TODO: optimize
     val personInternalId = DB.originalToInternalId(p1)
     val friendReceiver = new SimpleSetReceiver(outEdges = true)
     DB.queryOut(personInternalId, FRIENDSHIP, friendReceiver)
@@ -203,7 +205,7 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     val friends1Recv =  new SimpleSetReceiver(outEdges = false)
     val friends2Recv =  new SimpleSetReceiver(outEdges = false)
     val qs = Seq((p1, friends1Recv), (p2, friends2Recv))
-    qs.par.foreach(p => DB.queryIn(DB.originalToInternalId(p._1), FRIENDSHIP, p._2))
+    qs.foreach(p => DB.queryIn(DB.originalToInternalId(p._1), FRIENDSHIP, p._2))
     friends1Recv.set.intersect(friends2Recv.set).size
   }
 
@@ -213,7 +215,7 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     val pages2Recv =  new SimpleSetReceiver(outEdges = true)
 
     DB.queryOut(DB.originalToInternalId(p1), LIKE, pages1Recv)
-    DB.queryOut(DB.originalToInternalId(p1), LIKE, pages2Recv)
+    DB.queryOut(DB.originalToInternalId(p2), LIKE, pages2Recv)
     pages1Recv.set.intersect(pages2Recv.set).size
   }
 

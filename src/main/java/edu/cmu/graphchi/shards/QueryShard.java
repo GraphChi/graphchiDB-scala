@@ -265,7 +265,7 @@ public class QueryShard {
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
                     tmpAdjBuffer.position((int)adjOffset);
 
-                    long[] cached = (queryCache.size() >= queryCacheSize || freezeCache ? null : new long[n * 2]);
+                    long[] cached = (queryCache.size() >= queryCacheSize || freezeCache ? null : new long[n]);
                     int cachek = 0;
 
                     for(int i=0; i<n; i++) {
@@ -290,6 +290,9 @@ public class QueryShard {
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, res, resTypes, resPointers);
                     if (cached != null ) {
                         synchronized (queryCache) {
+                            if (cachek < n) {
+                                cached = Arrays.copyOf(cached, cachek);
+                            }
                             queryCache.put(outcachekey(vertexId, edgeType), cached);
                         }
                     }
