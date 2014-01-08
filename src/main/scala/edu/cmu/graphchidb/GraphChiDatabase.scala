@@ -716,6 +716,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       flushAllBuffers()
       println("Finished shutdown hook")
 
+      if (totalBufferedEdges == 0) buffersEmpty = true
+      else buffersEmpty = false
+
       GraphChiEnvironment.reportMetrics()
     }
   }
@@ -748,6 +751,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   val bufferDrainMonitor = new Object
   var databaseOpen : Boolean = true
+  var buffersEmpty: Boolean = true
 
   def initialize() : Unit = {
     bufferShards.foreach(_.init())
@@ -947,6 +951,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     if ((edgeType & 0xf0) != 0) {
       throw new IllegalArgumentException("Only 4 bits allowed for edge type!");
     }
+
+    buffersEmpty = false
 
     /* Record keeping */
     this.synchronized {
@@ -1300,23 +1306,26 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def queryOut(internalId: Long, edgeType: Byte, callback: QueryCallback) : Unit  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     val qshardBits =   shardBits(internalId)
-    bufferShards.foreach(bufferShard => {
-      /* Look for buffers */
-      bufferShard.bufferLock.readLock().lock()
-      try {
-        bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
-          if (compareShardBitsToInterval(qshardBits, bufferShard.myInterval)) {
-            buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
-            if (!buf.interval.contains(internalId))
-              throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
-          } else {
-          }})
-      } catch {
-        case e: Exception  => e.printStackTrace()
-      } finally {
-        bufferShard.bufferLock.readLock().unlock()
-      }
-    })
+
+    if (!buffersEmpty) {
+      bufferShards.foreach(bufferShard => {
+        /* Look for buffers */
+        bufferShard.bufferLock.readLock().lock()
+        try {
+          bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
+            if (compareShardBitsToInterval(qshardBits, bufferShard.myInterval)) {
+              buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
+              if (!buf.interval.contains(internalId))
+                throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
+            } else {
+            }})
+        } catch {
+          case e: Exception  => e.printStackTrace()
+        } finally {
+          bufferShard.bufferLock.readLock().unlock()
+        }
+      })
+    }
 
     val filteredShards = shards.filterNot(_.persistentShard.isEmpty).filter(shard => compareShardBitsToInterval(qshardBits, shard.myInterval))
     filteredShards.foreach(shard => {
@@ -1334,47 +1343,86 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   }
 
+  def queryOutMultiple(queryIds: Set[Long], edgeType: Byte, callback: QueryCallback) : Unit = {
+    queryOutMultiple(queryIds.toSeq, edgeType, callback)
+  }
 
-  def queryOutMultiple(queryIds: Set[Long], edgeType: Byte, callback: QueryCallback)  = {
+  def queryOutMultiple(queryIds: Seq[Long], edgeType: Byte, callback: QueryCallback) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
-    val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
 
-    bufferShards.foreach(bufferShard => {
-      /* Look for buffers */
-      bufferShard.bufferLock.readLock().lock()
-      try {
-        idsWithQueryBits.foreach { case (internalId: Long, shardBits: Long) =>
-          bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
-            if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
-              buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
-              if (!buf.interval.contains(internalId))
-                throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
-            } else {
-            }})}
-      } catch {
-        case e: Exception  => e.printStackTrace()
-      } finally {
-        bufferShard.bufferLock.readLock().unlock()
-      }
-    })
+    if (enableVertexShardBits) {
 
-    val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
+      val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
 
-    filteredShards.foreach(shard => {
-      try {
-        val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
-        if (matchingIds.nonEmpty) {
-          shard.persistentShardLock.readLock().lock()
+      if (!buffersEmpty) {
+        bufferShards.foreach(bufferShard => {
+          /* Look for buffers */
+          bufferShard.bufferLock.readLock().lock()
           try {
-            shard.persistentShard.queryOut(matchingIds, callback, edgeType)
+            idsWithQueryBits.foreach { case (internalId: Long, shardBits: Long) =>
+              bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
+                if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
+                  buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
+                  if (!buf.interval.contains(internalId))
+                    throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
+                } else {
+                }})}
+          } catch {
+            case e: Exception  => e.printStackTrace()
           } finally {
-            shard.persistentShardLock.readLock().unlock()
+            bufferShard.bufferLock.readLock().unlock()
           }
-        }
-      } catch {
-        case e: Exception  =>  e.printStackTrace()
+        })
       }
-    })
+      val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
+
+      filteredShards.foreach(shard => {
+        try {
+          val matchingIds =  idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
+
+          if (matchingIds.nonEmpty) {
+            shard.persistentShardLock.readLock().lock()
+            try {
+              shard.persistentShard.queryOut(matchingIds, callback, edgeType)
+            } finally {
+              shard.persistentShardLock.readLock().unlock()
+            }
+          }
+        } catch {
+          case e: Exception  =>  e.printStackTrace()
+        }
+      })
+    } else {
+      if (!buffersEmpty) {
+        bufferShards.foreach(bufferShard => {
+          /* Look for buffers */
+          bufferShard.bufferLock.readLock().lock()
+          try {
+            queryIds.foreach {  internalId =>
+              bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
+                buf.buffer.findOutNeighborsCallback(internalId, callback, edgeType)
+                if (!buf.interval.contains(internalId))
+                  throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
+              })}
+          } catch {
+            case e: Exception  => e.printStackTrace()
+          } finally {
+            bufferShard.bufferLock.readLock().unlock()
+          }
+        })
+      }
+      val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
+
+      val ids = queryIds.map(_.asInstanceOf[java.lang.Long])
+      filteredShards.foreach(shard => {
+        shard.persistentShardLock.readLock().lock()
+        try {
+          shard.persistentShard.queryOut(ids, callback, edgeType)
+        } finally {
+          shard.persistentShardLock.readLock().unlock()
+        }
+      })
+    }
 
   }
 
@@ -1387,77 +1435,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   val timer_out_combine =  GraphChiEnvironment.metrics.timer("queryout-combine")
 
   // TODO: query needs to acquire ALL locks before doing query -- AVOID OR DETECT DEADLOCKS!
-  def queryOutMultiple(queryIds: Set[Long], edgeType: Byte)  = {
-    if (!initialized) throw new IllegalStateException("You need to initialize first!")
-
-    val _totaltime = timer_out_total.time()
-    val res = timed ("query-out-multiple", {
-      val resultContainer =  new QueryResultContainer(queryIds)
-
-      val _timeqbits = timer_querybits.time()
-      val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
-      _timeqbits.stop()
-
-      val _timebuffers = timer_out_buffers.time()
-      timed("query-out-buffers", {
-        bufferShards.foreach(bufferShard => {
-          /* Look for buffers */
-          bufferShard.bufferLock.readLock().lock()
-          try {
-            idsWithQueryBits.foreach { case (internalId: Long, shardBits: Long) =>
-              bufferShard.buffersForSrcQuery(internalId).foreach(buf => {
-                if (compareShardBitsToInterval(shardBits, bufferShard.myInterval)) {
-                  buf.buffer.findOutNeighborsCallback(internalId, resultContainer, edgeType)
-                  if (!buf.interval.contains(internalId))
-                    throw new IllegalStateException("Buffer interval %s did not contain %s".format(buf.interval, internalId))
-                } else {
-                }})}
-          } catch {
-            case e: Exception  => {
-              e.printStackTrace()
-            }
-          } finally {
-            bufferShard.bufferLock.readLock().unlock()
-          }
-        })
-      })
-
-      _timebuffers.stop()
-
-      val timer_pers = timer_out_persistent.time()
-      timed("query-out-persistent", {
-        // TODO: fix this java-scala long mapping
-        shards.filterNot(_.persistentShard.isEmpty).foreach(shard => {
-          try {
-            val matchingIds = idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
-            if (matchingIds.nonEmpty) {
-              shard.persistentShardLock.readLock().lock()
-              try {
-
-                shard.persistentShard.queryOut(matchingIds, resultContainer, edgeType)
-              } finally {
-                shard.persistentShardLock.readLock().unlock()
-              }
-            }
-
-          } catch {
-            case e: Exception  => {
-              e.printStackTrace()
-            }
-          }
-        })
-      })
-      timer_pers.stop()
-
-      val _timer_combine = timer_out_combine.time()
-      val res = timed("query-out-combine", {
-        new QueryResult(vertexIndexing, resultContainer, this)
-      })
-      _timer_combine.stop()
-      res
-    } )
-    _totaltime.stop()
-    res
+  def queryOutMultiple(queryIds: Set[Long], edgeType: Byte) : QueryResult = {
+    val resultContainer =  new QueryResultContainer(queryIds)
+    queryOutMultiple(queryIds.toSeq, edgeType, resultContainer)
+    new QueryResult(vertexIndexing, resultContainer, this)
   }
 
   /**

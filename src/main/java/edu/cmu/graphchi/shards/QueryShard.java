@@ -52,7 +52,7 @@ public class QueryShard {
     public static int queryCacheSize = Integer.parseInt(System.getProperty("queryshard.cachesize", "0"));
     public static boolean freezeCache = false;
 
-    private Map queryCache =  (queryCacheSize == 0 ? null : new HashMap(queryCacheSize));
+    private Map queryCache =  (queryCacheSize == 0 ? null : Collections.synchronizedMap(new HashMap(queryCacheSize)));
 
     static {
         System.out.println("Query cache size: " + queryCacheSize);
@@ -209,36 +209,39 @@ public class QueryShard {
     // TODO: wild-card search
     public void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
         try {
-             /* Sort the ids because the index-entries will be in same order */
-            ArrayList<Long> sortedIds = new ArrayList<Long>(queryIds);
-            Collections.sort(sortedIds);
-
 
             if (queryCacheSize > 0 && !queryCache.isEmpty()) {
                 if (callback.immediateReceive()) {
-                    ArrayList<Long> misses = new ArrayList<Long>(queryIds.size());
-                    for(int i=0; i<sortedIds.size(); i++) {
-                        Long cacheKey = outcachekey(sortedIds.get(i), edgeType);
+                    ArrayList<Long> misses = null;
+                    for(long qid : queryIds) {
+                        Long cacheKey = outcachekey(qid, edgeType);
                         long[] cached = (long[]) queryCache.get(cacheKey);
                         if (cached != null) {
                             for(int j=0; j<cached.length; j++) {
                                 long vpacket = cached[j];
-                                callback.receiveEdge(sortedIds.get(i), VertexIdTranslate.getVertexId(vpacket), edgeType,
+                                callback.receiveEdge(qid, VertexIdTranslate.getVertexId(vpacket), edgeType,
                                         PointerUtil.encodePointer(shardNum, (int)VertexIdTranslate.getAux(vpacket)));
                             }
                         } else {
-                            misses.add(sortedIds.get(i));
+                            if (misses == null) misses = new ArrayList<Long>();
+                            misses.add(qid);
                         }
                     }
-                    sortedIds = misses;
 
-                    cacheMissCounter.inc(misses.size());
-                    cacheHitCounter.inc(queryIds.size() - misses.size());
-                    if (sortedIds.isEmpty()) return;
+                    if (misses != null) cacheMissCounter.inc(misses.size());
+                    if (misses != null) cacheHitCounter.inc(queryIds.size() - misses.size());
+                    else cacheHitCounter.inc(queryIds.size());
+                    queryIds = misses;
+
+                    if (queryIds == null) return;
                 } else {
                     System.err.println("Caching without immediatereceive not implemented yet");
                 }
             }
+
+            /* Sort the ids because the index-entries will be in same order */
+            ArrayList<Long> sortedIds = new ArrayList<Long>(queryIds);
+            Collections.sort(sortedIds);
 
             ArrayList<ShardIndex.IndexEntry> indexEntries = new ArrayList<ShardIndex.IndexEntry>(sortedIds.size());
             for(Long a : sortedIds) {
@@ -289,15 +292,16 @@ public class QueryShard {
                     }
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, res, resTypes, resPointers);
                     if (cached != null ) {
-                        synchronized (queryCache) {
                             if (cachek < n) {
                                 cached = Arrays.copyOf(cached, cachek);
                             }
                             queryCache.put(outcachekey(vertexId, edgeType), cached);
-                        }
                     }
                 } else {
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
+                    if (queryCacheSize > queryCache.size() && !freezeCache) {
+                        queryCache.put(outcachekey(vertexId, edgeType), new long[0]);
+                    }
                 }
             }
         } catch (Exception err) {
@@ -433,9 +437,7 @@ public class QueryShard {
 
             if (off == (-1)) {
                 if (queryCacheSize > queryCache.size()) {
-                    synchronized (queryCache){
-                        queryCache.put(incacheKey(queryId, edgeType), new long[0]);
-                    }
+                   queryCache.put(incacheKey(queryId, edgeType), new long[0]);
                 }
                 return;
             }
@@ -507,9 +509,7 @@ public class QueryShard {
                 if (cached != null) {
                     long[] cachedArr = new long[cached.size()];
                     for(int j=0; j<cached.size(); j++) cachedArr[j] = cached.get(j);
-                    synchronized (queryCache) {
-                        queryCache.put(incacheKey(queryId, edgeType), cachedArr);
-                    }
+                    queryCache.put(incacheKey(queryId, edgeType), cachedArr);
                 }
             }
             if (!callback.immediateReceive()) {

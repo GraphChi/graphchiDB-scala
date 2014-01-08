@@ -1,5 +1,5 @@
 import edu.cmu.graphchi.GraphChiEnvironment
-import edu.cmu.graphchidb.queries.internal.SimpleSetReceiver
+import edu.cmu.graphchidb.queries.internal.{SimpleArrayReceiver, SimpleSetReceiver}
 import edu.cmu.graphchidb.queries.Queries
 import edu.cmu.graphchidb.{GraphChiDatabaseAdmin, GraphChiDatabase}
 import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
@@ -174,21 +174,20 @@ class GdBenchGraphChiDbDriver extends TestDriver {
 
   // The web pages liked by the friends of given person P
   def Q6(p1: Long) = {
-    // TODO: optimize
     val personInternalId = DB.originalToInternalId(p1)
-    val friendReceiver = new SimpleSetReceiver(outEdges = true)
+    val friendReceiver = new SimpleArrayReceiver(outEdges = true)
     DB.queryOut(personInternalId, FRIENDSHIP, friendReceiver)
     val webPageReceiver = new SimpleSetReceiver(outEdges = true)
-    DB.queryOutMultiple(friendReceiver.set.toSet, LIKE, webPageReceiver)
+    DB.queryOutMultiple(friendReceiver.arr, LIKE, webPageReceiver)
     webPageReceiver.set.size
   }
 
   // Get people that likes a web page which a person P likes
   def Q7(p1: Long) = {
     val personInternalId = DB.originalToInternalId(p1)
-    val webPageRecv = new SimpleSetReceiver(outEdges = true)
+    val webPageRecv = new SimpleArrayReceiver(outEdges = true)
     DB.queryOut(personInternalId, LIKE, webPageRecv)
-    val webPagesLiked = webPageRecv.set.toSeq
+    val webPagesLiked = webPageRecv.arr
     val peopleLikingReceiver = new SimpleSetReceiver(outEdges = false)
     webPagesLiked.par.foreach(pageId => DB.queryIn(pageId, LIKE, peopleLikingReceiver))
     peopleLikingReceiver.set.size

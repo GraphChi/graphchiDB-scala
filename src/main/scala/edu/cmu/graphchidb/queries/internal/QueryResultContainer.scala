@@ -4,6 +4,7 @@ import scala.collection.JavaConversions._
 import edu.cmu.graphchi.queries.QueryCallback
 import java.{lang, util}
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * A callback object for query shards, encapsulates the results.
@@ -118,6 +119,20 @@ class SimpleSetReceiver(outEdges: Boolean) extends QueryCallback {
   def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
     if (outEdges) set += dst
     else set += src
+  }
+
+  def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+  def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+
+}
+
+
+class SimpleArrayReceiver(outEdges: Boolean) extends QueryCallback {
+  val arr = new ArrayBuffer[Long] with mutable.SynchronizedBuffer[Long]
+  def immediateReceive() = true
+  def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
+    if (outEdges) arr += dst
+    else arr += src
   }
 
   def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
