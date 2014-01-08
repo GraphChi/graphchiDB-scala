@@ -268,7 +268,7 @@ public class QueryShard {
                     long adjOffset = VertexIdTranslate.getAux(curPtr);
                     tmpAdjBuffer.position((int)adjOffset);
 
-                    long[] cached = (queryCache.size() >= queryCacheSize || freezeCache ? null : new long[n]);
+                    long[] cached = (queryCache == null ||  queryCache.size() >= queryCacheSize || freezeCache ? null : new long[n]);
                     int cachek = 0;
 
                     for(int i=0; i<n; i++) {
@@ -299,7 +299,7 @@ public class QueryShard {
                     }
                 } else {
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
-                    if (queryCacheSize > queryCache.size() && !freezeCache) {
+                    if (queryCache != null && queryCacheSize > queryCache.size() && !freezeCache) {
                         queryCache.put(outcachekey(vertexId, edgeType), new long[0]);
                     }
                 }
@@ -436,7 +436,7 @@ public class QueryShard {
             }
 
             if (off == (-1)) {
-                if (queryCacheSize > queryCache.size()) {
+                if (queryCache != null && queryCacheSize > queryCache.size()) {
                    queryCache.put(incacheKey(queryId, edgeType), new long[0]);
                 }
                 return;
@@ -475,7 +475,7 @@ public class QueryShard {
             ArrayList<Long> inNeighborsPtrs =  (callback.immediateReceive() ? null :new ArrayList<Long>(offsets.size()));
             ArrayList<Byte> edgeTypes =  (callback.immediateReceive() ? null : new ArrayList<Byte>(offsets.size()));
 
-            ArrayList<Long> cached = (queryCache.size() >= queryCacheSize || freezeCache ? null : new ArrayList<Long>());
+            ArrayList<Long> cached = (queryCache == null || queryCache.size() >= queryCacheSize || freezeCache ? null : new ArrayList<Long>());
 
             final LongBuffer tmpPointerIdxBuffer = pointerIdxBuffer.duplicate();
 

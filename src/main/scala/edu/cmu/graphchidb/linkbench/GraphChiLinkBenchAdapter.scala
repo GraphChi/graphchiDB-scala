@@ -65,8 +65,8 @@ object GraphChiLinkBenchAdapter {
   // TODO!
   def edgeType(typeValue: Long) = (typeValue % 2).toByte
 
-  case class LinkContainer(version: Byte, timestamp: Long, payloadId: Long)
-  case class NodeContainer(version: Byte, timestamp: Int, payloadId: Long)
+  case class LinkContainer(version: Int, timestamp: Long, payloadId: Long)
+  case class NodeContainer(version: Int, timestamp: Int, payloadId: Long)
 
   /* Edge columns */
   var edgeDataColumn: Column[LinkContainer] = null
@@ -104,30 +104,30 @@ object GraphChiLinkBenchAdapter {
 
   object LinkToBytesConverter extends ByteConverter[LinkContainer] {
     def fromBytes(bb: ByteBuffer) : LinkContainer = {
-      LinkContainer(bb.get, bb.getLong, bb.getLong)
+      LinkContainer(bb.getInt, bb.getLong, bb.getLong)
     }
 
     def toBytes(v: LinkContainer, out: ByteBuffer) = {
-      out.put(v.version)
+      out.putInt(v.version)
       out.putLong(v.timestamp)
       out.putLong(v.payloadId)
     }
 
-    def sizeOf = 17
+    def sizeOf = 20
   }
 
   object NodeToBytesConverter extends ByteConverter[NodeContainer] {
     def fromBytes(bb: ByteBuffer) : NodeContainer = {
-      NodeContainer(bb.get, bb.getInt, bb.getLong)
+      NodeContainer(bb.getInt, bb.getInt, bb.getLong)
     }
 
     def toBytes(v: NodeContainer, out: ByteBuffer) = {
-      out.put(v.version)
+      out.putInt(v.version)
       out.putInt(v.timestamp)
       out.putLong(v.payloadId)
     }
 
-    def sizeOf = 13
+    def sizeOf = 16
   }
 
   def initialize(p1: Properties, phase: Phase, threadId: Int) = {
@@ -358,15 +358,16 @@ object GraphChiLinkBenchAdapter {
     val resultReceiver = new QueryResultWithJoin[Link](DB, (src:Long, dst:Long, etype:Byte, ptr:Long) =>
       linkFromPointer(ptr, DB.internalToOriginalId(src), etype, DB.internalToOriginalId(dst),
         t => true))
-    DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType), resultReceiver)
+    DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType), resultReceiver, parallel=true)
     val res = resultReceiver.get.filter(_ != null).toArray[Link]
-    //println("res/2 : %d / %d".format(res.size, resultReceiver.get.size))
+
+    if (res.size > 1000) println("res/2 : %d / %d".format(res.size, resultReceiver.get.size))
 
     if (res.size > 10000) {
        val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
        res.filter(_.time > pivot.time).sortBy(link => -link.time)
     } else {
-      res.sortBy(link => -link.time).take(10000)
+      res.sortBy(link => -link.time)
     }
   }
 
@@ -379,14 +380,14 @@ object GraphChiLinkBenchAdapter {
         t => (t >= minTimestamp && t <= maxTimestamp)))
     DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType), resultReceiver)
     val res = resultReceiver.get.filter(_ != null).toArray[Link]
-    println("%d id1: %d res : %d / %d  [ %d --- %d, limit: %d]".format(counter.incrementAndGet(), id1, res.size, resultReceiver.get.size, minTimestamp, maxTimestamp, limit))
+    println("%d id1: %d res : %d / %d  [ %d --- %d, limit: %d, offset:%d]".format(counter.incrementAndGet(), id1, res.size, resultReceiver.get.size, minTimestamp, maxTimestamp, limit, offset))
     if (res.size > 10000) {
       val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
       val filtered = res.filter(_.time > pivot.time).sortBy(link => -link.time)
       println("filtered size:" + filtered.size)
       filtered
     } else {
-      res.sortBy(link => -link.time).take(10000)
+      res.sortBy(link => -link.time)
     }
   }
 

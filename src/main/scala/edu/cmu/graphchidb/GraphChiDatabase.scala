@@ -1303,7 +1303,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
 
-  def queryOut(internalId: Long, edgeType: Byte, callback: QueryCallback) : Unit  = {
+  def queryOut(internalId: Long, edgeType: Byte, callback: QueryCallback, parallel:Boolean=false) : Unit  = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     val qshardBits =   shardBits(internalId)
 
@@ -1328,19 +1328,39 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
 
     val filteredShards = shards.filterNot(_.persistentShard.isEmpty).filter(shard => compareShardBitsToInterval(qshardBits, shard.myInterval))
-    filteredShards.foreach(shard => {
-      try {
-        shard.persistentShardLock.readLock().lock()
-        try {
-          shard.persistentShard.queryOut(Collections.singleton(internalId), callback, edgeType)
-        } finally {
-          shard.persistentShardLock.readLock().unlock()
-        }
-      } catch {
-        case e: Exception  =>  e.printStackTrace()
-      }
-    })
 
+
+    if (!parallel || filteredShards.size < 2) {
+
+
+      val filteredShards = shards.filterNot(_.persistentShard.isEmpty).filter(shard => compareShardBitsToInterval(qshardBits, shard.myInterval))
+      filteredShards.foreach(shard => {
+        try {
+          shard.persistentShardLock.readLock().lock()
+          try {
+            shard.persistentShard.queryOut(Collections.singleton(internalId), callback, edgeType)
+          } finally {
+            shard.persistentShardLock.readLock().unlock()
+          }
+        } catch {
+          case e: Exception  =>  e.printStackTrace()
+        }
+      })
+    } else {
+       // Parallelized
+       filteredShards.par.foreach(shard => {
+        try {
+          shard.persistentShardLock.readLock().lock()
+          try {
+            shard.persistentShard.queryOut(Collections.singleton(internalId), callback, edgeType)
+          } finally {
+            shard.persistentShardLock.readLock().unlock()
+          }
+        } catch {
+          case e: Exception  =>  e.printStackTrace()
+        }
+      })
+    }
   }
 
   def queryOutMultiple(queryIds: Set[Long], edgeType: Byte, callback: QueryCallback) : Unit = {

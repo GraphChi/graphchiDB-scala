@@ -42,7 +42,7 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
     type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
 
-    //System.setOut(new PrintStream(new FileOutputStream("gdbench.log")))
+    System.setOut(new PrintStream(new FileOutputStream("gdbench.log")))
 
     DB.initialize()
      true
@@ -53,9 +53,15 @@ class GdBenchGraphChiDbDriver extends TestDriver {
     true
   }
 
-  def openTransaction() = true
+  def openTransaction() = {
+    System.err.println("Open transaction called")
+    true
+  }
 
-  def closeTransaction() = true
+  def closeTransaction() = {
+    System.err.println("Close transaction called")
+    true
+  }
 
   def getNumberOfNodes =  DB.numVertices
 
