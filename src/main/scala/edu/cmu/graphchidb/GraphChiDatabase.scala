@@ -313,9 +313,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       // Check if upstream shards are too big  -- not in parallel but in background thread
       // (lock guarantees that only one purge takes place at once)
       println("Finish merge - check for upstream (%d)".format(shardId))
-      async  {
-        destShards.foreach(destShard => destShard.checkSize)
-      }
+      destShards.foreach(destShard => destShard.checkSize)
       println("Finish merge - did check for upstream (%d, %s)".format(shardId, Thread.currentThread().getName))
 
     }
@@ -674,9 +672,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         myAssert(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum == 0)
       }
       /* Check if upstream shards too big - not in parallel to limit memory consumption */
-      async  {
-        parentShards.foreach(destShard => destShard.checkSize())
-      }
+      parentShards.foreach(destShard => destShard.checkSize())
       println("Buffer %d finished merge %s".format(bufferShardId, Thread.currentThread().getName))
 
     }
@@ -727,8 +723,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   val bufferDrainLock = new Object
 
   def reportBufferStats = {
-    println("Edges in buffers=%d".format(totalBufferedEdges))
-    bufferShards.zipWithIndex.foreach(tp => println("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
+    log("Edges in buffers=%d".format(totalBufferedEdges))
+    bufferShards.zipWithIndex.foreach(tp => log("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
   }
 
   def checkBuffers(): Unit = {
@@ -763,24 +759,25 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     log("Start buffer flusher")
     val flusherThread =new Thread(new Runnable {
       def run() {
-        var expectedTimeUntil75pFull = 1000
+        var expectedTimeUntil50pFull = 1000
         while(databaseOpen) {
           val t1 = System.currentTimeMillis()
           val bufferedEdgesBefore = totalBufferedEdges
           bufferDrainMonitor.synchronized {
             try {
-              bufferDrainMonitor.wait(math.max(100, math.min(2000, expectedTimeUntil75pFull)))   // Need at least some waiting time to get idea of ingest speed
+              bufferDrainMonitor.wait(math.max(100, math.min(2000, expectedTimeUntil50pFull)))   // Need at least some waiting time to get idea of ingest speed
             } catch { case ie : InterruptedException => ie.printStackTrace()}
           }
           val t2 = System.currentTimeMillis()
           val edgesPerMillis = (totalBufferedEdges - bufferedEdgesBefore) / (1 + t2 - t1)
-          val bufferedNow = totalBufferedEdges
 
-          expectedTimeUntil75pFull = ((bufferLimit * 0.75 - bufferedNow) / (1 + edgesPerMillis)).toInt
-          if (bufferedNow > 0 && edgesPerMillis > 0) {
-            println("Edges per millis = %d, currently buffered = %d, until 75perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil75pFull))
-          }
           checkBuffers()
+
+          val bufferedNow = totalBufferedEdges
+          expectedTimeUntil50pFull = ((bufferLimit * 0.5 - bufferedNow) / (1 + edgesPerMillis)).toInt
+          if (bufferedNow > 0 && edgesPerMillis > 0) {
+            log("Edges per millis = %d, currently buffered = %d, until 50perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil50pFull))
+          }
 
         }
       }
@@ -981,7 +978,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         bufferDrainMonitor.synchronized {
           bufferDrainMonitor.notifyAll()
         }
-        Thread.sleep(200)
+        Thread.sleep(500)
 
       }
     }

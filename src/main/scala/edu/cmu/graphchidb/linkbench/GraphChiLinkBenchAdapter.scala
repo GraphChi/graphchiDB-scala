@@ -1,7 +1,7 @@
 package edu.cmu.graphchidb.linkbench
 
 import com.facebook.LinkBench._
-import java.util.Properties
+import java.util.{Date, Properties}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 import edu.cmu.graphchidb.{Util, GraphChiDatabase, GraphChiDatabaseAdmin}
 import edu.cmu.graphchidb.storage.{VarDataColumn, Column}
@@ -10,6 +10,10 @@ import java.nio.ByteBuffer
 import edu.cmu.graphchidb.compute.Pagerank
 import edu.cmu.graphchi.GraphChiEnvironment
 import edu.cmu.graphchidb.queries.QueryResultWithJoin
+import java.io._
+import java.net.InetAddress
+import scala.Some
+import org.apache.log4j.{FileAppender, EnhancedPatternLayout, ConsoleAppender, Logger}
 
 
 class GraphChiLinkBenchAdapter extends GraphStore {
@@ -55,6 +59,9 @@ object GraphChiLinkBenchAdapter {
 
   var idSequence = new AtomicLong()
 
+  val setting_checkvertexexists = false
+  val setting_runpagerank = true
+
   /**** NODE STORE **/
 
 
@@ -67,6 +74,8 @@ object GraphChiLinkBenchAdapter {
 
   case class LinkContainer(version: Int, timestamp: Long, payloadId: Long)
   case class NodeContainer(version: Int, timestamp: Int, payloadId: Long)
+
+  val edgeCounter = new AtomicLong()
 
   /* Edge columns */
   var edgeDataColumn: Column[LinkContainer] = null
@@ -83,6 +92,7 @@ object GraphChiLinkBenchAdapter {
   var initialized = false
 
   val workerCounter = new AtomicInteger()
+  val startTime = System.currentTimeMillis()
 
   def close() = {
     println("GraphChiLinkBenchAdapter: close")
@@ -135,6 +145,18 @@ object GraphChiLinkBenchAdapter {
       println("Initialize: %s, %s, %d".format(p1, currentPhase, threadId))
       currentPhase =  phase
 
+      val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
+      val extras = "" + (if (setting_checkvertexexists) { "_vertexcheck_"} else { ""}) +   (if (setting_runpagerank) { "_pagerank_"} else { ""})
+      val logfileName = InetAddress.getLocalHost.getHostName.substring(0,8)  + "_" + sdf.format(new Date())  +"_" + phase.toString + "_P" +
+        (if (currentPhase.ordinal() == Phase.LOAD.ordinal()) { p1.get("loaders") } else { p1.get("requesters") } ) +"_V" + p1.get("maxid1") + extras + ".log"
+      println("Going to log to: " + logfileName)
+      System.setOut(new PrintStream(new FileOutputStream(logfileName + ".out")))
+      System.setErr(new PrintStream(new FileOutputStream(logfileName + ".err")))
+
+      Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER).removeAllAppenders()
+      val fmt = new EnhancedPatternLayout("%p %d [%t]: %m%n%throwable{30}");
+      val console = new FileAppender(fmt, logfileName + ".log");
+      Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER).addAppender(console)
 
       if (currentPhase.ordinal() == Phase.LOAD.ordinal()) {
         println("GraphChiLinkBenchAdapter: reset node store, startId: " + 0)
@@ -154,14 +176,16 @@ object GraphChiLinkBenchAdapter {
 
       type0Counters = DB.createIntegerColumn("type0cnt", DB.vertexIndexing)
       type1Counters = DB.createIntegerColumn("type1cnt", DB.vertexIndexing)
-      //  val pagerankComputation = new Pagerank(DB)
+      val pagerankComputation = if (setting_runpagerank) { Some(new Pagerank(DB)) } else { None }
 
       DB.initialize()
       initialized = true
       println("Thread " + threadId + " initialized")
 
       /* Run pagerank */
-      //DB.runIteration(pagerankComputation, continuous = true)
+      if (setting_runpagerank) {
+        DB.runIteration(pagerankComputation.get, continuous = true)
+      }
     }
     println("Thread " + threadId + " waiting, this=" + this)
 
@@ -240,8 +264,19 @@ object GraphChiLinkBenchAdapter {
 
   /**** LINK STORE ****/
 
+  var existCount = 0L
 
   def addLinkImpl(edge: Link) = {
+    if (setting_checkvertexexists) {
+       val id1 = DB.originalToInternalId(edge.id1)
+       val id2 = DB.originalToInternalId(edge.id2)
+       val v = vertexDataColumn.get(id1)
+       val u = vertexDataColumn.get(id2)
+      // Following to prevent optimizatino by compiler
+       if (v.isDefined) existCount += 1
+       if (u.isDefined) existCount += 1
+    }
+
     val edgeTypeByte = edgeType(edge.link_type)
     /* Payload */
     val payloadId = edgePayloadColumn.insert(edge.data)
@@ -252,7 +287,6 @@ object GraphChiLinkBenchAdapter {
     val countColumn = if (edgeTypeByte == 0) type0Counters else type1Counters
     countColumn.update(DB.originalToInternalId(edge.id1), c => {
       val newC = c.getOrElse(0) + 1
-      if (newC > 50000 && newC % 10000 == 1) println("High count for %d / %d = %d".format(edge.id1, edgeTypeByte, newC))
       newC
     })
   }
@@ -364,8 +398,8 @@ object GraphChiLinkBenchAdapter {
     if (res.size > 1000) println("res/2 : %d / %d".format(res.size, resultReceiver.get.size))
 
     if (res.size > 10000) {
-       val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
-       res.filter(_.time > pivot.time).sortBy(link => -link.time)
+      val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
+      res.filter(_.time > pivot.time).sortBy(link => -link.time)
     } else {
       res.sortBy(link => -link.time)
     }
