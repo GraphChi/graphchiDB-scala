@@ -141,12 +141,17 @@ public class Sorting {
     }
 
     static {
-        System.loadLibrary("graphchi_sorting");
+   //     System.loadLibrary("graphchi_sorting");
     }
 
-    public static native void quickSort(long arr[], int arr2[]);
+    public static void quickSort(long arr[], int arr2[]) {
+        quickSortJava(arr, arr2, 0, arr2.length - 1);
+    }
+    
 
-    public static native int[] radixSortWithIndex(long arr[]);
+    public static int[] radixSortWithIndex(long arr[]) {
+        return quickSortWithIndexJava(arr);
+    }
 
     public static void quickSortJava(long arr[], int arr2[], int left, int right) {
         if (left < right) {

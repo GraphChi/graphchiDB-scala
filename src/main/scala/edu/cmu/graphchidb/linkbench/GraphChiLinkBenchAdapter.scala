@@ -60,7 +60,7 @@ object GraphChiLinkBenchAdapter {
   var idSequence = new AtomicLong()
 
   val setting_checkvertexexists = false
-  val setting_runpagerank = true
+  val setting_runpagerank = false
 
   /**** NODE STORE **/
 
