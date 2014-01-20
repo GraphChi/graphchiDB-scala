@@ -33,7 +33,7 @@ object FrontierQueries {
       }
 
       // TODO: proper cost analysis
-      if (frontierSize < frontier.db.numEdges / 1000) {
+      if (frontierSize < 100000) {
         sparseBlock(sparseFrontier)
       } else {
         denseBlock(denseFrontier)
@@ -78,7 +78,7 @@ object FrontierQueries {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
       val frontierSet = frontier.toSet
 
-      val newFrontier = if (frontierSet.size > 2000) {   // TODO: remove hard coding
+      val newFrontier = if (frontierSet.size > 20000) {   // TODO: remove hard coding
         new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
       } else {
         new SparseVertexFrontier(frontier.db.vertexIndexing, frontier.db)

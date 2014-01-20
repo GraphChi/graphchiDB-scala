@@ -47,7 +47,7 @@ object GraphChiDatabaseAdmin {
  * @author Aapo Kyrola
  */
 class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false,
-                       enableVertexShardBits : Boolean= true, numShards: Int = 256) {
+                       enableVertexShardBits : Boolean=false, numShards: Int = 256) {
   // Create a tree of shards... think about more elegant way
   val shardSizes = {
     def appendIf(szs:List[Int]) : List[Int] = if (szs.head > 16) appendIf(szs.head / 4 :: szs) else szs

@@ -46,7 +46,7 @@ class QueryResult(indexing: DatabaseIndexing, result: QueryResultContainer,  dat
 
 
   /* Combined results */
-  def getVertices = rows.ids.map(vid => VertexId(database.originalToInternalId(vid), vid))
+  def getVertices = rows.ids.map(vid => VertexId(database.internalToOriginalId(vid), vid))
 
   def getInternalIds : Seq[Long] = rows.ids
 
