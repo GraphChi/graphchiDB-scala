@@ -71,6 +71,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
 
+
   def myAssert(condition: Boolean) = {
     if (!condition)   {
       System.err.println("Assertion failed!");
@@ -131,7 +132,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   val durableTransactionLog = System.getProperty("durabletransactions", "0").equals("1")
 
 
-  class DiskShard(levelIdx: Int,  _shardId : Int, splitIntervals: Seq[VertexInterval], parentShards: Seq[DiskShard]) {
+  sealed abstract class Shard
+
+  class DiskShard(levelIdx: Int,  _shardId : Int, splitIntervals: Seq[VertexInterval], parentShards: Seq[DiskShard]) extends Shard {
     val persistentShardLock = new ReentrantReadWriteLock()
     val mergeInProgress = new AtomicBoolean(false)
     val modifyLock = new ReentrantReadWriteLock
@@ -237,6 +240,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
             Thread.sleep(200)
           }
 
+          destShard.checkSize()
+
           println("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
 
 
@@ -313,14 +318,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
 
       // Check if upstream shards are too big  -- not in parallel but in background thread
-      // (lock guarantees that only one purge takes place at once)
-      println("Finish merge - check for upstream (%d)".format(shardId))
-      destShards.foreach(destShard => destShard.checkSize)
-      println("Finish merge - did check for upstream (%d, %s)".format(shardId, Thread.currentThread().getName))
 
     }
 
-    def mergeToParents() = mergeToAndClear(parentShards)
+    def mergeToParents() =   diskShardPurgeLock.synchronized { mergeToAndClear(parentShards) }
   }
 
   case class EdgeBufferAndInterval(buffer: EdgeBuffer, interval: VertexInterval)
@@ -338,7 +339,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
   class BufferShard(bufferShardId: Int, _myInterval: VertexInterval,
-                    parentShards:  Seq[DiskShard]) {
+                    parentShards:  Seq[DiskShard]) extends Shard {
     var buffers = IndexedSeq[IndexedSeq[EdgeBufferAndInterval]]()
     var oldBuffers = IndexedSeq[IndexedSeq[EdgeBufferAndInterval]]()   // used in handout
     val myInterval = _myInterval
@@ -558,6 +559,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                 // This prevents queries for that shard while buffer is being emptied.
                 // TODO: improve
 
+                // Check that not too big... otherwise need to flush to parent first
+                destShard.checkSize()
+
                 val parentIdx = parentShards.indexOf(destShard)
                 val parEdges = oldBuffers(parentIdx).map(_.buffer.numEdges).sum
                 val myEdges = new EdgeBuffer(edgeEncoderDecoder, parEdges, bufferId=(-1))
@@ -692,7 +696,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         myAssert(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum == 0)
       }
       /* Check if upstream shards too big - not in parallel to limit memory consumption */
-      parentShards.foreach(destShard => destShard.checkSize())
       println("Buffer %d finished merge %s".format(bufferShardId, Thread.currentThread().getName))
 
     }
@@ -747,7 +750,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     bufferShards.zipWithIndex.foreach(tp => log("  Buffer %d, edges=%d".format(tp._2, tp._1.numEdgesInclDeletions)))
   }
 
-  def checkBuffers(): Unit = {
+  def checkBuffersAndParents(): Unit = {
     val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
     val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
     if (nonPendings.nonEmpty) {
@@ -758,10 +761,24 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           this.bufferDrainLock.synchronized { // assure only one parallel drain happening at once (to save memory)
             maxBuffer.mergeToParentsAndClear()
           }
+          checkBuffersAndParents()
+
         }
       } catch {
         case e : Exception => e.printStackTrace()
       }
+    } else {
+      println("No buffers to merge ... check disk shards")
+
+      val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
+      if (!shardsAndSizesToMerge.isEmpty) {
+        val shardToMerge = shardsAndSizesToMerge.head._2
+        println("Found shard with over 75perc capacity -- will merge: shard=%d / %d edges".format(shardToMerge.shardId, shardToMerge.numEdges))
+        shardToMerge.mergeToParents()
+        // Try again
+        checkBuffersAndParents()
+      }
+
     }
   }
 
@@ -779,24 +796,22 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     log("Start buffer flusher")
     val flusherThread =new Thread(new Runnable {
       def run() {
-        var expectedTimeUntil50pFull = 1000
         while(databaseOpen) {
           val t1 = System.currentTimeMillis()
           val bufferedEdgesBefore = totalBufferedEdges
           bufferDrainMonitor.synchronized {
             try {
-              bufferDrainMonitor.wait(math.max(100, math.min(2000, expectedTimeUntil50pFull)))   // Need at least some waiting time to get idea of ingest speed
+              bufferDrainMonitor.wait(100)
             } catch { case ie : InterruptedException => ie.printStackTrace()}
           }
           val t2 = System.currentTimeMillis()
           val edgesPerMillis = (totalBufferedEdges - bufferedEdgesBefore) / (1 + t2 - t1)
 
-          checkBuffers()
+          checkBuffersAndParents()
 
           val bufferedNow = totalBufferedEdges
-          expectedTimeUntil50pFull = ((bufferLimit * 0.5 - bufferedNow) / (1 + edgesPerMillis)).toInt
           if (bufferedNow > 0 && edgesPerMillis > 0) {
-            log("Edges per millis = %d, currently buffered = %d, until 50perc = %d ms".format(edgesPerMillis, bufferedNow, expectedTimeUntil50pFull))
+            log("Edges per millis = %d, currently buffered = %d".format(edgesPerMillis, bufferedNow))
           }
 
         }
