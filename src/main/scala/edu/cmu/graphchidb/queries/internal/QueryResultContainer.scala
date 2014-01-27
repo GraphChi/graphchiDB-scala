@@ -5,6 +5,7 @@ import edu.cmu.graphchi.queries.QueryCallback
 import java.{lang, util}
 import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import edu.cmu.graphchidb.GraphChiDatabase
 
 /**
  * A callback object for query shards, encapsulates the results.
@@ -125,6 +126,7 @@ class SimpleSetReceiver(outEdges: Boolean) extends QueryCallback {
   def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
 
 }
+
 
 
 class SimpleArrayReceiver(outEdges: Boolean) extends QueryCallback {

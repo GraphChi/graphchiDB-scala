@@ -128,6 +128,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   // TODO: hardcoded
   val shardSizeLimit = 2000000000L / 256L
+  val durableTransactionLog = System.getProperty("durabletransactions", "0").equals("1")
 
 
   class DiskShard(levelIdx: Int,  _shardId : Int, splitIntervals: Seq[VertexInterval], parentShards: Seq[DiskShard]) {
@@ -135,6 +136,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val mergeInProgress = new AtomicBoolean(false)
     val modifyLock = new ReentrantReadWriteLock
     val shardId = _shardId
+
 
     val myInterval = splitIntervals(levelIdx)
 
@@ -348,6 +350,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     myAssert(parentShards.size <= bufferParents)
     val intervalLength = intervals.head.length()
 
+    val transactionLogFile = new File(baseFilename + "_buffer%d.log".format(bufferShardId))
+    var transactionLogOut = if (durableTransactionLog) { new FileOutputStream(transactionLogFile) } else {null}
+    lazy val trEdgeEncoder = edgeEncoderDecoder
+    lazy val trBuffer = ByteBuffer.allocate(trEdgeEncoder.edgeSize + 16)
+
     def init() : Unit = {
       // TODO: Clean up!
       // Two dimensional buffer matrix where we have one buffer for each interval, divided
@@ -395,11 +402,19 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       // Check for delayed edges
       try {
         bufferFor(src, dst).addEdge(edgeType, src, dst, values:_*)
+        if (transactionLogOut != null) {
+          trBuffer.rewind()
+          trBuffer.putLong(src)
+          trBuffer.putLong(dst)
+          trEdgeEncoder.encode(trBuffer, values:_*)
+          transactionLogOut.write(trBuffer.array())
+        }
       } catch {
         case e: Exception => e.printStackTrace()
       } finally {
         bufferLock.readLock().unlock()
       }
+
 
     }
 
@@ -520,6 +535,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
         timed("mergeToAndClear %d".format(bufferShardId), {
           bufferLock.writeLock().lock()
+          if (transactionLogOut != null) {
+            transactionLogFile.delete()
+            transactionLogOut.close()
+            transactionLogOut = new FileOutputStream(transactionLogFile)
+          }
           oldBuffers = buffers
 
           try {
@@ -1344,8 +1364,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         }
       })
     } else {
-       // Parallelized
-       filteredShards.par.foreach(shard => {
+      // Parallelized
+      filteredShards.par.foreach(shard => {
         try {
           shard.persistentShardLock.readLock().lock()
           try {

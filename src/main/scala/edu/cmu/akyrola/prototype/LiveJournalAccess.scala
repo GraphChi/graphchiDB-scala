@@ -1,28 +1,27 @@
-package edu.cmu.graphchidb.linkbench
+package edu.cmu.akyrola.prototype
 
-import edu.cmu.graphchidb.GraphChiDatabase
-import edu.cmu.graphchidb.queries.Queries
 import edu.cmu.graphchidb.queries.internal.{SimpleSetReceiver, SimpleArrayReceiver}
+import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import java.io.{FileWriter, BufferedWriter}
 import edu.cmu.graphchi.queries.QueryCallback
+import scala.collection.mutable
 import java.{lang, util}
 
 /**
- * For console use
  * @author Aapo Kyrola
  */
-object LinkBenchAccess {
+object LiveJournalAccess {
+            /*
+  import edu.cmu.akyrola.prototype.LiveJournalAccess._
+  */
 
-  /*
-    import edu.cmu.graphchidb.linkbench.LinkBenchAccess._
-    DB.initialize()
-            DB.shardTree.map( shs => (shs.size, shs.map(_.numEdges).sum) )
+  val source =  "/Users/akyrola/graphs/soc-LiveJournal1.txt"
 
-   */
+  val baseFilename = "/Users/akyrola/graphs/DB/livejournal/livejournal.txt"
 
-  val baseFilename = "/Users/akyrola/graphs/DB/linkbench/linkbench"
-  val DB = new GraphChiDatabase(baseFilename, disableDegree = true)
 
+
+  val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 64)
   DB.initialize()
 
   def inAndOutTest(): Unit = {
@@ -30,14 +29,14 @@ object LinkBenchAccess {
     val r = new java.util.Random(260379)
     var i = 1
 
-    val outlog = new BufferedWriter(new FileWriter("out_linkbench.tsv"))
-    val inlog = new BufferedWriter(new FileWriter("in_linkbench.tsv"))
+    val outlog = new BufferedWriter(new FileWriter("out_livejournal.tsv"))
+    val inlog = new BufferedWriter(new FileWriter("in_livejournal.tsv"))
 
     while(i <= 50000) {
-      val v = DB.originalToInternalId(math.abs(r.nextLong() % 100000000))
+      val v = DB.originalToInternalId(math.abs(r.nextLong() % 4500000))
       val tInSt = System.nanoTime()
       val inRecv = new SimpleSetReceiver(outEdges = false)
-      DB.queryIn(v, 0, inRecv)
+       DB.queryIn(v, 0, inRecv)
       val tIn = System.nanoTime() - tInSt
 
       val outRecv = new SimpleSetReceiver(outEdges = true)
@@ -49,10 +48,9 @@ object LinkBenchAccess {
       i += 1
       if (i%1000 == 0) println("%d/%d".format(i, 50000))
     }
-    inlog.close()
+     inlog.close()
     outlog.close()
   }
-
 
 
   class BitSetOrigIdReceiver(outEdges: Boolean) extends QueryCallback {
@@ -67,31 +65,27 @@ object LinkBenchAccess {
     def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
 
   }
+
+
   def fofTest(): Unit = {
     var i = 1
+    DB.flushAllBuffers()
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
-    val foflog = new BufferedWriter(new FileWriter("fof_linkbench.tsv"))
 
-    while(i < 50000) {
-      val v = math.abs(r.nextLong() % 9900000) + 1
-      val st = System.nanoTime()
+    while(i <= 15000) {
+      val v = math.abs(r.nextLong() % 4500000)
+      //   val a = Queries.friendsOfFriendsSet(DB.originalToInternalId(v), 0)(DB)
       val friendReceiver = new SimpleArrayReceiver(outEdges = true)
       DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver)
       val a = new BitSetOrigIdReceiver(outEdges = true)
       DB.queryOutMultiple(friendReceiver.arr, 0.toByte, a)
-      val tFof = System.nanoTime() - st
       val cnt = a.bitset.size
       if (i % 1000 == 0 && cnt >= 0) {
-        printf("%d %d fof:%d\n".format(System.currentTimeMillis() - t, i, cnt))
+        printf("%d fof %d/%d fof:%d\n".format(System.currentTimeMillis() - t, i, v, cnt))
       }
       i += 1
-      if (cnt > 0)
-          foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
-
     }
-
-    foflog.close()
 
   }
 }
