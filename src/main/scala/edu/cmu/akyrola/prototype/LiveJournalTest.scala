@@ -2,13 +2,15 @@ package edu.cmu.akyrola.prototype
 
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
 import scala.io.Source
-import java.io.File
+import java.io.{FileWriter, File}
 import edu.cmu.graphchidb.Util._
 import scala.util.Random
 import edu.cmu.graphchidb.compute.Pagerank
 import edu.cmu.graphchi.GraphChiEnvironment
 import edu.cmu.graphchidb.queries.Queries
 import edu.cmu.graphchidb.queries.internal.{SimpleArrayReceiver, SimpleSetReceiver}
+import edu.cmu.graphchi.queries.QueryCallback
+import java.{lang, util}
 
 /**
  * Ingest a full live journal graph from scratch
@@ -103,28 +105,53 @@ val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
     }
   }
 
-  def fofTest(): Unit = {
+
+  class BitSetOrigIdReceiver(outEdges: Boolean) extends QueryCallback {
+    val bitset = new util.BitSet(100000000)
+    def immediateReceive() = true
+    def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
+      if (outEdges)   bitset.set(DB.internalToOriginalId(dst).toInt)
+      else bitset.set(DB.internalToOriginalId(src).toInt)
+    }
+
+    def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+    def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+
+    def size = bitset.cardinality()
+  }
+  def fofTest(n: Int, limit: Int): Unit = {
     var i = 1
-    DB.flushAllBuffers()
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
+    val foflog = new FileWriter("fof_livejournal_%d_limit_%d.csv".format(n, limit))
 
-    while(i <= 50000) {
+    foflog.write("count,micros\n")
+
+    while(i < n) {
       val v = math.abs(r.nextLong() % 4500000) + 1
-      //   val a = Queries.friendsOfFriendsSet(DB.originalToInternalId(v), 0)(DB)
-      val friendReceiver = new SimpleArrayReceiver(outEdges = true)
+      val a = new BitSetOrigIdReceiver(outEdges = true)
+
+      val friendReceiver = new SimpleArrayReceiver(outEdges = true, limit=limit)
+      val st = System.nanoTime()
       DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver)
-      val a = new SimpleSetReceiver(outEdges = true)
+      val st2 = System.nanoTime()
       DB.queryOutMultiple(friendReceiver.arr, 0.toByte, a)
-      val cnt = a.set.size
+      val tFof = System.nanoTime() - st
+      val cnt = a.size
       if (i % 1000 == 0 && cnt >= 0) {
         printf("%d %d fof:%d\n".format(System.currentTimeMillis() - t, i, cnt))
       }
       i += 1
+      if (cnt > 0)  {
+        println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
+      }
+      foflog.flush()
     }
 
+    foflog.close()
+    println("Finished")
   }
-
   def main(args: Array[String]) {
     println("Initialized...")
   }

@@ -54,7 +54,7 @@ object LiveJournalAccess {
 
 
   class BitSetOrigIdReceiver(outEdges: Boolean) extends QueryCallback {
-    val bitset = new util.BitSet()
+    val bitset = new util.BitSet(100000000)
     def immediateReceive() = true
     def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
       if (outEdges)   bitset.set(DB.internalToOriginalId(dst).toInt)
@@ -64,28 +64,39 @@ object LiveJournalAccess {
     def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
     def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
 
+    def size = bitset.cardinality()
   }
-
-
-  def fofTest(): Unit = {
+  def fofTest(n: Int, limit: Int): Unit = {
     var i = 1
-    DB.flushAllBuffers()
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
+    val foflog = new FileWriter("fof_livejournal_%d_limit_%d.csv".format(n, limit))
 
-    while(i <= 15000) {
-      val v = math.abs(r.nextLong() % 4500000)
-      //   val a = Queries.friendsOfFriendsSet(DB.originalToInternalId(v), 0)(DB)
-      val friendReceiver = new SimpleArrayReceiver(outEdges = true)
-      DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver)
+    foflog.write("count,micros\n")
+
+    while(i < n) {
+      val v = math.abs(r.nextLong() % 4500000) + 1
       val a = new BitSetOrigIdReceiver(outEdges = true)
+
+      val friendReceiver = new SimpleArrayReceiver(outEdges = true, limit=limit)
+      val st = System.nanoTime()
+      DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver)
+      val st2 = System.nanoTime()
       DB.queryOutMultiple(friendReceiver.arr, 0.toByte, a)
-      val cnt = a.bitset.size
+      val tFof = System.nanoTime() - st
+      val cnt = a.size
       if (i % 1000 == 0 && cnt >= 0) {
-        printf("%d fof %d/%d fof:%d\n".format(System.currentTimeMillis() - t, i, v, cnt))
+        printf("%d %d fof:%d\n".format(System.currentTimeMillis() - t, i, cnt))
       }
       i += 1
+      if (cnt > 0)  {
+        println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
+      }
+      foflog.flush()
     }
 
+    foflog.close()
+    println("Finished")
   }
 }

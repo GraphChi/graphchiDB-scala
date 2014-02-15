@@ -29,18 +29,18 @@ class QueryResultContainer(queryIds: Set[Long]) extends QueryCallback {
   def receiveOutNeighbors(vertexId: Long, neighborIdsJava: util.ArrayList[lang.Long],
                           edgeTypesJava: util.ArrayList[lang.Byte],
                           dataPointersJava: util.ArrayList[lang.Long]) : Unit = {
-       val neighborIds = new Array[Long](neighborIdsJava.size())
-       val edgeTypes = new Array[Byte](edgeTypesJava.size())
-       val dataPointers = new Array[Long](dataPointersJava.size())
-       val n = neighborIds.size
-       var i = 0
-       while(i < n) {
-          neighborIds(i) = neighborIdsJava(i)
-          edgeTypes(i) = edgeTypesJava(i)
-          dataPointers(i) = dataPointersJava(i)
-          i += 1
-       }
-       receiveOutNeighbors(vertexId, neighborIds, edgeTypes, dataPointers)
+    val neighborIds = new Array[Long](neighborIdsJava.size())
+    val edgeTypes = new Array[Byte](edgeTypesJava.size())
+    val dataPointers = new Array[Long](dataPointersJava.size())
+    val n = neighborIds.size
+    var i = 0
+    while(i < n) {
+      neighborIds(i) = neighborIdsJava(i)
+      edgeTypes(i) = edgeTypesJava(i)
+      dataPointers(i) = dataPointersJava(i)
+      i += 1
+    }
+    receiveOutNeighbors(vertexId, neighborIds, edgeTypes, dataPointers)
   }
 
 
@@ -129,12 +129,14 @@ class SimpleSetReceiver(outEdges: Boolean) extends QueryCallback {
 
 
 
-class SimpleArrayReceiver(outEdges: Boolean) extends QueryCallback {
+class SimpleArrayReceiver(outEdges: Boolean, limit: Int = Integer.MAX_VALUE) extends QueryCallback {
   val arr = new ArrayBuffer[Long] with mutable.SynchronizedBuffer[Long]
   def immediateReceive() = true
   def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
-    if (outEdges) arr += dst
-    else arr += src
+    if (arr.size < limit) {
+      if (outEdges) arr += dst
+      else arr += src
+    }
   }
 
   def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()

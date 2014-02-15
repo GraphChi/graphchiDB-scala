@@ -15,8 +15,10 @@ import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.BufferUnderflowException;
+import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.nio.channels.FileChannel;
@@ -46,6 +48,8 @@ public class QueryShard {
     private final Timer inEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase2"));
     private final Counter cacheMissCounter = GraphChiEnvironment.metrics.counter("querycache-misses");
     private final Counter cacheHitCounter = GraphChiEnvironment.metrics.counter("querycache-hits");
+
+    public static boolean pinIndexToMemory = Integer.parseInt(System.getProperty("queryshard.pinindex", "0")) == 1;
 
     private int numEdges;
 
@@ -109,11 +113,29 @@ public class QueryShard {
         inEdgeStartChannel.close();
     }
 
+    public static long totalPinnedSize = 0;
     void loadPointers() throws IOException {
         File pointerFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
-        FileChannel ptrFileChannel = new java.io.RandomAccessFile(pointerFile, "r").getChannel();
-        pointerIdxBuffer = ptrFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, pointerFile.length()).asLongBuffer();
-        ptrFileChannel.close();
+        if (!pinIndexToMemory) {
+            FileChannel ptrFileChannel = new java.io.RandomAccessFile(pointerFile, "r").getChannel();
+            pointerIdxBuffer = ptrFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, pointerFile.length()).asLongBuffer();
+            ptrFileChannel.close();
+        } else {
+
+            System.out.println("Reading fully: " + pointerFile.getName());
+            byte[] data = new byte[(int)pointerFile.length()];
+            FileInputStream fis = new FileInputStream(pointerFile);
+            int i = 0;
+            while (i < data.length) {
+                i += fis.read(data, i, data.length - i);
+            }
+            fis.close();
+            totalPinnedSize += data.length;
+            System.out.println("Total pinned size " + totalPinnedSize / 1024.0 / 1024.0 + " mb");
+            pointerIdxBuffer = ByteBuffer.wrap(data).asLongBuffer();
+
+
+        }
     }
 
     // TODO: do not synchronize but make mirror of the buffer
@@ -292,10 +314,10 @@ public class QueryShard {
                     }
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, res, resTypes, resPointers);
                     if (cached != null ) {
-                            if (cachek < n) {
-                                cached = Arrays.copyOf(cached, cachek);
-                            }
-                            queryCache.put(outcachekey(vertexId, edgeType), cached);
+                        if (cachek < n) {
+                            cached = Arrays.copyOf(cached, cachek);
+                        }
+                        queryCache.put(outcachekey(vertexId, edgeType), cached);
                     }
                 } else {
                     if (!callback.immediateReceive()) callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
@@ -395,7 +417,7 @@ public class QueryShard {
                     callback.receiveEdge(VertexIdTranslate.getVertexId(ptr), queryId, edgeType,
                             PointerUtil.encodePointer(shardNum, (int) VertexIdTranslate.getAux(ptr)));
                 }
-               // cacheHitCounter.inc();
+                // cacheHitCounter.inc();
                 return;
             } else {
                 cacheMissCounter.inc();
@@ -437,7 +459,7 @@ public class QueryShard {
 
             if (off == (-1)) {
                 if (queryCache != null && queryCacheSize > queryCache.size()) {
-                   queryCache.put(incacheKey(queryId, edgeType), new long[0]);
+                    queryCache.put(incacheKey(queryId, edgeType), new long[0]);
                 }
                 return;
             }

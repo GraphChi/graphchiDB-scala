@@ -3,6 +3,11 @@ package edu.cmu.akyrola.prototype
 import java.util.Locale
 import edu.cmu.graphchidb.{GraphChiDatabaseAdmin, GraphChiDatabase}
 import edu.cmu.graphchidb.compute.Pagerank
+import edu.cmu.graphchi.queries.QueryCallback
+import java.{lang, util}
+import java.io.{BufferedWriter, FileWriter}
+import edu.cmu.graphchidb.queries.internal.SimpleArrayReceiver
+import edu.cmu.graphchi.shards.QueryShard
 
 /*
 // Console
@@ -31,6 +36,90 @@ object TwitterPrototypeDatabase {
   DB.initialize()
 
   println(DB.columns)
+
+  class BitSetOrigIdReceiver(outEdges: Boolean) extends QueryCallback {
+    val bitset = new util.BitSet(100000000)
+    def immediateReceive() = true
+    def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
+      if (outEdges)   bitset.set(DB.internalToOriginalId(dst).toInt)
+      else bitset.set(DB.internalToOriginalId(src).toInt)
+    }
+
+    def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+    def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
+
+    def size = bitset.cardinality()
+  }
+  def fofTest(n: Int, limit: Int): Unit = {
+    var i = 1
+    val t = System.currentTimeMillis()
+    val r = new java.util.Random(260379)
+    val foflog = new FileWriter("fof_twitter_%d_limit_%d%s.csv".format(n, limit, if (QueryShard.pinIndexToMemory) { "_pin"} else {""}))
+
+    foflog.write("count,micros\n")
+
+    while(i < n) {
+      val v = math.abs(r.nextLong() % 40000000) + 1
+      val a = new BitSetOrigIdReceiver(outEdges = true)
+
+      val friendReceiver = new SimpleArrayReceiver(outEdges = true, limit=limit)
+      val st = System.nanoTime()
+      DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver)
+      val st2 = System.nanoTime()
+      DB.queryOutMultiple(friendReceiver.arr, 0.toByte, a)
+      val tFof = System.nanoTime() - st
+      val cnt = a.size
+      if (i % 1000 == 0 && cnt >= 0) {
+        printf("%d %d fof:%d\n".format(System.currentTimeMillis() - t, i, cnt))
+      }
+      i += 1
+      if (cnt > 0)  {
+        println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
+      }
+      foflog.flush()
+    }
+
+    foflog.close()
+    println("Finished")
+  }
+
+  def fofTest2(n: Int, limit: Int): Unit = {
+    var i = 1
+    val t = System.currentTimeMillis()
+    val r = new java.util.Random(260379)
+    val foflog = new FileWriter("fof_twitter_%d_limit_%d_oneonly.csv".format(n, limit))
+
+    foflog.write("count,micros\n")
+
+    while(i < n) {
+      val v = 24114418
+      val a = new BitSetOrigIdReceiver(outEdges = true)
+
+      val friendReceiver = new SimpleArrayReceiver(outEdges = true, limit=limit)
+      val st = System.nanoTime()
+      DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver)
+      val st2 = System.nanoTime()
+      DB.queryOutMultiple(friendReceiver.arr, 0.toByte, a)
+      val tFof = System.nanoTime() - st
+      val cnt = a.size
+      if (i % 1000 == 0 && cnt >= 0) {
+        printf("%d %d fof:%d\n".format(System.currentTimeMillis() - t, i, cnt))
+      }
+      i += 1
+      if (cnt > 0)  {
+        println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
+      }
+      foflog.flush()
+    }
+
+    foflog.close()
+    println("Finished")
+  }
+
+
+
 }
 
 /*
