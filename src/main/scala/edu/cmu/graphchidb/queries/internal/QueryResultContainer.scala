@@ -141,5 +141,5 @@ class SimpleArrayReceiver(outEdges: Boolean, limit: Int = Integer.MAX_VALUE) ext
 
   def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
   def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
-
+  def size = arr.size
 }

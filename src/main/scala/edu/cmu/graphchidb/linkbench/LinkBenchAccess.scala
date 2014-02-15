@@ -26,31 +26,7 @@ object LinkBenchAccess {
   DB.initialize()
 
   def inAndOutTest(): Unit = {
-    DB.flushAllBuffers()
-    val r = new java.util.Random(260379)
-    var i = 1
-
-    val outlog = new BufferedWriter(new FileWriter("out_linkbench.tsv"))
-    val inlog = new BufferedWriter(new FileWriter("in_linkbench.tsv"))
-
-    while(i <= 50000) {
-      val v = DB.originalToInternalId(math.abs(r.nextLong() % 100000000))
-      val tInSt = System.nanoTime()
-      val inRecv = new SimpleSetReceiver(outEdges = false)
-      DB.queryIn(v, 0, inRecv)
-      val tIn = System.nanoTime() - tInSt
-
-      val outRecv = new SimpleSetReceiver(outEdges = true)
-      DB.queryOut(v, 0, outRecv)
-      val tOut = System.nanoTime() - tInSt
-
-      outlog.write("%d,%f\n".format(outRecv.set.size, tOut * 0.001))
-      inlog.write("%d,%f\n".format(inRecv.set.size, tIn * 0.001))
-      i += 1
-      if (i%1000 == 0) println("%d/%d".format(i, 50000))
-    }
-    inlog.close()
-    outlog.close()
+     
   }
 
 
