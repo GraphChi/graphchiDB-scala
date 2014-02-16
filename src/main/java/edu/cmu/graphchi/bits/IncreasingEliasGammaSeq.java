@@ -149,6 +149,11 @@ public class IncreasingEliasGammaSeq {
             indexIdx = -(indexIdx + 1) - 1;
         }
 
+        if (indexIdx < 0) {
+            // Everything larger
+            return -1;
+        }
+
         int idx = indexIdx * indexInterval;
         int curidx = (idx / indexInterval) * indexInterval;
 
