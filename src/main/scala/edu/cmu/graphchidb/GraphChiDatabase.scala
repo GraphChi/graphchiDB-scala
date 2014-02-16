@@ -1274,24 +1274,26 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
     /* Look for buffers (in parallel, of course) -- TODO: profile if really a good idea */
 
-    val matchingBuffers = bufferShards.filter(_.myInterval.contains(internalId))
+    if (!buffersEmpty) {
+      val matchingBuffers = bufferShards.filter(_.myInterval.contains(internalId))
 
-    matchingBuffers.foreach( bufferShard => {
-      bufferShard.bufferLock.readLock().lock()
-      try {
-        bufferShard.buffersForDstQuery(internalId).foreach(
-          buf => {
-            try {
-              buf.buffer.findInNeighborsCallback(internalId, result, edgeType)
-            } catch {
-              case e: Exception => e.printStackTrace()
+      matchingBuffers.foreach( bufferShard => {
+        bufferShard.bufferLock.readLock().lock()
+        try {
+          bufferShard.buffersForDstQuery(internalId).foreach(
+            buf => {
+              try {
+                buf.buffer.findInNeighborsCallback(internalId, result, edgeType)
+              } catch {
+                case e: Exception => e.printStackTrace()
+              }
             }
-          }
-        )
-      } finally {
-        bufferShard.bufferLock.readLock().unlock()
-      }
-    })
+          )
+        } finally {
+          bufferShard.bufferLock.readLock().unlock()
+        }
+      })
+    }
 
     /* Look for persistent shards */
     val targetShards = shards.filter(shard => shard.myInterval.contains(internalId) && !shard.persistentShard.isEmpty)
@@ -1347,15 +1349,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val filteredShards = shards.filterNot(_.persistentShard.isEmpty).filter(shard => compareShardBitsToInterval(qshardBits, shard.myInterval))
 
 
-    if (!parallel || filteredShards.size < 2) {
-
-
+    if (!parallel || filteredShards.size < 4) {
       val filteredShards = shards.filterNot(_.persistentShard.isEmpty).filter(shard => compareShardBitsToInterval(qshardBits, shard.myInterval))
       filteredShards.foreach(shard => {
         try {
           shard.persistentShardLock.readLock().lock()
           try {
-            shard.persistentShard.queryOut(Collections.singleton(internalId), callback, edgeType)
+            shard.persistentShard.queryOut(internalId, callback, edgeType)
           } finally {
             shard.persistentShardLock.readLock().unlock()
           }
@@ -1369,7 +1369,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         try {
           shard.persistentShardLock.readLock().lock()
           try {
-            shard.persistentShard.queryOut(Collections.singleton(internalId), callback, edgeType)
+            shard.persistentShard.queryOut(internalId, callback, edgeType)
           } finally {
             shard.persistentShardLock.readLock().unlock()
           }

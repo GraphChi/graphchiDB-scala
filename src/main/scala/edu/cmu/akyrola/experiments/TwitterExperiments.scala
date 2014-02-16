@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object TwitterExperiments {
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
-  val DB = new GraphChiDatabase(baseFilename, numShards=64)
+  val DB = new GraphChiDatabase(baseFilename, numShards=256)
   
   //val pagerankComputation = new Pagerank(DB)
   val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
@@ -79,13 +79,13 @@ object TwitterExperiments {
       val inRecv = new DummyReceiver()
 
       val tInSt = System.nanoTime()
-   //   DB.queryIn(v, 0, inRecv)
+       DB.queryIn(v, 0, inRecv)
       val tIn = System.nanoTime() - tInSt
 
       val outRecv = new DummyReceiver()
 
       val tOutSt = System.nanoTime()  
-      DB.queryOut(v, 0, outRecv)
+      DB.queryOut(v, 0, outRecv, parallel = true)
       val tOut = System.nanoTime() - tOutSt
       if (i % 10 == 0) queryMeter.mark(10)
 

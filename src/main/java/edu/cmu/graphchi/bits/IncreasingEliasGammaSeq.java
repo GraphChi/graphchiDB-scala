@@ -50,8 +50,10 @@ public class IncreasingEliasGammaSeq {
             indexValues = new long[indexSize];
             for(int i=0; i<original.length; i++) {
                 long delta = original[i] - prev;
+                if (delta <= 0) {
+                    System.err.println("Illegal delta: " + delta + " at position " + i);
+                }
                 assert(delta > 0);
-
 
                 int numZeros = log2floor(delta);
                 for(int j=0; j<numZeros; j++) {
@@ -201,6 +203,67 @@ public class IncreasingEliasGammaSeq {
 
         return curidx;
     }
+
+    public int getIndexOfLowerBound(long value) {
+        int indexIdx = Arrays.binarySearch(indexValues, value);
+        if (indexIdx < 0) {
+            indexIdx = -(indexIdx + 1) - 1;
+        }
+
+        int idx = indexIdx * indexInterval;
+        int curidx = (idx / indexInterval) * indexInterval;
+
+        int bitIdx = indexBitIdx[indexIdx];
+        long cumulant = indexValues[indexIdx];
+
+        int currentByteIdx = bitIdx / 8;
+        int bitOffset = bitIdx % 8;
+        byte currentByte = bits[currentByteIdx];
+
+        while(cumulant < value) {
+            curidx++;
+
+            /* Prefix */
+            boolean bit = false;
+            int zeros = (-1);
+            do {
+                bitOffset ++;
+                byte mask = (byte) (1 << (8-bitOffset));
+                bit = (currentByte & mask) != 0;
+                if (bitOffset == 8 ) {
+                    bitOffset = 0;
+                    currentByteIdx++;
+                    if (currentByteIdx == bits.length) return -1;
+                    currentByte = bits[currentByteIdx];
+                }
+                zeros++;
+            } while(!bit);
+
+            /* Bits */
+            int delta = (1 << zeros);
+            while(zeros > 0) {
+                zeros--;
+                bitOffset ++;
+                byte mask = (byte) (1 << (8-bitOffset));
+                bit = (currentByte & mask) != 0;
+                if (bitOffset == 8 ) {
+                    bitOffset = 0;
+                    currentByteIdx++;
+                    if (currentByteIdx == bits.length) return -1;
+                    currentByte = bits[currentByteIdx];
+                }
+                if (bit) {
+                    delta = delta | (1 << zeros);
+                }
+            }
+
+            cumulant += delta;
+        }
+
+        if (cumulant == value) return curidx;
+        return curidx - 1;
+    }
+
 
     /* @returns value at idx and idx + 1 */
     public long[] getTwo(int idx) {
