@@ -22,11 +22,8 @@ import java.net._
  */
 object TwitterExperiments {
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
-  val DB = new GraphChiDatabase(baseFilename)
-  /* Create columns */
-  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
-  val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
-
+  val DB = new GraphChiDatabase(baseFilename, numShards=64)
+  
   //val pagerankComputation = new Pagerank(DB)
   val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
 
