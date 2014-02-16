@@ -133,7 +133,7 @@ class SimpleArrayReceiver(outEdges: Boolean, limit: Int = Integer.MAX_VALUE) ext
   val arr = new ArrayBuffer[Long] with mutable.SynchronizedBuffer[Long]
   def immediateReceive() = true
   def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
-    if (arr.size < limit) {
+    if (limit == Integer.MAX_VALUE || arr.size < limit) {
       if (outEdges) arr += dst
       else arr += src
     }

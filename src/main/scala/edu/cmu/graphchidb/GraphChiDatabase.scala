@@ -1295,33 +1295,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
     /* Look for persistent shards */
     val targetShards = shards.filter(shard => shard.myInterval.contains(internalId) && !shard.persistentShard.isEmpty)
-    if (targetShards.size > 1) {
-      targetShards.par.foreach(shard => {
-        shard.persistentShardLock.readLock().lock()
+    targetShards.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
         try {
-          try {
-            shard.persistentShard.queryIn(internalId, result, edgeType)
-          } catch {
-            case e: Exception => e.printStackTrace()
-          }
-        } finally {
-          shard.persistentShardLock.readLock().unlock()
+          shard.persistentShard.queryIn(internalId, result, edgeType)
+        } catch {
+          case e: Exception => e.printStackTrace()
         }
-      })
-    } else {
-      targetShards.foreach(shard => {
-        shard.persistentShardLock.readLock().lock()
-        try {
-          try {
-            shard.persistentShard.queryIn(internalId, result, edgeType)
-          } catch {
-            case e: Exception => e.printStackTrace()
-          }
-        } finally {
-          shard.persistentShardLock.readLock().unlock()
-        }
-      })
-    }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
   }
 
 

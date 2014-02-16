@@ -79,7 +79,7 @@ public class QueryShard {
         numEdges = (int) (adjFile.length() / BYTES_PER_EDGE);
 
         FileChannel channel = new java.io.RandomAccessFile(adjFile, "rw").getChannel();
-        adjBuffer = channel.map(FileChannel.MapMode.READ_WRITE, 0,
+        adjBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0,
                 adjFile.length()).asLongBuffer();
         channel.close();
 
