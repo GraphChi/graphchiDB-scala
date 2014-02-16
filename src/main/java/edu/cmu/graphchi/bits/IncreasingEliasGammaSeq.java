@@ -1,7 +1,9 @@
 package edu.cmu.graphchi.bits;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 
 /**
  * Stores an increasing sequence efficiently
@@ -22,6 +24,8 @@ public class IncreasingEliasGammaSeq {
 
         encode(original);
     }
+
+
 
     int log2floor(long x) {
         int l = -1;
@@ -71,9 +75,16 @@ public class IncreasingEliasGammaSeq {
             bitStream.close();
 
             bits =  bos.toByteArray();
+
+            while (indexIdx < indexSize) {
+                indexValues[indexIdx] = original[original.length - 1];
+                indexBitIdx[indexIdx] = (int)bitStream.getBitsWritten();
+                indexIdx++;
+            }
         } catch (IOException ioe) {
             throw new RuntimeException(ioe);
         }
+
         System.out.println("Encoded " + sizeInBytes() + " bytes vs. " + original.length * 8);
         System.out.println("Index size: " + (indexValues.length * 8 + indexBitIdx.length * 4) + " bytes");
     }
@@ -127,6 +138,126 @@ public class IncreasingEliasGammaSeq {
         }
 
         return cumulant;
+    }
+
+    public int getIndex(long value) {
+        int indexIdx = Arrays.binarySearch(indexValues, value);
+        if (indexIdx < 0) {
+            indexIdx = -(indexIdx + 1) - 1;
+        }
+
+        int idx = indexIdx * indexInterval;
+        int curidx = (idx / indexInterval) * indexInterval;
+
+        int bitIdx = indexBitIdx[indexIdx];
+        long cumulant = indexValues[indexIdx];
+
+        int currentByteIdx = bitIdx / 8;
+        int bitOffset = bitIdx % 8;
+        byte currentByte = bits[currentByteIdx];
+
+        while(cumulant < value) {
+            curidx++;
+
+            /* Prefix */
+            boolean bit = false;
+            int zeros = (-1);
+            do {
+                bitOffset ++;
+                byte mask = (byte) (1 << (8-bitOffset));
+                bit = (currentByte & mask) != 0;
+                if (bitOffset == 8 ) {
+                    bitOffset = 0;
+                    currentByteIdx++;
+                    currentByte = bits[currentByteIdx];
+                }
+                zeros++;
+            } while(!bit);
+
+            /* Bits */
+            int delta = (1 << zeros);
+            while(zeros > 0) {
+                zeros--;
+                bitOffset ++;
+                byte mask = (byte) (1 << (8-bitOffset));
+                bit = (currentByte & mask) != 0;
+                if (bitOffset == 8 ) {
+                    bitOffset = 0;
+                    currentByteIdx++;
+                    currentByte = bits[currentByteIdx];
+                }
+                if (bit) {
+                    delta = delta | (1 << zeros);
+                }
+            }
+
+            cumulant += delta;
+        }
+
+        if (cumulant > value) return -1;
+
+        return curidx;
+    }
+
+    /* @returns value at idx and idx + 1 */
+    public long[] getTwo(int idx) {
+        // Ugly code duplication, FIXME TODO
+        long[] ret = new long[2];
+        int indexIdx = idx / indexInterval;
+        int curidx = (idx / indexInterval) * indexInterval;
+
+        int bitIdx = indexBitIdx[indexIdx];
+        long cumulant = indexValues[indexIdx];
+
+        int currentByteIdx = bitIdx / 8;
+        int bitOffset = bitIdx % 8;
+        byte currentByte = bits[currentByteIdx];
+
+        while(curidx < idx + 1) {
+            if (curidx == idx) {
+                ret[0] = cumulant;
+            }
+
+            /* Prefix */
+            boolean bit = false;
+            int zeros = (-1);
+            do {
+                bitOffset ++;
+                byte mask = (byte) (1 << (8-bitOffset));
+                bit = (currentByte & mask) != 0;
+                if (bitOffset == 8 ) {
+                    bitOffset = 0;
+                    currentByteIdx++;
+                    currentByte = bits[currentByteIdx];
+                }
+                zeros++;
+            } while(!bit);
+
+            /* Bits */
+            int delta = (1 << zeros);
+            while(zeros > 0) {
+                zeros--;
+                bitOffset ++;
+                byte mask = (byte) (1 << (8-bitOffset));
+                bit = (currentByte & mask) != 0;
+                if (bitOffset == 8 ) {
+                    bitOffset = 0;
+                    currentByteIdx++;
+                    currentByte = bits[currentByteIdx];
+                }
+                if (bit) {
+                    delta = delta | (1 << zeros);
+                }
+            }
+
+            cumulant += delta;
+            curidx++;
+
+        }
+        ret[1] = cumulant;
+
+        return ret;
+
     }
 
 
