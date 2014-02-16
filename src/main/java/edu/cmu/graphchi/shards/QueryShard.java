@@ -44,6 +44,10 @@ public class QueryShard {
 
     private static final Timer inEdgeIndexLookupTimer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-indexlookup"));
 
+    private final Timer outEdgePhase1Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "outedge-phase1"));
+    private final Timer outEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "outedge-phase2"));
+    private final Timer outEdgeLookupTimer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "outedge-lookups"));
+
     private final Timer inEdgePhase1Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase1"));
     private final Timer inEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase2"));
     private final Counter cacheMissCounter = GraphChiEnvironment.metrics.counter("querycache-misses");
@@ -231,6 +235,7 @@ public class QueryShard {
     // TODO: wild-card search
     public void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
         try {
+            final Timer.Context _timer1 = outEdgePhase1Timer.time();
 
             if (queryCacheSize > 0 && !queryCache.isEmpty()) {
                 if (callback.immediateReceive()) {
@@ -270,6 +275,10 @@ public class QueryShard {
                 indexEntries.add(index.lookup(a));
             }
 
+            _timer1.stop();
+            final Timer.Context _timer2 = outEdgePhase2Timer.time();
+
+
             final LongBuffer tmpPointerIdxBuffer = pointerIdxBuffer.duplicate();
             final LongBuffer tmpAdjBuffer = adjBuffer.duplicate();
 
@@ -277,7 +286,10 @@ public class QueryShard {
             for(int qIdx=0; qIdx < sortedIds.size(); qIdx++) {
                 entry = indexEntries.get(qIdx);
                 long vertexId = sortedIds.get(qIdx);
+
+                final Timer.Context _timer3 = outEdgeLookupTimer.time();
                 long curPtr = findIdxAndPos(vertexId, entry, tmpPointerIdxBuffer);
+                _timer3.stop();
 
                 if (curPtr != (-1L)) {
                     long nextPtr = tmpPointerIdxBuffer.get();
@@ -326,6 +338,7 @@ public class QueryShard {
                     }
                 }
             }
+            _timer2.stop();
         } catch (Exception err) {
             throw new RuntimeException(err);
         }
@@ -341,20 +354,50 @@ public class QueryShard {
 
         int vertexSeq = sparseIndexEntry.vertexSeq;
         long curvid = sparseIndexEntry.vertex;
-        tmpBuffer.position(vertexSeq);
-        long ptr = tmpBuffer.get();
 
-        while(curvid <= vertexId) {
-            try {
-                curvid = VertexIdTranslate.getVertexId(ptr);
-                if (curvid == vertexId) {
-                    return ptr;
+
+
+        if (sparseIndexEntry.nextEntry == null) {
+            // Linear search
+            tmpBuffer.position(vertexSeq);
+            long ptr = tmpBuffer.get();
+            while(curvid <= vertexId) {
+                try {
+                    curvid = VertexIdTranslate.getVertexId(ptr);
+                    if (curvid == vertexId) {
+                        return ptr;
+                    }
+                    ptr = tmpBuffer.get();
+                } catch (BufferUnderflowException bufe) {
+                    return -1;
                 }
-                ptr = tmpBuffer.get();
-            } catch (BufferUnderflowException bufe) {
-                return -1;
             }
+        } else {
+           // Binary search
+           int low = sparseIndexEntry.vertexSeq;
+           int high = sparseIndexEntry.nextEntry.vertexSeq;
+           int n = tmpBuffer.capacity();
+
+           while(low <= high) {
+               int idx = ((high + low) / 2);
+               if (idx == n - 1) idx--;
+               tmpBuffer.position(idx);
+               long ptr = tmpBuffer.get();
+
+               curvid = VertexIdTranslate.getVertexId(ptr);
+               if (curvid == vertexId) {
+                   return ptr;
+               }
+               if (curvid < vertexId) {
+                   low = idx + 1;
+               } else {
+                   high = idx - 1;
+               }
+           }
+
         }
+
+
         return -1L;
     }
 

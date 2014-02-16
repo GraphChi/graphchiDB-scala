@@ -45,23 +45,6 @@ public class ShardIndex {
     }
 
     /**
-     * Returns a sparsified index, which starts with a zero-pointer (and is thus always non-empty)
-     */
-    public ArrayList<IndexEntry> sparserIndex(int edgeDistance) {
-        ArrayList<IndexEntry> spIdx = new ArrayList<IndexEntry>();
-        spIdx.add(new IndexEntry(0, 0, 0, 0));
-        int lastEdgePointer = 0;
-        for(int j=0; j<vertices.length; j++) {
-            if (edgePointer[j] - lastEdgePointer >= edgeDistance) {
-                 spIdx.add(new IndexEntry(vertices[j], edgePointer[j], fileOffset[j], vertexSeq[j]));
-                 lastEdgePointer = edgePointer[j];
-            }
-
-        }
-        return spIdx;
-    }
-
-    /**
      * Finds closest index entry for given vertex id, which is before the vertex.
      * @param vertexId
      * @return
@@ -69,10 +52,18 @@ public class ShardIndex {
     public IndexEntry lookup(long vertexId) {
         int idx = Arrays.binarySearch(vertices, vertexId);
         if (idx >= 0) {
-            return new IndexEntry(vertexId, edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            IndexEntry cur = new IndexEntry(vertexId, edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            if (idx < edgePointer.length - 1) {
+                cur.nextEntry = new IndexEntry(vertices[idx + 1], edgePointer[idx + 1], fileOffset[idx + 1], vertexSeq[idx + 1]);
+            }
+            return cur;
         } else {
             idx = -(idx + 1) - 1;
-            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            IndexEntry cur =  new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            if (idx < edgePointer.length - 1) {
+                cur.nextEntry = new IndexEntry(vertices[idx + 1], edgePointer[idx + 1], fileOffset[idx + 1], vertexSeq[idx + 1]);
+            }
+            return cur;
         }
 
     }
@@ -80,10 +71,18 @@ public class ShardIndex {
     public IndexEntry lookupByOffset(int fileOffsetQuery) {
         int idx = Arrays.binarySearch(fileOffset, fileOffsetQuery);
         if (idx >= 0) {
-            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            IndexEntry cur =  new  IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            if (idx < edgePointer.length - 1) {
+                cur.nextEntry = new IndexEntry(vertices[idx + 1], edgePointer[idx + 1], fileOffset[idx + 1], vertexSeq[idx + 1]);
+            }
+            return cur;
         } else {
             idx = -(idx + 1) - 1;
-            return new IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            IndexEntry cur =  new  IndexEntry(vertices[idx], edgePointer[idx], fileOffset[idx], vertexSeq[idx]);
+            if (idx < edgePointer.length - 1) {
+                cur.nextEntry = new IndexEntry(vertices[idx + 1], edgePointer[idx + 1], fileOffset[idx + 1], vertexSeq[idx + 1]);
+            }
+            return cur;
         }
     }
 
@@ -92,6 +91,7 @@ public class ShardIndex {
 
         public long vertex;
         public int edgePointer, fileOffset, vertexSeq;
+        public IndexEntry nextEntry = null;
 
         IndexEntry(long vertex, int edgePointer, int fileOffset, int vertexSeq) {
             this.vertex = vertex;
