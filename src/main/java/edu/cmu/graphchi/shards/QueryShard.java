@@ -7,6 +7,7 @@ import com.codahale.metrics.Timer;
 import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.VertexInterval;
+import edu.cmu.graphchi.bits.IncreasingEliasGammaSeq;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import edu.cmu.graphchi.queries.QueryCallback;
 import org.apache.commons.collections.map.LRUMap;
@@ -134,10 +135,27 @@ public class QueryShard {
                 i += fis.read(data, i, data.length - i);
             }
             fis.close();
-            totalPinnedSize += data.length;
-            System.out.println("Total pinned size " + totalPinnedSize / 1024.0 / 1024.0 + " mb");
+
             pointerIdxBuffer = ByteBuffer.wrap(data).asLongBuffer();
 
+
+            long[] vertices = new long[pointerIdxBuffer.capacity()];
+            long[] offs = new long[pointerIdxBuffer.capacity()];
+
+            for(int j=0; j<vertices.length; j++) {
+                 vertices[j] = VertexIdTranslate.getVertexId(pointerIdxBuffer.get(j));
+                 offs[j] = VertexIdTranslate.getAux(pointerIdxBuffer.get(j));
+            }
+
+            IncreasingEliasGammaSeq gammaSeqVertices = new IncreasingEliasGammaSeq(vertices);
+            IncreasingEliasGammaSeq gammaSeqOffs = new IncreasingEliasGammaSeq(offs);
+
+            totalPinnedSize += gammaSeqVertices.sizeInBytes();
+            totalPinnedSize += gammaSeqOffs.sizeInBytes();
+
+            System.out.println("Total pinned size " + totalPinnedSize / 1024.0 / 1024.0 + " mb");
+
+            pointerIdxBuffer = null;
 
         }
     }
