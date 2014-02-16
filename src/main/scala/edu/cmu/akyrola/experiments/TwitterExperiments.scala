@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object TwitterExperiments {
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
-  val DB = new GraphChiDatabase(baseFilename, numShards=256)
+  val DB = new GraphChiDatabase(baseFilename, numShards=64)
   
   //val pagerankComputation = new Pagerank(DB)
   val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
@@ -101,9 +101,11 @@ object TwitterExperiments {
 
 
   def main(args: Array[String]) {
-    
- 		inAndOutTest(args(0).toInt);
-
+    if (args(0) == "inout") {}
+ 		   inAndOutTest(args(1).toInt)
+    } else {
+        fofTest(args(1).toInt)
+    }
   }
 
  }
