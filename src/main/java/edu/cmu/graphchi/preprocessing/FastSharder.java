@@ -125,7 +125,7 @@ public class FastSharder <VertexValueType, EdgeValueType> {
         int istart = 0;
         int edgeCounter = 0;
         int lastIndexFlush = 0;
-        int edgesPerIndexEntry = 4096; // Tuned for fast shard queries
+        int edgesPerIndexEntry = 4096 / 8; // Tuned for fast shard queries
 
         int vertexSeq = 0;
 
