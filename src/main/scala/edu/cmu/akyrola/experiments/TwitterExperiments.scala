@@ -68,7 +68,7 @@ object TwitterExperiments {
 
     val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), iterations)
 
-    val qlog = new BufferedWriter(new FileWriter("inout_twitter_%s.tsv".format(id)))
+    val qlog = new BufferedWriter(new FileWriter("inout_twitter_%s.pin_%s.tsv".format(id, QueryShard.pinIndexToMemory)))
     qlog.write("outsize,outtime,insize,intime\n")
 
 
