@@ -186,6 +186,7 @@ public class IncreasingEliasGammaSeq {
                 if (bitOffset == 8 ) {
                     bitOffset = 0;
                     currentByteIdx++;
+                    if (currentByteIdx == bits.length) return -1;
                     currentByte = bits[currentByteIdx];
                 }
                 if (bit) {
