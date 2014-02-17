@@ -125,7 +125,7 @@ object TwitterExperiments {
       }
       i += 1
       if (cnt > 0)  {
-        println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        //println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
         foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
       }
     }
