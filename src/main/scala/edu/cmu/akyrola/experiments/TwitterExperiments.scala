@@ -109,7 +109,7 @@ object TwitterExperiments {
     foflog.write("count,micros\n")
 
     while(i < n) {
-      val v = math.abs(r.nextLong() % 40000000) + 1
+      val v = math.abs(r.nextLong() % 4000000) + 1
       val a = new BitSetOrigIdReceiver(outEdges = true)
 
       val friendReceiver = new SimpleArrayReceiver(outEdges = true, limit=limit)
