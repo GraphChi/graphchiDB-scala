@@ -20,7 +20,15 @@ import java.util.Date
  * @author Aapo Kyrola
  */
 object LiveJournalExp {
- 
+
+  /**
+   *
+  import edu.cmu.akyrola.prototype.LiveJournalAccess._
+  import edu.cmu.graphchidb.compute.Pagerank
+
+  val pagerankComputation = new Pagerank(DB)
+     DB.runIteration(pagerankComputation)
+    */
 
   val source =  "/Users/akyrola/graphs/soc-LiveJournal1.txt"
 

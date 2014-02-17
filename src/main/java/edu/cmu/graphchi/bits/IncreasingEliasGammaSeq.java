@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Iterator;
 
 /**
  * Stores an increasing sequence efficiently
@@ -331,6 +332,66 @@ public class IncreasingEliasGammaSeq {
 
     }
 
+    public Iterator<Long> iterator() {
+        return new Iterator<Long>() {
+            int j = 0;
+            long cumulant = (-1);
+            int bitOffset = 0;
+            byte currentByte = (bits.length > 0 ? bits[0] : 0);
+            int currentByteIdx = 0;
+
+            @Override
+            public boolean hasNext() {
+                return j < length - 1;
+            }
+
+            @Override
+            public Long next() {
+                 /* Prefix */
+                boolean bit = false;
+                int zeros = (-1);
+                do {
+                    bitOffset ++;
+                    byte mask = (byte) (1 << (8-bitOffset));
+                    bit = (currentByte & mask) != 0;
+                    if (bitOffset == 8 ) {
+                        bitOffset = 0;
+                        currentByteIdx++;
+                        currentByte = bits[currentByteIdx];
+                    }
+                    zeros++;
+                } while(!bit);
+
+            /* Bits */
+                int delta = (1 << zeros);
+                while(zeros > 0) {
+                    zeros--;
+                    bitOffset ++;
+                    byte mask = (byte) (1 << (8-bitOffset));
+                    bit = (currentByte & mask) != 0;
+                    if (bitOffset == 8 ) {
+                        bitOffset = 0;
+                        currentByteIdx++;
+                        if (currentByteIdx < bits.length - 1) {
+                            currentByte = bits[currentByteIdx];
+                        }
+                    }
+                    if (bit) {
+                        delta = delta | (1 << zeros);
+                    }
+                }
+
+                cumulant += delta;
+                j++;
+                return cumulant;
+            }
+
+            @Override
+            public void remove() {
+               throw new UnsupportedOperationException();
+            }
+        };
+    }
 
     public int length() {
         return length;

@@ -2,8 +2,10 @@ package edu.cmu.graphchi.bits;
 
 import org.junit.Test;
 
+import java.util.Iterator;
 import java.util.Random;
 
+import static junit.framework.TestCase.assertTrue;
 import static org.junit.Assert.assertEquals;
 
 /**
@@ -105,5 +107,30 @@ public class TestIncreasingEliasGammaSeq {
         long t3 = System.currentTimeMillis();
         System.out.println("Encoding took " + (t2 - t1) + " ms, while finds took " + (t3 - t2) + " ms" + " = " +
                 ((t3 - t2) * 1.0) / orig.length + " ms / element");
+    }
+
+    @Test
+    public void testIterator() {
+        long[] orig = new long[10000000];
+
+        long t1 = System.currentTimeMillis();
+        orig[0] = 0;
+        Random r = new Random();
+        for(int i=1; i<orig.length; i++) {
+            long delta = 1 +  Math.abs(r.nextLong() % 100);
+            orig[i] = orig[i - 1] + delta;
+        }
+
+        long t2 = System.currentTimeMillis();
+
+        IncreasingEliasGammaSeq egSeq = new IncreasingEliasGammaSeq(orig);
+        Iterator<Long> iter = egSeq.iterator();
+        int j = 0;
+        while(iter.hasNext()) {
+            assertTrue(iter.hasNext());
+            long x = iter.next();
+            assertEquals(orig[j], x);
+            j++;
+        }
     }
 }

@@ -723,66 +723,163 @@ public class QueryShard {
 
 
     public EdgeIterator edgeIterator() {
-        final LongBuffer iterBuffer = adjBuffer.duplicate();
-        iterBuffer.position(0);
-        final LongBuffer iterPointerBuffer = pointerIdxBuffer.duplicate();
-        iterPointerBuffer.position(0);
+        if (!pinIndexToMemory) {
+            final LongBuffer iterBuffer = adjBuffer.duplicate();
+            iterBuffer.position(0);
+            final LongBuffer iterPointerBuffer = pointerIdxBuffer.duplicate();
+            iterPointerBuffer.position(0);
 
 
-        return new EdgeIterator() {
-            int idx = (-1);
-            long ptr = (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
-            long nextPtr =  (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
-            long nextOff = VertexIdTranslate.getAux(nextPtr);
-            long curSrc = VertexIdTranslate.getVertexId(ptr);
-            long curDst;
-            byte curType;
-            long vertexPacket;
+            return new EdgeIterator() {
+                int idx = (-1);
+                long ptr = (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
+                long nextPtr =  (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
+                long nextOff = VertexIdTranslate.getAux(nextPtr);
+                long curSrc = VertexIdTranslate.getVertexId(ptr);
+                long curDst;
+                byte curType;
+                long vertexPacket;
 
 
-            @Override
-            public boolean hasNext() {
-                if (idx < numEdges - 1) {
-                    vertexPacket = iterBuffer.get();
-                    if (VertexIdTranslate.isEdgeDeleted(vertexPacket)) {
-                        next(); // Skip over deleted edges
-                        return hasNext();
+                @Override
+                public boolean hasNext() {
+                    if (idx < numEdges - 1) {
+                        vertexPacket = iterBuffer.get();
+                        if (VertexIdTranslate.isEdgeDeleted(vertexPacket)) {
+                            next(); // Skip over deleted edges
+                            return hasNext();
+                        } else {
+                            return true;
+                        }
+
                     } else {
-                        return true;
+                        return false;
+                    }
+                }
+
+                @Override
+                public void next() {
+                    idx++;
+                    if (idx == nextOff) {
+                        curSrc = VertexIdTranslate.getVertexId(nextPtr);
+                        nextPtr = iterPointerBuffer.get();
+                        nextOff = VertexIdTranslate.getAux(nextPtr);
                     }
 
-                } else {
-                    return false;
-                }
-            }
-
-            @Override
-            public void next() {
-                idx++;
-                if (idx == nextOff) {
-                    curSrc = VertexIdTranslate.getVertexId(nextPtr);
-                    nextPtr = iterPointerBuffer.get();
-                    nextOff = VertexIdTranslate.getAux(nextPtr);
+                    curDst = VertexIdTranslate.getVertexId(vertexPacket);
+                    curType = VertexIdTranslate.getType(vertexPacket);
                 }
 
-                curDst = VertexIdTranslate.getVertexId(vertexPacket);
-                curType = VertexIdTranslate.getType(vertexPacket);
-            }
+                @Override
+                public long getSrc() {
+                    return curSrc;
+                }
 
-            @Override
-            public long getSrc() {
-                return curSrc;
-            }
+                @Override
+                public long getDst() {
+                    return curDst;
+                }
 
-            @Override
-            public long getDst() {
-                return curDst;
-            }
+                @Override
+                public byte getType() {
+                    return curType;
+                }
+            };
+        } else {
+            if (gammaSeqVertices == null) {
+                return new EdgeIterator() {
+                    @Override
+                    public boolean hasNext() {
+                        return false;
+                    }
 
-            @Override
-            public byte getType() {
-                return curType;
+                    @Override
+                    public void next() {
+
+                    }
+
+                    @Override
+                    public long getSrc() {
+                        return 0;
+                    }
+
+                    @Override
+                    public long getDst() {
+                        return 0;
+                    }
+
+                    @Override
+                    public byte getType() {
+                        return 0;
+                    }
+                };
             }
-        };
+            final LongBuffer iterBuffer = adjBuffer.duplicate();
+            iterBuffer.position(0);
+            final Iterator<Long> iterPointerVertices = gammaSeqVertices.iterator();
+            final Iterator<Long> iterPointerOffs = gammaSeqOffs.iterator();
+
+
+            return new EdgeIterator() {
+                int idx = (-1);
+                long ptr = (iterPointerVertices.hasNext() ?  VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next()) : -1);
+                long nextPtr =  (iterPointerVertices.hasNext() ?  VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next()) : -1);
+                long nextOff = VertexIdTranslate.getAux(nextPtr);
+                long curSrc = VertexIdTranslate.getVertexId(ptr);
+                long curDst;
+                byte curType;
+                long vertexPacket;
+
+
+                @Override
+                public boolean hasNext() {
+                    if (idx < numEdges - 1) {
+                        vertexPacket = iterBuffer.get();
+                        if (VertexIdTranslate.isEdgeDeleted(vertexPacket)) {
+                            next(); // Skip over deleted edges
+                            return hasNext();
+                        } else {
+                            return true;
+                        }
+
+                    } else {
+                        return false;
+                    }
+                }
+
+                @Override
+                public void next() {
+                    idx++;
+                    if (idx == nextOff) {
+                        curSrc = VertexIdTranslate.getVertexId(nextPtr);
+                        if (iterPointerVertices.hasNext()) {
+                            nextPtr = VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next());
+                        } else {
+                            System.out.println("Warning: edgeIterator at " + idx + " but no more left...");
+                        }
+                        nextOff = VertexIdTranslate.getAux(nextPtr);
+                    }
+
+                    curDst = VertexIdTranslate.getVertexId(vertexPacket);
+                    curType = VertexIdTranslate.getType(vertexPacket);
+                }
+
+                @Override
+                public long getSrc() {
+                    return curSrc;
+                }
+
+                @Override
+                public long getDst() {
+                    return curDst;
+                }
+
+                @Override
+                public byte getType() {
+                    return curType;
+                }
+            };
+        }
     }
+
 }
