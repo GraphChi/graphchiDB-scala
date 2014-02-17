@@ -17,6 +17,7 @@ import java.io._
 object TwitterIngestExp {
 
  
+  val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
 
 
   val source =  "/Users/akyrola/graphs/twitter_rv.net"
