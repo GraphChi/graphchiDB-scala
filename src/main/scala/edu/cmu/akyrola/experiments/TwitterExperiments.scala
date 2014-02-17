@@ -31,7 +31,11 @@ object TwitterExperiments {
 
   DB.initialize()
 
-  println(DB.columns)
+
+  val pagerankComputation = new Pagerank(DB)
+  val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
+
+
 
   class BitSetOrigIdReceiver(outEdges: Boolean) extends QueryCallback {
     val bitset = new util.BitSet(100000000)
@@ -98,12 +102,14 @@ object TwitterExperiments {
     qlog.close()
   }
 
-   def fofTest(n: Int, limit: Int = 200): Unit = {
+   def fofTest(n: Int, limit: Int = 200, pagerank: Boolean): Unit = {
     var i = 1
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
     val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n)
-
+     if (pagerank) {
+       DB.runIteration(pagerankComputation, continuous=true)
+     }
     val foflog = new BufferedWriter(new FileWriter("fof_twitter_%s_limit_%d%s.csv".format(id, limit, if (QueryShard.pinIndexToMemory) { "_pin"} else {""})))
 
     foflog.write("count,micros\n")
@@ -139,9 +145,13 @@ object TwitterExperiments {
   def main(args: Array[String]) {
     if (args(0) == "inout") {
  		   inAndOutTest(args(1).toInt)
-    } else {
-        fofTest(args(1).toInt)
+    } else if (args(0) == "fof") {
+        fofTest(args(1).toInt, pagerank=false)
+    } else if (args(0) == "fofpagerank") {
+      fofTest(args(1).toInt, pagerank=true)
+
     }
+
   }
 
  }
