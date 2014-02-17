@@ -9,6 +9,7 @@ import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.bits.IncreasingEliasGammaSeq;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
+import edu.cmu.graphchi.queries.FinishQueryException;
 import edu.cmu.graphchi.queries.QueryCallback;
 import org.apache.commons.collections.map.LRUMap;
 import scala.actors.threadpool.locks.Lock;
@@ -381,8 +382,9 @@ public class QueryShard {
                 }
             }
             _timer2.stop();
+        } catch (FinishQueryException fqe) {
+            // Used for cases when query was early fulfilled
         } catch (Exception err) {
-            err.printStackTrace();
             throw new RuntimeException(err);
         }
     }

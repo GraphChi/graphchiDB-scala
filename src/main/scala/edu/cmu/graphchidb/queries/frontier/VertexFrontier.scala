@@ -16,6 +16,7 @@ trait VertexFrontier {
   def isEmpty : Boolean
   def size: Int
 
+
   def toSet: Set[Long]
 
   def apply[T](f : VertexFrontier => T) = f(this)
@@ -32,7 +33,18 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
 
   var counter = 0
   var empty = true
-  val shardBitSets = (0 until indexing.nShards).map(i => new scala.collection.mutable.BitSet(indexing.shardSize(i).toInt)).toIndexedSeq
+  var shardBitSets = (0 until indexing.nShards).map(i => new scala.collection.mutable.BitSet(indexing.shardSize(i).toInt)).toIndexedSeq
+
+  def union(frontier: VertexFrontier) : Unit = {
+    frontier match {
+      case dense: DenseVertexFrontier => {
+        shardBitSets = (0 until indexing.nShards).map(i => this.shardBitSets(i) | dense.shardBitSets(i))
+      }
+      case sparse: SparseVertexFrontier => {
+         sparse.toSet.foreach(x => insert(x))
+      }
+    }
+  }
 
   def insert(vertexId: Long) : Unit = {
      val bitset = shardBitSets(indexing.shardForIndex(vertexId))

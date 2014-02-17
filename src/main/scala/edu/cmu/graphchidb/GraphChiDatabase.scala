@@ -6,7 +6,7 @@ import java.io.{IOException, FileOutputStream, File}
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
-import edu.cmu.graphchi.queries.{QueryCallback}
+import edu.cmu.graphchi.queries.{FinishQueryException, QueryCallback}
 import edu.cmu.graphchidb.Util.async
 import java.nio.{BufferUnderflowException, ByteBuffer}
 import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
@@ -1674,15 +1674,18 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def sweepAllEdges( )(updateFunc: (Long, Long, Byte) => Unit) = {
     val shardsToSweep = shards
 
+    var doFinish = false
     shardsToSweep.par.foreach(shard => {
       shard.persistentShardLock.readLock().lock()
       try {
         val edgeIterator = shard.persistentShard.edgeIterator()
-        while(edgeIterator.hasNext) {
+        while(edgeIterator.hasNext && !doFinish) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           updateFunc(src, dst, edgeIterator.getType)
         }
+      } catch {
+        case fqe : FinishQueryException => { doFinish = true } // This is fine
       } finally {
         shard.persistentShardLock.readLock().unlock()
       }

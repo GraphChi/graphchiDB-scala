@@ -2,7 +2,7 @@ package edu.cmu.graphchidb.queries.frontier
 
 import edu.cmu.graphchidb.GraphChiDatabase
 import scala.collection.mutable
-import edu.cmu.graphchi.queries.QueryCallback
+import edu.cmu.graphchi.queries.{FinishQueryException, QueryCallback}
 import java.{lang, util}
 
 /**
@@ -73,6 +73,8 @@ object FrontierQueries {
   }
 
 
+
+
   // Function returns item to add to frontier and a boolean that determines whether to continue
   def traverseOut(edgeType: Byte, fn: (Long, Long) => Option[Long]) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
@@ -84,16 +86,16 @@ object FrontierQueries {
         new SparseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
       }
 
-       frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
-         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
-         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
+      frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+        def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
+        def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
 
-         def immediateReceive() = true
-         def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
-            val v = fn(src, dst)
-            if (v.isDefined) newFrontier.insert(v.get)
-         }
-       })
+        def immediateReceive() = true
+        def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
+          val v = fn(src, dst)
+          if (v.isDefined) newFrontier.insert(v.get)
+        }
+      })
 
       newFrontier
     }
@@ -114,6 +116,63 @@ object FrontierQueries {
   }
 
 
+  def traverseOutUntil(edgeType: Byte, fn: (Long, Long) => Tuple2[Option[Long], Boolean]) : queryFunction = {
+    def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
+      val frontierSet = frontier.toSet
+
+      val newFrontier = if (frontierSet.size > 20000) {   // TODO: remove hard coding
+        new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      } else {
+        new SparseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      }
+
+      var finished = false
+
+      frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+        def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
+        def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
+
+        def immediateReceive() = true
+        def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
+          val (v, doFinish) = fn(src, dst)
+          if (v.isDefined) newFrontier.insert(v.get)
+          if (doFinish || finished) {
+            finished = true
+            throw new FinishQueryException()
+          }
+        }
+      })
+
+      newFrontier
+    }
+
+    def bottomUp(frontier:DenseVertexFrontier) : VertexFrontier  = {
+      val outFrontier = new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      var finished = false
+      println("Bottomup....")
+
+      try {
+        frontier.db.sweepAllEdges() (
+          (src: Long, dst: Long, eType: Byte ) => {
+            if (edgeType == eType && frontier.hasVertex(src))  {
+              val (v, doFinish) = fn(src, dst)
+              if (v.isDefined) outFrontier.insert(v.get)
+              if (doFinish || finished) {
+                finished = true
+                throw new FinishQueryException()
+              }
+            }
+          }
+        )
+        outFrontier
+      } catch {
+        case fqe : FinishQueryException => outFrontier
+      }
+    }
+    step(topDown, bottomUp)
+  }
+
+
   trait VertexResultReceiver {
     def apply(vid: Long) : Unit
   }
@@ -124,14 +183,14 @@ object FrontierQueries {
   /* Emits each out-neighbor for the frontier */
   def selectOut[RV <: VertexResultReceiver](edgeType: Byte, resultReceiver: RV, condition: ( Long) => Boolean = (u) => true) = {
     def topDown(frontier: SparseVertexFrontier) : RV = {
-     frontier.db.queryOutMultiple(frontier.toSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontier.toSet, edgeType, new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = { }
 
         def immediateReceive() = true
 
         def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
-           if (condition(dst)) resultReceiver(dst)
+          if (condition(dst)) resultReceiver(dst)
         }
       })
       resultReceiver

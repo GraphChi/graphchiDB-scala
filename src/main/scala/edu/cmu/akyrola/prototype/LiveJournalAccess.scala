@@ -13,6 +13,10 @@ import java.{lang, util}
 object LiveJournalAccess {
             /*
   import edu.cmu.akyrola.prototype.LiveJournalAccess._
+  import edu.cmu.graphchidb.queries.Queries
+  Queries.shortestPath(DB.originalToInternalId(8737), 3489673880L, edgeType=0)(DB)
+    Queries.shortestPath(DB.originalToInternalId(8737), DB.originalToInternalId(2409), edgeType=0)(DB)
+
   */
 
   val source =  "/Users/akyrola/graphs/soc-LiveJournal1.txt"

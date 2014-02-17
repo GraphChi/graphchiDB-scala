@@ -3,6 +3,8 @@ package edu.cmu.graphchidb.queries
 import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.queries.frontier.FrontierQueries._
 import edu.cmu.graphchidb.storage.Column
+import edu.cmu.graphchidb.queries.frontier.{DenseVertexFrontier, VertexFrontier}
+import scala.collection.mutable
 
 /**
  * Advanced queries
@@ -29,6 +31,45 @@ object Queries {
   def friendsOfFriendsSet(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
       val friends = queryVertex(internalId, db)
       friends->traverseOut(edgeType)->traverseOut(edgeType)
+  }
+
+
+  def shortestPath(fromInternal: Long, toInternal: Long, maxDepth: Int = 5, edgeType: Byte)(implicit db: GraphChiDatabase) = {
+      var frontier = queryVertex(fromInternal, db)
+      val visited = new DenseVertexFrontier(db.vertexIndexing, db)
+      var passes = 0
+
+      // TODO: this fails on very big graphs. Also hacky to use original IDs here. Reason: original id space assumed
+      // Hashtable becomes very slow when the frontier is big. COuld do a switch...
+      // to be sequential.
+      val parents = new Array[Int](db.numVertices.toInt)
+      parents(db.internalToOriginalId(fromInternal).toInt) = db.internalToOriginalId(fromInternal).toInt
+
+      while(!frontier.hasVertex(toInternal) && passes < maxDepth) {
+        visited.union(frontier)
+        frontier = frontier->traverseOutUntil(edgeType, (src, dst) => if (!visited.hasVertex(dst)) {
+          parents(db.internalToOriginalId(dst).toInt) = db.internalToOriginalId(src).toInt
+          (Some(dst), dst == toInternal) } else  { (None, false) } )
+        passes += 1
+         println("Frontier size (%d) : %d, type: %s".format(passes, frontier.size, frontier))
+      }
+
+      if (frontier.hasVertex(toInternal)) {
+        def parent(dst: Int) : List[Int] = {
+          val parentVal = parents(dst)
+            val parentVid = parentVal
+            if (parentVid == dst) {
+              List(dst)
+            } else {
+              List(dst) ++ parent(parentVid)
+            }
+        }
+
+        parent(db.internalToOriginalId(toInternal).toInt).map(origId => db.originalToInternalId(origId))
+
+      } else {
+         List[Long]()
+      }
   }
 
 
