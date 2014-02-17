@@ -98,10 +98,46 @@ object TwitterExperiments {
     qlog.close()
   }
 
+   def fofTest(n: Int, limit: Int = 200): Unit = {
+    var i = 1
+    val t = System.currentTimeMillis()
+    val r = new java.util.Random(260379)
+    val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n)
+
+    val foflog = new BufferedWriter(new FileWriter("fof_twitter_%s_limit_%d%s.csv".format(id, limit, if (QueryShard.pinIndexToMemory) { "_pin"} else {""})))
+
+    foflog.write("count,micros\n")
+
+    while(i < n) {
+      val v = math.abs(r.nextLong() % 40000000) + 1
+      val a = new BitSetOrigIdReceiver(outEdges = true)
+
+      val friendReceiver = new SimpleArrayReceiver(outEdges = true, limit=limit)
+      val st = System.nanoTime()
+      DB.queryOut(DB.originalToInternalId(v), 0, friendReceiver, parallel=true)
+      val st2 = System.nanoTime()
+      DB.queryOutMultiple(friendReceiver.arr, 0.toByte, a, parallel=true)
+      val tFof = System.nanoTime() - st
+      val cnt = a.size
+      if (i % 1000 == 0 && cnt >= 0) {
+        printf("%d %d fof:%d\n".format(System.currentTimeMillis() - t, i, cnt))
+        foflog.flush()
+      }
+      i += 1
+      if (cnt > 0)  {
+        println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
+      }
+    }
+
+    foflog.close()
+    println("Finished")
+  }
+
 
 
   def main(args: Array[String]) {
-    if (args(0) == "inout") {}
+    if (args(0) == "inout") {
  		   inAndOutTest(args(1).toInt)
     } else {
         fofTest(args(1).toInt)

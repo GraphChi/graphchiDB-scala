@@ -1384,7 +1384,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     queryOutMultiple(queryIds.toSeq, edgeType, callback)
   }
 
-  def queryOutMultiple(queryIds: Seq[Long], edgeType: Byte, callback: QueryCallback) : Unit = {
+  def queryOutMultiple(queryIds: Seq[Long], edgeType: Byte, callback: QueryCallback, parallel:Boolean=false) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     if (enableVertexShardBits && queryIds.size < 10) {
@@ -1413,8 +1413,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       }
       val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
 
-      filteredShards.foreach(shard => {
-        try {
+      def queryshard(shard: DiskShard) = {
+          try {
           val matchingIds =  idsWithQueryBits.filter(t => compareShardBitsToInterval(t._2, shard.myInterval)).map(_._1.asInstanceOf[java.lang.Long])
 
           if (matchingIds.nonEmpty) {
@@ -1428,7 +1428,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         } catch {
           case e: Exception  =>  e.printStackTrace()
         }
-      })
+      }
+
+      if (!parallel) {
+         filteredShards.foreach(shard => queryshard(shard))
+      } else {
+         filteredShards.par.foreach(shard => queryshard(shard))
+      }
     } else {
       if (!buffersEmpty) {
         bufferShards.foreach(bufferShard => {
@@ -1449,16 +1455,24 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         })
       }
       val filteredShards = shards.filterNot(_.persistentShard.isEmpty)
-
       val ids = queryIds.map(_.asInstanceOf[java.lang.Long])
-      filteredShards.foreach(shard => {
-        shard.persistentShardLock.readLock().lock()
+
+      def queryshard2(shard: DiskShard) = {
+         shard.persistentShardLock.readLock().lock()
         try {
           shard.persistentShard.queryOut(ids, callback, edgeType)
         } finally {
           shard.persistentShardLock.readLock().unlock()
-        }
-      })
+        }  
+      }
+
+
+      if (!parallel) {
+         filteredShards.foreach(shard => queryshard2(shard))
+      } else {
+         filteredShards.par.foreach(shard => queryshard2(shard))
+      }
+
     }
 
   }
