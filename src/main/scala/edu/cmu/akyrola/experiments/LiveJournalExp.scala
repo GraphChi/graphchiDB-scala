@@ -133,6 +133,8 @@ object LiveJournalExp {
 
     foflog.close()
     println("Finished")
+    System.exit(0)
+
   }
 
 

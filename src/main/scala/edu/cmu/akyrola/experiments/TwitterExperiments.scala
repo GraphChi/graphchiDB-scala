@@ -106,7 +106,8 @@ object TwitterExperiments {
     var i = 1
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
-    val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n)
+    val id = "%s_%s_i%d_%s".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n,
+      if (pagerank) { "pagerank" } else {""})
      if (pagerank) {
        DB.runIteration(pagerankComputation, continuous=true)
      }
@@ -138,6 +139,7 @@ object TwitterExperiments {
 
     foflog.close()
     println("Finished")
+     System.exit(0)
   }
 
 
