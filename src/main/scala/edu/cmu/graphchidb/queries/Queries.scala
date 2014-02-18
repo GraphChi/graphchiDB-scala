@@ -54,28 +54,40 @@ object Queries {
     }
 
     var finished = false  // Ugly
+
     while(!frontier.hasVertex(toInternal) && passes < maxDepth && !finished) {
       visited.union(frontier)
 
       /* Check if any in the frontier is in the in-edges */
       if (destInneighbors.isSet || passes == maxDepth - 1) {
         val inNeighbors = destInneighbors()
-        val anyFwdMatch = visited.hasAnyVertex(inNeighbors)
-        anyFwdMatch.map { matchId =>
+        if (inNeighbors.isEmpty) {
+          println("No in-neighbors!")
+          finished = true
+        } else {
+          val anyFwdMatch = visited.hasAnyVertex(inNeighbors)
+          anyFwdMatch.map { matchId =>
             parents(db.internalToOriginalId(toInternal).toInt) = db.internalToOriginalId(matchId).toInt
             frontier = queryVertex(toInternal, db) // hack
             finished = true
-        }
-        if (passes == maxDepth - 1 && !finished) {
-           // Should have been found now
-           finished = true
+          }
+          if (passes == maxDepth - 1 && !finished) {
+            // Should have been found now
+            finished = true
+          }
         }
       }
 
       if (!finished) {
-        frontier = frontier->traverseOutUntil(edgeType, (src, dst) => if (!visited.hasVertex(dst)) {
-          parents(db.internalToOriginalId(dst).toInt) = db.internalToOriginalId(src).toInt
-          (Some(dst), dst == toInternal) } else  { (None, false) } )
+        frontier = frontier->traverseOutTopDownDense(edgeType, (src, dst) => {
+           if (visited.hasVertex(dst)) { (None, false) }
+           else {
+             parents(db.internalToOriginalId(dst).toInt) = db.internalToOriginalId(src).toInt
+             (Some(dst), dst == toInternal)
+           }
+        })
+        frontier.remove(visited) // Remove visited
+
         passes += 1
       }
     }

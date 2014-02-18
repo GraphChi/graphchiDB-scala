@@ -13,6 +13,7 @@ object FrontierQueries {
   // TODO: queryShard.queryOut with direct one-edge callback
 
   type queryFunction = (VertexFrontier) => VertexFrontier
+  type denseQueryFunction = (VertexFrontier) => DenseVertexFrontier
 
 
   def queryVertex[T](vid: Long,  db:GraphChiDatabase) : VertexFrontier = {
@@ -115,6 +116,34 @@ object FrontierQueries {
     step(topDown, bottomUp)
   }
 
+
+
+  def traverseOutTopDownDense(edgeType: Byte, fn: (Long, Long) => Tuple2[Option[Long], Boolean]) : denseQueryFunction = {
+    def topDown(frontier:VertexFrontier) : DenseVertexFrontier = {
+
+      val newFrontier =  new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      frontier.db.queryOutMultiple(frontier.toSeq, edgeType, new QueryCallback {
+        def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
+        def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
+        var finished = false
+
+        def immediateReceive() = true
+        def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
+          val (v, doFinish) = fn(src, dst)
+          if (v.isDefined) newFrontier.insert(v.get)
+          if (doFinish || finished) {
+            finished = true
+            throw new FinishQueryException()
+          }
+        }
+      }, parallel=true)
+
+
+      newFrontier
+    }
+
+    topDown
+  }
 
   def traverseOutUntil(edgeType: Byte, fn: (Long, Long) => Tuple2[Option[Long], Boolean]) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
