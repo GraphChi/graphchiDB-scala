@@ -10,7 +10,12 @@ f = sys.argv[-1]
 
 data = open(f).read()
 
-values = [[float(x) for x in ln.split("\t")] for ln in data.split("\n")[1:] if len(ln) > 1]
+if data.find(",") > 0:
+    delim = ","
+else:
+    delim = "\t"
+
+values = [[float(x) for x in ln.split(delim)] for ln in data.split("\n")[1:] if len(ln) > 1]
 
 fofchecksum = sum([d[0] for d in values])
 totalfoftime = sum([d[1] for d in values])

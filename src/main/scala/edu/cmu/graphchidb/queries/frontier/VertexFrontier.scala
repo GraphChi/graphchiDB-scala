@@ -13,6 +13,7 @@ trait VertexFrontier {
 
   def insert(vertexId: Long) : Unit
   def hasVertex(vertexId: Long): Boolean
+  def hasAnyVertex(other: VertexFrontier) : Option[Long]
   def isEmpty : Boolean
   def size: Int
 
@@ -42,6 +43,28 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
       }
       case sparse: SparseVertexFrontier => {
          sparse.toSet.foreach(x => insert(x))
+      }
+    }
+  }
+
+
+  def hasAnyVertex(other: VertexFrontier) : Option[Long] = {
+    other match {
+      case dense: DenseVertexFrontier => {
+        (0 until indexing.nShards).foreach(i => {
+           val intersection = this.shardBitSets(i) & dense.shardBitSets(i)
+           val iterator = intersection.iterator
+           if (iterator.hasNext) {
+               return Some(indexing.localToGlobal(i, iterator.next()))
+           }
+        })
+        None
+      }
+      case sparse: SparseVertexFrontier => {
+        sparse.toSet.foreach(x => {
+            if (hasVertex(x)) return Some(x)
+        })
+        None
       }
     }
   }
@@ -84,6 +107,18 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
       backingSet ++= set
   }
 
+
+  def hasAnyVertex(other: VertexFrontier) : Option[Long] = {
+    other match {
+      case dense: DenseVertexFrontier => dense.hasAnyVertex(this)
+      case sparse: SparseVertexFrontier => {
+        sparse.toSet.foreach(x => {
+          if (hasVertex(x)) return Some(x)
+        })
+        None
+      }
+    }
+  }
 
   def insert(vertexId: Long) = backingSet.add(vertexId)
 

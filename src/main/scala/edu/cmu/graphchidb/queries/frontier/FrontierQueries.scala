@@ -56,7 +56,7 @@ object FrontierQueries {
   def traverseOut(edgeType: Byte) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
       val frontierCallback = new FrontierCallback(frontier.db)
-      frontier.db.queryOutMultiple(frontier.toSet, edgeType, frontierCallback)
+      frontier.db.queryOutMultiple(frontier.toSet.toSeq, edgeType, frontierCallback)
       frontierCallback.frontier
     }
 
@@ -86,7 +86,7 @@ object FrontierQueries {
         new SparseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
       }
 
-      frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontierSet.toSeq, edgeType, new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
 
@@ -128,7 +128,7 @@ object FrontierQueries {
 
       var finished = false
 
-      frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontierSet.toSeq, edgeType,new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
 
@@ -141,7 +141,7 @@ object FrontierQueries {
             throw new FinishQueryException()
           }
         }
-      })
+      }, parallel=true)
 
       newFrontier
     }
@@ -149,7 +149,6 @@ object FrontierQueries {
     def bottomUp(frontier:DenseVertexFrontier) : VertexFrontier  = {
       val outFrontier = new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
       var finished = false
-      println("Bottomup....")
 
       try {
         frontier.db.sweepAllEdges() (
@@ -183,7 +182,7 @@ object FrontierQueries {
   /* Emits each out-neighbor for the frontier */
   def selectOut[RV <: VertexResultReceiver](edgeType: Byte, resultReceiver: RV, condition: ( Long) => Boolean = (u) => true) = {
     def topDown(frontier: SparseVertexFrontier) : RV = {
-      frontier.db.queryOutMultiple(frontier.toSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontier.toSet.toSeq, edgeType, new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = { }
 

@@ -52,10 +52,10 @@ object LiveJournalTest  {
 
   val baseFilename = "/Users/akyrola/graphs/DB/livejournal/livejournal.txt"
 
-  GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards = 64)
+  GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards = 16)
 
 
-  val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 64)
+  val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 16)
 
   /* Create columns */
   /* val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)

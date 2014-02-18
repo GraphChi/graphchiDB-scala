@@ -28,7 +28,7 @@ object LiveJournalExp {
 
   val pagerankComputation = new Pagerank(DB)
      DB.runIteration(pagerankComputation)
-    */
+   */
 
   val source =  "/Users/akyrola/graphs/soc-LiveJournal1.txt"
 
@@ -37,44 +37,43 @@ object LiveJournalExp {
   val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
 
 
-  val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 16)
+  lazy val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 16)
 
   /* Create columns */
   /* val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
    val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
     */
-  DB.initialize()
-    
+
   val pagerankComputation = new Pagerank(DB)
   val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
-   
 
-   
+
+
 
   def startIngest() {
-      GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards = 16)
+    DB.initialize()
 
-      var i = 0
-      val r = new Random
-      val t = System.currentTimeMillis()
-      timed("ingest", {
-        val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
+    var i = 0
+    val r = new Random
+    val t = System.currentTimeMillis()
+    timed("ingest", {
+      val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
 
-        Source.fromFile(new File(source)).getLines().foreach( ln => {
-          if (!ln.startsWith("#")) {
-            val toks = ln.split("\t")
-            val from = Integer.parseInt(toks(0))
-            val to = Integer.parseInt(toks(1))
-            val edgeType = if ((from + to) % 3 == 0) "follow" else "like"
-            DB.addEdgeOrigId(0, from, to) /*, (from + to),
+      Source.fromFile(new File(source)).getLines().foreach( ln => {
+        if (!ln.startsWith("#")) {
+          val toks = ln.split("\t")
+          val from = Integer.parseInt(toks(0))
+          val to = Integer.parseInt(toks(1))
+          val edgeType = if ((from + to) % 3 == 0) "follow" else "like"
+          DB.addEdgeOrigId(0, from, to) /*, (from + to),
               typeColumn.indexForName(edgeType)) */
-            i += 1
-            if (i % 1000 == 0) ingestMeter.mark(1000)
-            if (i % 1000000 == 0) println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(i) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
-              + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
-          }
-        })
+          i += 1
+          if (i % 1000 == 0) ingestMeter.mark(1000)
+          if (i % 1000000 == 0) println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(i) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
+            + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
+        }
       })
+    })
   }
 
 
@@ -92,16 +91,18 @@ object LiveJournalExp {
     def size = bitset.cardinality()
   }
   def fofTest(n: Int, pagerank:Boolean, limit: Int = 200): Unit = {
+    DB.initialize()
+
     var i = 1
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
 
     if (pagerank) {
-        DB.runIteration(pagerankComputation, continuous=true)
+      DB.runIteration(pagerankComputation, continuous=true)
     }
 
     val id = "%s_%s_i%d_%s".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n,
-       if (pagerank) { "pagerank" } else {""})
+      if (pagerank) { "pagerank" } else {""})
 
 
     val foflog = new FileWriter("fof_livejournal_%s_limit_%d.csv".format(id, limit))
@@ -125,8 +126,8 @@ object LiveJournalExp {
       }
       i += 1
       if (cnt > 0)  {
-       // println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
-        foflog.write("%d,%f\n".format(cnt, tFof * 0.001))
+        // println("%d,%f,%f, %d\n".format(cnt, tFof * 0.001, (st2 - st) * 0.001, v))
+        foflog.write("%d,%f,%d\n".format(cnt, tFof * 0.001,v))
       }
       foflog.flush()
     }
@@ -137,18 +138,41 @@ object LiveJournalExp {
 
   }
 
+  def shortestPathTest(n: Int) = {
+    DB.initialize()
+
+    val t = System.currentTimeMillis()
+    val r = new java.util.Random(260379)
+
+    (0 until n).foreach(i => {
+      val from = math.abs(r.nextLong() % 4500000) + 1
+      val to = math.abs(r.nextLong() % 4500000) + 1
+      val st = System.nanoTime()
+      val path = Queries.shortestPath(DB.originalToInternalId(from), DB.originalToInternalId(to), edgeType=0, maxDepth = 5)(DB)
+      val tt = System.nanoTime() - st
+      println("%d,%d,%d micros:%f".format(from, to, path.size -1, tt*0.001))
+
+    } )
+
+    println("Total time: " + (System.currentTimeMillis() - t) + " ms n=%d".format(n))
+  }
+
 
   def main(args: Array[String]) {
-      if (args(0) == "ingest") {
-         startIngest
-      }
-      if (args(0) == "fof") {
-         fofTest(args(1).toInt, pagerank=false)
-      }
-      if (args(0) == "fofpagerank") {
-         fofTest(args(1).toInt, pagerank=true)
-      }
-    
+    if (args(0) == "ingest") {
+      GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards = 16)
+      startIngest
+    }
+    if (args(0) == "fof") {
+      fofTest(args(1).toInt, pagerank=false)
+    }
+    if (args(0) == "fofpagerank") {
+      fofTest(args(1).toInt, pagerank=true)
+    }
+    if (args(0) == "shortestpath") {
+      shortestPathTest(args(1).toInt)
+    }
+
   }
 
 }
