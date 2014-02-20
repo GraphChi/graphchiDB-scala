@@ -54,6 +54,7 @@ object Queries {
     }
 
     var finished = false  // Ugly
+    var foundEarly = false
 
     while(!frontier.hasVertex(toInternal) && passes < maxDepth && !finished) {
       visited.union(frontier)
@@ -68,7 +69,7 @@ object Queries {
           val anyFwdMatch = visited.hasAnyVertex(inNeighbors)
           anyFwdMatch.map { matchId =>
             parents(db.internalToOriginalId(toInternal).toInt) = db.internalToOriginalId(matchId).toInt
-            frontier = queryVertex(toInternal, db) // hack
+            foundEarly = true
             finished = true
           }
           if (passes == maxDepth - 1 && !finished) {
@@ -83,16 +84,27 @@ object Queries {
            if (visited.hasVertex(dst)) { (None, false) }
            else {
              parents(db.internalToOriginalId(dst).toInt) = db.internalToOriginalId(src).toInt
-             (Some(dst), dst == toInternal)
+
+             if (destInneighbors.isSet) {
+                if (destInneighbors().hasVertex(dst)) {
+                  // Check in-edge list
+                  parents(db.internalToOriginalId(toInternal).toInt) = db.internalToOriginalId(dst).toInt
+                  foundEarly = true
+                  finished  = true
+                }
+             }
+
+             (Some(dst), dst == toInternal || finished)
            }
         })
-        frontier.remove(visited) // Remove visited
-
+        if (!finished) {
+          frontier.remove(visited) // Remove visited
+        }
         passes += 1
       }
     }
 
-    if (frontier.hasVertex(toInternal)) {
+    if (foundEarly || frontier.hasVertex(toInternal)) {
       def parent(dst: Int) : List[Int] = {
         val parentVal = parents(dst)
         val parentVid = parentVal

@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 
 /**
  * Stores an increasing sequence efficiently
@@ -155,8 +156,7 @@ public class IncreasingEliasGammaSeq {
             return -1;
         }
 
-        int idx = indexIdx * indexInterval;
-        int curidx = (idx / indexInterval) * indexInterval;
+        int curidx = indexIdx * indexInterval;
 
         int bitIdx = indexBitIdx[indexIdx];
         long cumulant = indexValues[indexIdx];
@@ -216,8 +216,7 @@ public class IncreasingEliasGammaSeq {
             indexIdx = -(indexIdx + 1) - 1;
         }
 
-        int idx = indexIdx * indexInterval;
-        int curidx = (idx / indexInterval) * indexInterval;
+        int curidx = indexIdx * indexInterval;
 
         int bitIdx = indexBitIdx[indexIdx];
         long cumulant = indexValues[indexIdx];
@@ -270,11 +269,15 @@ public class IncreasingEliasGammaSeq {
         return curidx - 1;
     }
 
+    public long[] getTwo(int idx) {
+        long[] ret = new long[2];
+        getTwo(idx, ret);
+        return ret;
+    }
 
     /* @returns value at idx and idx + 1 */
-    public long[] getTwo(int idx) {
+    public void getTwo(int idx, long[] ret) {
         // Ugly code duplication, FIXME TODO
-        long[] ret = new long[2];
         int indexIdx = idx / indexInterval;
         int curidx = (idx / indexInterval) * indexInterval;
 
@@ -315,7 +318,9 @@ public class IncreasingEliasGammaSeq {
                 if (bitOffset == 8 ) {
                     bitOffset = 0;
                     currentByteIdx++;
-                    currentByte = bits[currentByteIdx];
+                    if (currentByteIdx <= bits.length - 1) {
+                        currentByte = bits[currentByteIdx];
+                    }
                 }
                 if (bit) {
                     delta = delta | (1 << zeros);
@@ -327,9 +332,99 @@ public class IncreasingEliasGammaSeq {
 
         }
         ret[1] = cumulant;
+    }
 
-        return ret;
+    /* Returns indices for the queryIds (which must be sorted) */
+    public Iterator<Integer> iterator(final Iterator<Long> queryValuesIter) {
+        return new Iterator<Integer>() {
+            int j = -1;
+            long cumulant = (-1);
+            int bitOffset = 0;
+            byte currentByte = (bits.length > 0 ? bits[0] : 0);
+            int currentByteIdx = 0;
 
+            @Override
+            public boolean hasNext() {
+                return queryValuesIter.hasNext();
+            }
+
+            @Override
+            public Integer next() {
+                long queryValue = queryValuesIter.next();
+
+                 /* Check if cumulant far away, then jump some */
+                if (queryValue - cumulant > 2048) {
+
+                    int indexIdx = Arrays.binarySearch(indexValues, queryValue);
+                    if (indexIdx < 0) {
+                        indexIdx = -(indexIdx + 1) - 1;
+                    }
+
+                    int newIdx = indexIdx * indexInterval;
+                    if (newIdx > j) {  // jump only forward
+                        int bitIdx = indexBitIdx[indexIdx];
+                        cumulant = indexValues[indexIdx];
+
+                        if (cumulant > queryValue) {
+                            throw new IllegalStateException();
+                        }
+
+                        currentByteIdx = bitIdx / 8;
+                        bitOffset = bitIdx % 8;
+                        currentByte = bits[currentByteIdx];
+                        j = newIdx;
+                    }
+                }
+
+
+                 /* Prefix */
+                while(cumulant < queryValue) {
+                    j++;
+
+                    boolean bit = false;
+                    int zeros = (-1);
+                    do {
+                        bitOffset ++;
+                        byte mask = (byte) (1 << (8-bitOffset));
+                        bit = (currentByte & mask) != 0;
+                        if (bitOffset == 8 ) {
+                            bitOffset = 0;
+                            currentByteIdx++;
+                            currentByte = bits[currentByteIdx];
+                        }
+                        zeros++;
+                    } while(!bit);
+
+                /* Bits */
+                    int delta = (1 << zeros);
+                    while(zeros > 0) {
+                        zeros--;
+                        bitOffset ++;
+                        byte mask = (byte) (1 << (8-bitOffset));
+                        bit = (currentByte & mask) != 0;
+                        if (bitOffset == 8 ) {
+                            bitOffset = 0;
+                            currentByteIdx++;
+                            if (currentByteIdx < bits.length - 1) {
+                                currentByte = bits[currentByteIdx];
+                            }
+                        }
+                        if (bit) {
+                            delta = delta | (1 << zeros);
+                        }
+                    }
+
+                    cumulant += delta;
+                }
+                if (cumulant > queryValue) return -1; // Not found
+                return j;
+            }
+
+            @Override
+            public void remove() {
+                throw new UnsupportedOperationException();
+            }
+        };
     }
 
     public Iterator<Long> iterator() {
@@ -388,7 +483,7 @@ public class IncreasingEliasGammaSeq {
 
             @Override
             public void remove() {
-               throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException();
             }
         };
     }

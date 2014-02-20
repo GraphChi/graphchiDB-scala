@@ -144,6 +144,8 @@ object LiveJournalExp {
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
 
+    var foundTimes = 0L
+
     (0 until n).foreach(i => {
       val from = math.abs(r.nextLong() % 4500000) + 1
       val to = math.abs(r.nextLong() % 4500000) + 1
@@ -151,10 +153,11 @@ object LiveJournalExp {
       val path = Queries.shortestPath(DB.originalToInternalId(from), DB.originalToInternalId(to), edgeType=0, maxDepth = 5)(DB)
       val tt = System.nanoTime() - st
       println("%d,%d,%d micros:%f".format(from, to, path.size -1, tt*0.001))
+      if (path.size > 0) foundTimes += tt
 
     } )
 
-    println("Total time: " + (System.currentTimeMillis() - t) + " ms n=%d".format(n))
+    println("Total time: " + (System.currentTimeMillis() - t) + " ms n=%d; for found ones =%f".format(n, foundTimes * 0.000001))
   }
 
 

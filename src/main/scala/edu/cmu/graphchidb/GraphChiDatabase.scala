@@ -1383,11 +1383,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
 
 
-  def queryOutMultiple(queryIds: Seq[Long], edgeType: Byte, callback: QueryCallback, parallel:Boolean=false) : Unit = {
+  def queryOutMultiple(_queryIds: Seq[Long], edgeType: Byte, callback: QueryCallback, parallel:Boolean=false) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
-    if (enableVertexShardBits && queryIds.size < 10) {
+    val queryIds = _queryIds.sorted
 
+    if (enableVertexShardBits && queryIds.size < 10) {
       val idsWithQueryBits = queryIds.map(id => (id, shardBits(id)))
 
       if (!buffersEmpty) {

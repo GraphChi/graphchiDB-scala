@@ -187,7 +187,7 @@ public class QueryShard {
         final LongBuffer tmpAdjBuffer = adjBuffer.duplicate();
         final LongBuffer tmpPointerBuffer = pointerIdxBuffer.duplicate();
         ShardIndex.IndexEntry indexEntry = index.lookup(src);
-        PointerPair ptr = findIdxAndPos(src, indexEntry, tmpPointerBuffer);
+        PointerPair ptr = findIdxAndPos(src, indexEntry, tmpPointerBuffer, new long[2]);
         if (ptr.cur != (-1L)) {
             long nextPtr = ptr.next;
             int n = (int) (nextPtr - ptr.cur);
@@ -263,16 +263,16 @@ public class QueryShard {
             queryIn(vertexId, new DeleteCallBack(), (byte)0, true);
         }
         if (hasOut)
-            queryOut(Collections.singleton(vertexId), new DeleteCallBack(), (byte)0, true);
+            queryOut(vertexId, new DeleteCallBack(), (byte)0, true);
     }
 
 
-    public void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType) {
-        queryOut(queryIds, callback, edgeType, false);
+    public void queryOut(List<Long> sortedIds, QueryCallback callback, byte edgeType) {
+        queryOut(sortedIds, callback, edgeType, false);
     }
 
     // TODO: wild-card search
-    public void queryOut(Collection<Long> queryIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
+    public void queryOut(List<Long> sortedIds, QueryCallback callback, byte edgeType, boolean ignoreType) {
         if (isEmpty()) return;
         try {
             final Timer.Context _timer1 = outEdgePhase1Timer.time();
@@ -280,7 +280,7 @@ public class QueryShard {
             if (queryCacheSize > 0 && !queryCache.isEmpty()) {
                 if (callback.immediateReceive()) {
                     ArrayList<Long> misses = null;
-                    for(long qid : queryIds) {
+                    for(long qid : sortedIds) {
                         Long cacheKey = outcachekey(qid, edgeType);
                         long[] cached = (long[]) queryCache.get(cacheKey);
                         if (cached != null) {
@@ -296,21 +296,14 @@ public class QueryShard {
                     }
 
                     if (misses != null) cacheMissCounter.inc(misses.size());
-                    if (misses != null) cacheHitCounter.inc(queryIds.size() - misses.size());
-                    else cacheHitCounter.inc(queryIds.size());
-                    queryIds = misses;
+                    if (misses != null) cacheHitCounter.inc(sortedIds.size() - misses.size());
+                    else cacheHitCounter.inc(sortedIds.size());
+                    sortedIds = misses;
 
-                    if (queryIds == null) return;
+                    if (sortedIds == null) return;
                 } else {
                     System.err.println("Caching without immediatereceive not implemented yet");
                 }
-            }
-
-            /* Sort the ids because the index-entries will be in same order */
-            ArrayList<Long> sortedIds;
-            sortedIds = new ArrayList<>(queryIds);
-            if (queryIds.size() > 1) {
-                Collections.sort(sortedIds);
             }
 
             ArrayList<ShardIndex.IndexEntry> indexEntries = new ArrayList<>(sortedIds.size());
@@ -328,11 +321,18 @@ public class QueryShard {
             final LongBuffer tmpAdjBuffer = adjBuffer.duplicate();
 
             ShardIndex.IndexEntry entry = null;
+            long[] workarr = new long[2];
             for(int qIdx=0; qIdx < sortedIds.size(); qIdx++) {
                 entry = (pinIndexToMemory ? null :  indexEntries.get(qIdx)); // ugly
                 long vertexId = sortedIds.get(qIdx);
 
-                PointerPair ptr = findIdxAndPos(vertexId, entry, tmpPointerIdxBuffer);
+                if (qIdx > 0) {
+                    if(sortedIds.get(qIdx - 1) >= vertexId) {
+                        throw new IllegalArgumentException("Query ids have to be sorted!");
+                    }
+                }
+
+                PointerPair ptr = findIdxAndPos(vertexId, entry, tmpPointerIdxBuffer, workarr);
                 long curPtr = ptr.cur;
 
                 if (ptr.cur != (-1L)) {
@@ -392,6 +392,10 @@ public class QueryShard {
 
     /** Singleton search */
     public void queryOut(long vertexId, QueryCallback callback, byte edgeType) {
+        queryOut(vertexId, callback, edgeType, false);
+    }
+
+    public void queryOut(long vertexId, QueryCallback callback, byte edgeType, boolean ignoreType) {
         if (isEmpty()) return;
         try {
             final LongBuffer tmpPointerIdxBuffer = (pointerIdxBuffer != null ? pointerIdxBuffer.duplicate() : null);
@@ -401,7 +405,7 @@ public class QueryShard {
             ShardIndex.IndexEntry entry = null;
             entry = (pinIndexToMemory ? null :  index.lookup(vertexId)); // ugly
 
-            PointerPair ptr = findIdxAndPos(vertexId, entry, tmpPointerIdxBuffer);
+            PointerPair ptr = findIdxAndPos(vertexId, entry, tmpPointerIdxBuffer, new long[2]);
             long curPtr = ptr.cur;
 
             if (ptr.cur != (-1L)) {
@@ -418,7 +422,7 @@ public class QueryShard {
                     long e = tmpAdjBuffer.get();
                     byte etype = VertexIdTranslate.getType(e);
 
-                    if (etype == edgeType) {
+                    if (etype == edgeType || ignoreType) {
                         if (!immediateReceive) {
                             res.add(VertexIdTranslate.getVertexId(e));
                             resPointers.add(PointerUtil.encodePointer(shardNum, (int) curPtr + i));
@@ -460,7 +464,7 @@ public class QueryShard {
     /**
      * Returns the vertex idx for given vertex in the pointer file, or -1 if not found.
      */
-    private PointerPair findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry, final LongBuffer tmpBuffer) {
+    private PointerPair findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry, final LongBuffer tmpBuffer, long[] workarr) {
         if (tmpBuffer != null) {
             assert(sparseIndexEntry.vertex <= vertexId);
 
@@ -515,8 +519,8 @@ public class QueryShard {
             int idx = gammaSeqVertices.getIndex(vertexId);
             if (idx == -1) return new PointerPair(-1, -1);
 
-            long[] ptrs = gammaSeqOffs.getTwo(idx);
-            return new PointerPair(ptrs[0], ptrs[1]);
+            gammaSeqOffs.getTwo(idx, workarr);
+            return new PointerPair(workarr[0], workarr[1]);
 
         }
     }
