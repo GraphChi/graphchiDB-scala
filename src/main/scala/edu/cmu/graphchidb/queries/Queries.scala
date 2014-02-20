@@ -4,7 +4,7 @@ import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.queries.frontier.FrontierQueries._
 import edu.cmu.graphchidb.storage.Column
 import edu.cmu.graphchidb.queries.frontier.{DenseVertexFrontier, VertexFrontier}
-import scala.collection.mutable
+import scala.actors.Futures
 
 /**
  * Advanced queries
@@ -29,47 +29,85 @@ object Queries {
   }
 
   def friendsOfFriendsSet(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
-      val friends = queryVertex(internalId, db)
-      friends->traverseOut(edgeType)->traverseOut(edgeType)
+    val friends = queryVertex(internalId, db)
+    friends->traverseOut(edgeType)->traverseOut(edgeType)
   }
 
 
   def shortestPath(fromInternal: Long, toInternal: Long, maxDepth: Int = 5, edgeType: Byte)(implicit db: GraphChiDatabase) = {
-      var frontier = queryVertex(fromInternal, db)
-      val visited = new DenseVertexFrontier(db.vertexIndexing, db)
-      var passes = 0
+    var frontier = queryVertex(fromInternal, db)
+    val visited = new DenseVertexFrontier(db.vertexIndexing, db)
+    var passes = 0
 
-      // TODO: this fails on very big graphs. Also hacky to use original IDs here. Reason: original id space assumed
-      // Hashtable becomes very slow when the frontier is big. COuld do a switch...
-      // to be sequential.
-      val parents = new Array[Int](db.numVertices.toInt)
-      parents(db.internalToOriginalId(fromInternal).toInt) = db.internalToOriginalId(fromInternal).toInt
+    // TODO: this fails on very big graphs. Also hacky to use original IDs here. Reason: original id space assumed
+    // Hashtable becomes very slow when the frontier is big. COuld do a switch...
+    // to be sequential.
+    val parents = new Array[Int](db.numVertices.toInt)
+    parents(db.internalToOriginalId(fromInternal).toInt) = db.internalToOriginalId(fromInternal).toInt
 
-      while(!frontier.hasVertex(toInternal) && passes < maxDepth) {
-        visited.union(frontier)
-        frontier = frontier->traverseOutUntil(edgeType, (src, dst) => if (!visited.hasVertex(dst)) {
-          parents(db.internalToOriginalId(dst).toInt) = db.internalToOriginalId(src).toInt
-          (Some(dst), dst == toInternal) } else  { (None, false) } )
-        passes += 1
-         println("Frontier size (%d) : %d, type: %s".format(passes, frontier.size, frontier))
-      }
+    // Search from other direction
+    val destInneighbors = scala.actors.Futures.future {
+      val inNbrs = db.queryIn(toInternal, edgeType)
+      val inBits = new DenseVertexFrontier(db.vertexIndexing, db)
+      inNbrs.getInternalIds.foreach( id => inBits.insert(id))
+      inBits
+    }
 
-      if (frontier.hasVertex(toInternal)) {
-        def parent(dst: Int) : List[Int] = {
-          val parentVal = parents(dst)
-            val parentVid = parentVal
-            if (parentVid == dst) {
-              List(dst)
-            } else {
-              List(dst) ++ parent(parentVid)
-            }
+    var finished = false  // Ugly
+
+    while(!frontier.hasVertex(toInternal) && passes < maxDepth && !finished) {
+      visited.union(frontier)
+
+      /* Check if any in the frontier is in the in-edges */
+      if (destInneighbors.isSet || passes == maxDepth - 1) {
+        val inNeighbors = destInneighbors()
+        if (inNeighbors.isEmpty) {
+          println("No in-neighbors!")
+          finished = true
+        } else {
+          val anyFwdMatch = visited.hasAnyVertex(inNeighbors)
+          anyFwdMatch.map { matchId =>
+            parents(db.internalToOriginalId(toInternal).toInt) = db.internalToOriginalId(matchId).toInt
+            frontier = queryVertex(toInternal, db) // hack
+            finished = true
+          }
+          if (passes == maxDepth - 1 && !finished) {
+            // Should have been found now
+            finished = true
+          }
         }
-
-        parent(db.internalToOriginalId(toInternal).toInt).map(origId => db.originalToInternalId(origId))
-
-      } else {
-         List[Long]()
       }
+
+      if (!finished) {
+        frontier = frontier->traverseOutTopDownDense(edgeType, (src, dst) => {
+           if (visited.hasVertex(dst)) { (None, false) }
+           else {
+             parents(db.internalToOriginalId(dst).toInt) = db.internalToOriginalId(src).toInt
+             (Some(dst), dst == toInternal)
+           }
+        })
+        frontier.remove(visited) // Remove visited
+
+        passes += 1
+      }
+    }
+
+    if (frontier.hasVertex(toInternal)) {
+      def parent(dst: Int) : List[Int] = {
+        val parentVal = parents(dst)
+        val parentVid = parentVal
+        if (parentVid == dst) {
+          List(dst)
+        } else {
+          List(dst) ++ parent(parentVid)
+        }
+      }
+
+      parent(db.internalToOriginalId(toInternal).toInt).map(origId => db.originalToInternalId(origId))
+
+    } else {
+      List[Long]()
+    }
   }
 
 
@@ -91,7 +129,7 @@ object Queries {
     new ShortestPathTree(ssspColumn)
   }
 
-   // def inducedSubgraph(vertices: Seq[Long]) : Graph = { }
+  // def inducedSubgraph(vertices: Seq[Long]) : Graph = { }
 
 }
 

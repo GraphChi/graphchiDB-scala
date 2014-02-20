@@ -384,6 +384,7 @@ public class QueryShard {
             _timer2.stop();
         } catch (FinishQueryException fqe) {
             // Used for cases when query was early fulfilled
+            throw fqe;
         } catch (Exception err) {
             throw new RuntimeException(err);
         }
@@ -433,6 +434,10 @@ public class QueryShard {
             } else {
                 if (!immediateReceive) callback.receiveOutNeighbors(vertexId, new ArrayList<Long>(0), new ArrayList<Byte>(0), new ArrayList<Long>(0));
             }
+
+        } catch (FinishQueryException fqe) {
+            // Used for cases when query was early fulfilled
+            throw fqe;
         } catch (Exception err) {
             err.printStackTrace();
             throw new RuntimeException(err);
@@ -857,7 +862,7 @@ public class QueryShard {
                         if (iterPointerVertices.hasNext()) {
                             nextPtr = VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next());
                         } else {
-                            System.out.println("Warning: edgeIterator at " + idx + " but no more left...");
+                          //  System.out.println("Warning: edgeIterator at " + idx + " but no more left...");
                         }
                         nextOff = VertexIdTranslate.getAux(nextPtr);
                     }

@@ -2,6 +2,7 @@ package edu.cmu.graphchidb.queries.frontier
 
 import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
 import scala.collection.{mutable, BitSet}
+import sun.reflect.generics.reflectiveObjects.NotImplementedException
 
 /**
  * A set of vertices. Ligra-style computation.
@@ -13,11 +14,13 @@ trait VertexFrontier {
 
   def insert(vertexId: Long) : Unit
   def hasVertex(vertexId: Long): Boolean
+  def hasAnyVertex(other: VertexFrontier) : Option[Long]
   def isEmpty : Boolean
   def size: Int
-
+  def remove(frontier: VertexFrontier) : Unit
 
   def toSet: Set[Long]
+  def toSeq: Seq[Long]
 
   def apply[T](f : VertexFrontier => T) = f(this)
 
@@ -46,6 +49,38 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
     }
   }
 
+  def remove(frontier: VertexFrontier) : Unit = {
+    frontier match {
+      case dense: DenseVertexFrontier => {
+        shardBitSets = (0 until indexing.nShards).map(i => this.shardBitSets(i) &~ dense.shardBitSets(i))
+      }
+      case sparse: SparseVertexFrontier => {
+        sparse.toSet.foreach(x => insert(x))
+      }
+    }
+  }
+
+  def hasAnyVertex(other: VertexFrontier) : Option[Long] = {
+    other match {
+      case dense: DenseVertexFrontier => {
+        (0 until indexing.nShards).foreach(i => {
+           val intersection = this.shardBitSets(i) & dense.shardBitSets(i)
+           val iterator = intersection.iterator
+           if (iterator.hasNext) {
+               return Some(indexing.localToGlobal(i, iterator.next()))
+           }
+        })
+        None
+      }
+      case sparse: SparseVertexFrontier => {
+        sparse.toSet.foreach(x => {
+            if (hasVertex(x)) return Some(x)
+        })
+        None
+      }
+    }
+  }
+
   def insert(vertexId: Long) : Unit = {
      val bitset = shardBitSets(indexing.shardForIndex(vertexId))
      val localIdx = indexing.globalToLocal(vertexId).toInt
@@ -70,6 +105,8 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
   }
 
   def toSet = toSparse.toSet
+
+  def toSeq = (0 until indexing.nShards).map(shardIdx => shardBitSets(shardIdx).toSeq.map(j => indexing.localToGlobal(shardIdx, j))).flatten
 }
 
 
@@ -83,7 +120,21 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
       this(indexing, db_)
       backingSet ++= set
   }
+  def remove(other: VertexFrontier) : Unit = {
+      throw new NotImplementedException
+  }
 
+  def hasAnyVertex(other: VertexFrontier) : Option[Long] = {
+    other match {
+      case dense: DenseVertexFrontier => dense.hasAnyVertex(this)
+      case sparse: SparseVertexFrontier => {
+        sparse.toSet.foreach(x => {
+          if (hasVertex(x)) return Some(x)
+        })
+        None
+      }
+    }
+  }
 
   def insert(vertexId: Long) = backingSet.add(vertexId)
 
@@ -97,6 +148,7 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
     backingSet.foreach(id => denseFrontier.insert(id))
     denseFrontier
   }
+  def toSeq: Seq[Long] = backingSet.toSeq
 }
 
 object VertexFrontier {

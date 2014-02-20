@@ -13,6 +13,7 @@ object FrontierQueries {
   // TODO: queryShard.queryOut with direct one-edge callback
 
   type queryFunction = (VertexFrontier) => VertexFrontier
+  type denseQueryFunction = (VertexFrontier) => DenseVertexFrontier
 
 
   def queryVertex[T](vid: Long,  db:GraphChiDatabase) : VertexFrontier = {
@@ -56,7 +57,7 @@ object FrontierQueries {
   def traverseOut(edgeType: Byte) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
       val frontierCallback = new FrontierCallback(frontier.db)
-      frontier.db.queryOutMultiple(frontier.toSet, edgeType, frontierCallback)
+      frontier.db.queryOutMultiple(frontier.toSet.toSeq, edgeType, frontierCallback)
       frontierCallback.frontier
     }
 
@@ -86,7 +87,7 @@ object FrontierQueries {
         new SparseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
       }
 
-      frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontierSet.toSeq, edgeType, new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
 
@@ -116,6 +117,34 @@ object FrontierQueries {
   }
 
 
+
+  def traverseOutTopDownDense(edgeType: Byte, fn: (Long, Long) => Tuple2[Option[Long], Boolean]) : denseQueryFunction = {
+    def topDown(frontier:VertexFrontier) : DenseVertexFrontier = {
+
+      val newFrontier =  new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      frontier.db.queryOutMultiple(frontier.toSeq, edgeType, new QueryCallback {
+        def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
+        def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
+        var finished = false
+
+        def immediateReceive() = true
+        def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
+          val (v, doFinish) = fn(src, dst)
+          if (v.isDefined) newFrontier.insert(v.get)
+          if (doFinish || finished) {
+            finished = true
+            throw new FinishQueryException()
+          }
+        }
+      }, parallel=true)
+
+
+      newFrontier
+    }
+
+    topDown
+  }
+
   def traverseOutUntil(edgeType: Byte, fn: (Long, Long) => Tuple2[Option[Long], Boolean]) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
       val frontierSet = frontier.toSet
@@ -128,7 +157,7 @@ object FrontierQueries {
 
       var finished = false
 
-      frontier.db.queryOutMultiple(frontierSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontierSet.toSeq, edgeType,new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
 
@@ -141,7 +170,7 @@ object FrontierQueries {
             throw new FinishQueryException()
           }
         }
-      })
+      }, parallel=true)
 
       newFrontier
     }
@@ -149,7 +178,6 @@ object FrontierQueries {
     def bottomUp(frontier:DenseVertexFrontier) : VertexFrontier  = {
       val outFrontier = new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
       var finished = false
-      println("Bottomup....")
 
       try {
         frontier.db.sweepAllEdges() (
@@ -183,7 +211,7 @@ object FrontierQueries {
   /* Emits each out-neighbor for the frontier */
   def selectOut[RV <: VertexResultReceiver](edgeType: Byte, resultReceiver: RV, condition: ( Long) => Boolean = (u) => true) = {
     def topDown(frontier: SparseVertexFrontier) : RV = {
-      frontier.db.queryOutMultiple(frontier.toSet, edgeType, new QueryCallback {
+      frontier.db.queryOutMultiple(frontier.toSet.toSeq, edgeType, new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = { }
 
