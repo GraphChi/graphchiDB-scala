@@ -30,7 +30,7 @@ object TwitterExperiments {
   //val pagerankComputation = new Pagerank(DB)
   val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
 
-  DB.initialize()
+   DB.initialize()
 
 
   val pagerankComputation = new Pagerank(DB)
@@ -144,7 +144,6 @@ object TwitterExperiments {
   }
 
   def shortestPathTest(n: Int, pagerank: Boolean = false) = {
-    DB.initialize()
 
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
