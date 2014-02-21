@@ -584,7 +584,6 @@ public class QueryShard {
                     if (x  > qoff) break;
                 }
 
-                System.exit(0);
                 throw new RuntimeException("(Gamma-version) Could not find " + qoff);
             }
             return gammaSeqVertices.get(idx);
