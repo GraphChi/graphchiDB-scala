@@ -80,6 +80,7 @@ object Queries {
       }
 
       if (!finished) {
+        if (frontier.size > 100000) println("Frontier now: %d iter:%d".format(frontier.size, passes))
         frontier = frontier->traverseOutTopDownDense(edgeType, (src, dst) => {
            if (visited.hasVertex(dst)) { (None, false) }
            else {
