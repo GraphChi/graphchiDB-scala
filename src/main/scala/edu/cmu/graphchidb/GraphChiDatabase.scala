@@ -1471,7 +1471,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           }
         } catch {
           case fqe: FinishQueryException => finished = true
-
+          case exception: Exception => exception.printStackTrace()
         } finally {
           shard.persistentShardLock.readLock().unlock()
         }
