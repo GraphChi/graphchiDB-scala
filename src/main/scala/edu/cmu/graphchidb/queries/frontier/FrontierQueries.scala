@@ -122,10 +122,13 @@ object FrontierQueries {
     def topDown(frontier:VertexFrontier) : DenseVertexFrontier = {
 
       val newFrontier =  new DenseVertexFrontier(frontier.db.vertexIndexing, frontier.db)
+      var finished = false
+
+      if (frontier.size < frontier.db.numVertices / 8) {
+
       frontier.db.queryOutMultiple(frontier.toSeq, edgeType, new QueryCallback {
         def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) {}
         def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]){}
-        var finished = false
 
         def immediateReceive() = true
         def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) {
@@ -137,7 +140,22 @@ object FrontierQueries {
           }
         }
       }, parallel=true)
-
+      } else {
+         //
+        println("Use bottom-up as frontier size so big: %d".format(frontier.size))
+        frontier.db.sweepAllEdges() (
+          (src: Long, dst: Long, eType: Byte ) => {
+            if (edgeType == eType && frontier.hasVertex(src))  {
+              val (v, doFinish) = fn(src, dst)
+              if (v.isDefined) newFrontier.insert(v.get)
+              if (doFinish || finished) {
+                finished = true
+                throw new FinishQueryException()
+              }
+            }
+          }
+        )
+      }
 
       newFrontier
     }
