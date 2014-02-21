@@ -25,7 +25,7 @@ import edu.cmu.graphchidb.queries.Queries
  */
 object TwitterExperiments {
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
-  val DB = new GraphChiDatabase(baseFilename, numShards=256)
+  val DB = new GraphChiDatabase(baseFilename, numShards=64)
   
   //val pagerankComputation = new Pagerank(DB)
   val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
