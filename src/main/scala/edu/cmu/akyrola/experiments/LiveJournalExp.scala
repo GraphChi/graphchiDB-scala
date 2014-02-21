@@ -138,11 +138,23 @@ object LiveJournalExp {
 
   }
 
-  def shortestPathTest(n: Int) = {
+  def shortestPathTest(n: Int, pagerank: Boolean = false) = {
     DB.initialize()
 
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
+
+    if (pagerank) {
+      DB.runIteration(pagerankComputation, continuous=true)
+    }
+
+    val id = "%s_%s_i%d_%s".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n,
+      if (pagerank) { "pagerank" } else {""})
+
+    val splog = new FileWriter("shortestpath_livejournal_%s_maxdepth_%d.csv".format(id, 5))
+
+
+    splog.write("pathlength,micros,from,to\n")
 
     var foundTimes = 0L
 
@@ -154,9 +166,12 @@ object LiveJournalExp {
       val tt = System.nanoTime() - st
       println("%d,%d,%d micros:%f".format(from, to, path.size -1, tt*0.001))
       if (path.size > 0) foundTimes += tt
+      splog.write("%d,%f,%d,%d\n".format(path.size - 1, tt * 0.001,from,to))
+      splog.flush()
 
     } )
 
+    splog.close();
     println("Total time: " + (System.currentTimeMillis() - t) + " ms n=%d; for found ones =%f".format(n, foundTimes * 0.000001))
   }
 
