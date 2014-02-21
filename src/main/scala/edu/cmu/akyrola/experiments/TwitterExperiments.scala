@@ -165,6 +165,7 @@ object TwitterExperiments {
     (0 until n).foreach(i => {
       val from = math.abs(r.nextLong() % 40000000) + 1
       val to = math.abs(r.nextLong() % 40000000) + 1
+      try {
       val st = System.nanoTime()
       val path = Queries.shortestPath(DB.originalToInternalId(from), DB.originalToInternalId(to), edgeType=0, maxDepth = 5)(DB)
       val tt = System.nanoTime() - st
@@ -172,7 +173,13 @@ object TwitterExperiments {
       if (path.size > 0) foundTimes += tt
       splog.write("%d,%f,%d,%d\n".format(path.size - 1, tt * 0.001,from,to))
       splog.flush()
-
+      } catch {
+          case e: Exception => {
+              e.printStackTrace();
+              splog.write("err,err,%d,%d\n".format(from, to))
+              splog.flush()
+          }
+      }
     } )
 
     splog.close()
