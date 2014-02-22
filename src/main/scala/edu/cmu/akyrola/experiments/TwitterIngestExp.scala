@@ -46,11 +46,20 @@ object TwitterIngestExp {
 
       val durableBuffers = DB.durableTransactionLog
 
-      val logFile = new File("twitter_ingest.%s.%s.%s".format(
+      val pagerankEnabled = System.getProperty("pagerank", "0") == "1"
+
+      val logFile = new File("twitter_ingest.%s.%s.%s%s".format(
           if (durableBuffers) { "durable" } else {"nondurable"},
           InetAddress.getLocalHost.getHostName.substring(0,8), 
-          sdf.format(new Date())))
+          sdf.format(new Date()), if (pagerankEnabled) { "_pagerank"} else { ""}))
+
+
       val logOut = new BufferedWriter(new FileWriter(logFile))
+      val pagerankComputation = new Pagerank(DB)
+
+      if (pagerankEnabled) {
+          DB.runIteration(pagerankComputation, continuous=true)
+      }
 
       Source.fromInputStream(new FileInputStream(source)).getLines().foreach( ln => {
           if (!ln.startsWith("#")) {
