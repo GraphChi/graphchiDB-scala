@@ -185,26 +185,49 @@ public class QueryShard {
     // TODO: do not synchronize but make mirror of the buffer
     public Long find(byte edgeType, long src, long dst) {
         final LongBuffer tmpAdjBuffer = adjBuffer.duplicate();
-        final LongBuffer tmpPointerBuffer = pointerIdxBuffer.duplicate();
-        ShardIndex.IndexEntry indexEntry = index.lookup(src);
+        final LongBuffer tmpPointerBuffer = (pinIndexToMemory? null : pointerIdxBuffer.duplicate());
+        ShardIndex.IndexEntry indexEntry = (pinIndexToMemory ? null : index.lookup(src));
         PointerPair ptr = findIdxAndPos(src, indexEntry, tmpPointerBuffer, new long[2]);
         if (ptr.cur != (-1L)) {
             long nextPtr = ptr.next;
             int n = (int) (nextPtr - ptr.cur);
 
             long adjOffset = VertexIdTranslate.getAux(ptr.cur);
-            tmpAdjBuffer.position((int)adjOffset);
-            for(int i=0; i<n; i++) {
 
-                // TODO: binary search
-                long e = tmpAdjBuffer.get();
-                long v = VertexIdTranslate.getVertexId(e);
-                if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
-                    return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
-                } else if (v > dst) {
-                    break;
+            if (n < 32) {
+                // linear search
+                tmpAdjBuffer.position((int)adjOffset);
+
+                for(int i=0; i<n; i++) {
+                    long e = tmpAdjBuffer.get();
+                    long v = VertexIdTranslate.getVertexId(e);
+                    if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
+                        return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
+                    } else if (v > dst) {
+                        break;
+                    }
                 }
+             } else {
+                // Binary search
+                int low = (int)adjOffset;
+                int high = low + n;
+                while(low <= high) {
+                    int idx = ((high + low) / 2);
+                    if (idx == n - 1) idx--;
+                    tmpAdjBuffer.position(idx);
 
+                    long e = tmpAdjBuffer.get();
+                    long v = VertexIdTranslate.getVertexId(e);
+                    byte type = VertexIdTranslate.getType(e);
+                    if (v == dst && type == edgeType) {
+                        return PointerUtil.encodePointer(shardNum, idx);
+                    }
+                    if (dst < v || (dst == v && type > edgeType)) {
+                        low = idx + 1;
+                    } else {
+                        high = idx - 1;
+                    }
+                }
             }
         }
         return null;
@@ -515,6 +538,12 @@ public class QueryShard {
             }
             return new PointerPair(-1, -1);
         } else {
+            if (gammaSeqVertices == null) {
+                // Empty shard
+                return new PointerPair(-1, -1);
+
+            }
+
             // Pinned
             int idx = gammaSeqVertices.getIndex(vertexId);
             if (idx == -1) return new PointerPair(-1, -1);
@@ -865,7 +894,7 @@ public class QueryShard {
                         if (iterPointerVertices.hasNext()) {
                             nextPtr = VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next());
                         } else {
-                          //  System.out.println("Warning: edgeIterator at " + idx + " but no more left...");
+                            //  System.out.println("Warning: edgeIterator at " + idx + " but no more left...");
                         }
                         nextOff = VertexIdTranslate.getAux(nextPtr);
                     }
