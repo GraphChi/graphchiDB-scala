@@ -192,7 +192,7 @@ public class QueryShard {
             long nextPtr = ptr.next;
             int n = (int) (nextPtr - ptr.cur);
 
-            long adjOffset = VertexIdTranslate.getAux(ptr.cur);
+            long adjOffset = ptr.cur;
 
             if (n < 32) {
                 // linear search
@@ -201,7 +201,7 @@ public class QueryShard {
                 for(int i=0; i<n; i++) {
                     long e = tmpAdjBuffer.get();
                     long v = VertexIdTranslate.getVertexId(e);
-                    if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
+                     if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
                         return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
                     } else if (v > dst) {
                         break;
@@ -213,16 +213,14 @@ public class QueryShard {
                 int high = low + n;
                 while(low <= high) {
                     int idx = ((high + low) / 2);
-                    if (idx == n - 1) idx--;
-                    tmpAdjBuffer.position(idx);
-
-                    long e = tmpAdjBuffer.get();
+                    long e = tmpAdjBuffer.get(idx);
                     long v = VertexIdTranslate.getVertexId(e);
                     byte type = VertexIdTranslate.getType(e);
                     if (v == dst && type == edgeType) {
                         return PointerUtil.encodePointer(shardNum, idx);
                     }
-                    if (dst < v || (dst == v && type > edgeType)) {
+
+                    if (v < dst || (dst == v && type < edgeType)) {
                         low = idx + 1;
                     } else {
                         high = idx - 1;
@@ -520,13 +518,11 @@ public class QueryShard {
 
                 while(low <= high) {
                     int idx = ((high + low) / 2);
-                    if (idx == n - 1) idx--;
-                    tmpBuffer.position(idx);
-                    long ptr = tmpBuffer.get();
+                    long ptr = tmpBuffer.get(idx);
 
                     curvid = VertexIdTranslate.getVertexId(ptr);
                     if (curvid == vertexId) {
-                        return new PointerPair(VertexIdTranslate.getAux(ptr), VertexIdTranslate.getAux(tmpBuffer.get()));
+                        return new PointerPair(VertexIdTranslate.getAux(ptr), VertexIdTranslate.getAux(tmpBuffer.get(idx + 1)));
                     }
                     if (curvid < vertexId) {
                         low = idx + 1;

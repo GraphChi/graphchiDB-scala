@@ -96,6 +96,22 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
 
   def delete(): Unit
 
+  def size(): Int
+
+  def foldLeft[B](z: B)(op: (B, T, Int) => B)(implicit converter: ByteConverter[T]) : B  = {
+    val n = size()
+    var cum: B = z
+    for( i <- 0 until n) {
+      val xOpt : Option[T] = get(i)(converter)
+      xOpt map {
+        x =>  cum = op(cum, x, i)
+      }
+
+    }
+    cum
+  }
+
+
 }
 
 /*
