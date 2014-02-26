@@ -105,6 +105,42 @@ object TwitterExperiments {
     qlog.close()
   }
 
+  def outTest(iterations: Int) {
+    val r = new java.util.Random(260379)
+    var i = 1
+
+    if (iterations < 10000) {
+      println("Doing full sweep of the graph so that previous run's mmaped regions do not matter")
+      DB.sweepAllEdges() {  (src: Long, dst: Long, t: Byte) =>  i += 1}
+      println("Swept %d edges")
+
+    }
+
+    val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), iterations)
+
+    val qlog = new BufferedWriter(new FileWriter("out_twitter_%s.pin_%s_sparseindex_%s.tsv".format(id, QueryShard.pinIndexToMemory, !QueryShard.disableSparseIndex)))
+    qlog.write("outsize,outtime,insize,intime\n")
+
+
+    val queryMeter = GraphChiEnvironment.metrics.meter("queries")
+
+    (0 to iterations).foreach ( i => {
+      val v = DB.originalToInternalId(math.abs(r.nextLong() % 65000000))
+      val outRecv = new DummyReceiver()
+
+      val tOutSt = System.nanoTime()
+      DB.queryOut(v, 0, outRecv, parallel = true)
+      val tOut = System.nanoTime() - tOutSt
+      if (i % 10 == 0) queryMeter.mark(10)
+
+      this.synchronized {
+        qlog.write("%d,%f\n".format(outRecv.size, tOut * 0.001))
+      }
+      if (i%1000 == 0) println("%d/%d, 1 minute rate %f".format(i, iterations, queryMeter.getOneMinuteRate))
+    })
+    qlog.close()
+  }
+
   def inAndOutTest(iterations: Int) {
  val r = new java.util.Random(260379)
     var i = 1
@@ -236,8 +272,10 @@ object TwitterExperiments {
   def main(args: Array[String]) {
     if (args(0) == "inout") {
  		   inAndOutTest(args(1).toInt)
-    }   else if (args(0) == "in") {
-    inTest(args(1).toInt)
+    } else if (args(0) == "in") {
+      inTest(args(1).toInt)
+    } else if (args(0) == "out") {
+      outTest(args(1).toInt)
     } else if (args(0) == "fof") {
         fofTest(args(1).toInt, pagerank=false)
     } else if (args(0) == "fofpagerank") {

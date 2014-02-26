@@ -587,6 +587,10 @@ public class QueryShard {
                     cur = tmpBuffer.get();
                     curoff = VertexIdTranslate.getAux(cur);
                 }
+
+                if (tmpBuffer.position() > 0) {
+                     tmpBuffer.position(tmpBuffer.position() - 1);  // Backtrack one
+                }
                 tmr.stop();
                 return VertexIdTranslate.getVertexId(last);
             }
