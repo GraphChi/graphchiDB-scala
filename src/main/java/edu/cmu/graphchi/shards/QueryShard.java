@@ -56,6 +56,8 @@ public class QueryShard {
     private final Counter cacheHitCounter = GraphChiEnvironment.metrics.counter("querycache-hits");
 
     public static boolean pinIndexToMemory = Integer.parseInt(System.getProperty("queryshard.pinindex", "0")) == 1;
+    // For research purposes only:
+    public static boolean disableSparseIndex = Integer.parseInt(System.getProperty("queryshard.disablesparseindex", "0")) == 1;
 
     /* Pinned compressed indices */
     private IncreasingEliasGammaSeq gammaSeqVertices;
@@ -93,9 +95,19 @@ public class QueryShard {
                 adjFile.length()).asLongBuffer();
         channel.close();
 
-        index = (pinIndexToMemory ? null : new ShardIndex(adjFile));
+        index = (pinIndexToMemory ? null : createSparseIndex());
+
         loadPointers();
         loadInEdgeStartBuffer();
+    }
+
+
+    public ShardIndex createSparseIndex() throws IOException {
+        if (!disableSparseIndex) {
+            return new ShardIndex(adjFile);
+        } else {
+            return ShardIndex.createEmptyIndex();
+        }
     }
 
     public boolean isEmpty() {
@@ -216,7 +228,7 @@ public class QueryShard {
                     long e = tmpAdjBuffer.get(idx);
                     long v = VertexIdTranslate.getVertexId(e);
                     byte type = VertexIdTranslate.getType(e);
-                    if (v == dst && type == edgeType) {
+                    if (v == dst && type == edgeType) { // Note: edgeType sorting is not accurate as edge type can be changed (by deleting)!
                         return PointerUtil.encodePointer(shardNum, idx);
                     }
 

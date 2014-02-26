@@ -73,7 +73,7 @@ object TwitterExperiments {
 
     val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), iterations)
 
-    val qlog = new BufferedWriter(new FileWriter("inout_twitter_%s.pin_%s.tsv".format(id, QueryShard.pinIndexToMemory)))
+    val qlog = new BufferedWriter(new FileWriter("inout_twitter_%s.pin_%s_sparseindex_%s.tsv".format(id, QueryShard.pinIndexToMemory, !QueryShard.disableSparseIndex)))
     qlog.write("outsize,outtime,insize,intime\n")
 
 
@@ -112,7 +112,8 @@ object TwitterExperiments {
      if (pagerank) {
        DB.runIteration(pagerankComputation, continuous=true)
      }
-    val foflog = new BufferedWriter(new FileWriter("fof_twitter_%s_limit_%d%s.csv".format(id, limit, if (QueryShard.pinIndexToMemory) { "_pin"} else {""})))
+    val foflog = new BufferedWriter(new FileWriter("fof_twitter_%s_limit_%d%s_sparseindex_%s.csv".format(id, limit,
+          if (QueryShard.pinIndexToMemory) { "_pin"} else {""}, !QueryShard.disableSparseIndex)))
 
     foflog.write("count,micros\n")
 

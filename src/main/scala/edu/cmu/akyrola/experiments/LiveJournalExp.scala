@@ -14,6 +14,7 @@ import java.net._
 import java.text._
 import java.{lang, util}
 import java.util.Date
+import edu.cmu.graphchi.shards.QueryShard
 
 /**
  * Ingest a full live journal graph from scratch
@@ -44,13 +45,14 @@ object LiveJournalExp {
    val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
     */
 
-  val pagerankComputation = new Pagerank(DB)
-  val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
+
 
 
 
 
   def startIngest() {
+    GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards = 16)
+
     DB.initialize()
 
     var i = 0
@@ -96,7 +98,8 @@ object LiveJournalExp {
     var i = 1
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
-
+    val pagerankComputation = new Pagerank(DB)
+    val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
     if (pagerank) {
       DB.runIteration(pagerankComputation, continuous=true)
     }
@@ -143,13 +146,18 @@ object LiveJournalExp {
 
     val t = System.currentTimeMillis()
     val r = new java.util.Random(260379)
+    val pagerankComputation = new Pagerank(DB)
+    val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
+    if (pagerank) {
+      DB.runIteration(pagerankComputation, continuous=true)
+    }
 
     if (pagerank) {
       DB.runIteration(pagerankComputation, continuous=true)
     }
 
-    val id = "%s_%s_i%d_%s".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n,
-      if (pagerank) { "pagerank" } else {""})
+    val id = "%s_%s_i%d_%s_sparseindex_%s".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), n,
+      if (pagerank) { "pagerank" } else {""}, QueryShard.disableSparseIndex)
 
     val splog = new FileWriter("shortestpath_livejournal_%s_maxdepth_%d.csv".format(id, 5))
 
