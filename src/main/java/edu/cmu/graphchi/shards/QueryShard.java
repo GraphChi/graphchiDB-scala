@@ -595,7 +595,13 @@ public class QueryShard {
                 return VertexIdTranslate.getVertexId(last);
             }
 
-            if (curoff >= qoff) low = 0;
+            if (curoff > qoff) {
+                low = 0;
+                System.out.println("Jumping backwards!");
+            }
+            if (curoff == qoff) {
+                return VertexIdTranslate.getVertexId(cur);
+            }
 
             while(low <= high) {
                 int idx = ((high + low) / 2);
@@ -746,8 +752,17 @@ public class QueryShard {
                     tmpPointerIdxBuffer.position(startIndex.vertexSeq);
                 }
 
+                int lastOff = firstOff;
+
                 while (offsetIterator.hasNext()) {
                     off = offsetIterator.next();
+
+                    if (off - lastOff > 32678) {
+                        // magic threshold when to consult the index
+                        ShardIndex.IndexEntry skipIdx = index.lookupByOffset(off * 8);
+                        tmpPointerIdxBuffer.position(skipIdx.vertexSeq);
+                    }
+
                     long vert = findVertexForOff(off, tmpPointerIdxBuffer);
                     if (!callback.immediateReceive()) {
                         inNeighbors.add(vert);
@@ -759,6 +774,7 @@ public class QueryShard {
                     if (cached != null) {
                         cached.add(VertexIdTranslate.encodeVertexPacket(edgeType, vert, off));
                     }
+                    lastOff = off;
                 }
                 _timer2.stop();
 
