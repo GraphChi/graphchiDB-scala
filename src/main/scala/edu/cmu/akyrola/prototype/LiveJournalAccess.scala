@@ -25,7 +25,7 @@ object LiveJournalAccess {
 
 
 
-  val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 64)
+  val DB = new GraphChiDatabase(baseFilename, enableVertexShardBits=false, numShards = 16)
   DB.initialize()
 
   def inAndOutTest(): Unit = {

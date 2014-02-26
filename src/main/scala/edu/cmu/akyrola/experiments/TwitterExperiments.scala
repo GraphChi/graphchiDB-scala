@@ -18,6 +18,7 @@ import java.net._
 import edu.cmu.graphchi.GraphChiEnvironment
 import java.util.concurrent.atomic.AtomicInteger
 import edu.cmu.graphchidb.queries.Queries
+import scala.{Byte, Long}
 
 /**
  *
@@ -70,6 +71,13 @@ object TwitterExperiments {
   def inAndOutTest(iterations: Int) {
  val r = new java.util.Random(260379)
     var i = 1
+
+    if (iterations < 10000) {
+      println("Doing full sweep of the graph so that previous run's mmaped regions do not matter")
+      DB.sweepAllEdges() {  (src: Long, dst: Long, t: Byte) =>  i += 1}
+      println("Swept %d edges")
+
+    }
 
     val id = "%s_%s_i%d".format(InetAddress.getLocalHost.getHostName.substring(0,8), sdf.format(new Date()), iterations)
 
