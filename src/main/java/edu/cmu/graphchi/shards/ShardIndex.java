@@ -15,6 +15,24 @@ public class ShardIndex {
     private int[] fileOffset;
     private int[] vertexSeq;
 
+    // Empty index
+    private ShardIndex() {
+        int n = 1;
+        vertices = new long[n];
+        edgePointer = new int[n];
+        fileOffset = new int[n];
+        vertexSeq = new int[n];
+
+        vertices[0] = 0;
+        edgePointer[0] = 0;
+        fileOffset[0] = 0;
+        vertexSeq[0] = 0;
+    }
+
+    public static ShardIndex createEmptyIndex()  {
+        return new ShardIndex();
+    }
+
     public ShardIndex(File adjFile) throws IOException {
         this.indexFile = new File(adjFile.getAbsolutePath() + ".index");
         load();

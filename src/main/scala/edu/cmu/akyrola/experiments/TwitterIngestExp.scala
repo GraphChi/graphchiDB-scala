@@ -37,6 +37,7 @@ object TwitterIngestExp {
   DB.initialize()
 
   def startIngest() {
+
       var i = 0
       val r = new Random
       val t = System.currentTimeMillis

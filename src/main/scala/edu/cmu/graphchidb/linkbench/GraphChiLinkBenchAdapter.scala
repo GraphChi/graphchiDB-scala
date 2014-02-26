@@ -14,6 +14,7 @@ import java.io._
 import java.net.InetAddress
 import scala.Some
 import org.apache.log4j.{FileAppender, EnhancedPatternLayout, ConsoleAppender, Logger}
+import edu.cmu.graphchi.shards.QueryShard
 
 
 class GraphChiLinkBenchAdapter extends GraphStore {
@@ -61,6 +62,7 @@ object GraphChiLinkBenchAdapter {
 
   val setting_checkvertexexists = false
   val setting_runpagerank = false
+  val setting_nosort = false
 
   /**** NODE STORE **/
 
@@ -146,7 +148,7 @@ object GraphChiLinkBenchAdapter {
       currentPhase =  phase
 
       val sdf = new java.text.SimpleDateFormat("YYYYMMDD_HHmmss")
-      val extras = "" + (if (setting_checkvertexexists) { "_vertexcheck_"} else { ""}) +   (if (setting_runpagerank) { "_pagerank_"} else { ""})
+      val extras = "" + (if (setting_checkvertexexists) { "_vertexcheck_"} else { ""}) + (if (QueryShard.pinIndexToMemory) { "_pinidx_"} else {""}) +  (if (setting_runpagerank) { "_pagerank_"} else { ""}) + (if (setting_nosort) { "NOSORT" } else {""} )
       val logfileName = InetAddress.getLocalHost.getHostName.substring(0,8)  + "_" + sdf.format(new Date())  +"_" + phase.toString + "_P" +
         (if (currentPhase.ordinal() == Phase.LOAD.ordinal()) { p1.get("loaders") } else { p1.get("requesters") } ) +"_V" + p1.get("maxid1") + extras + ".log"
       println("Going to log to: " + logfileName)
@@ -268,13 +270,13 @@ object GraphChiLinkBenchAdapter {
 
   def addLinkImpl(edge: Link) = {
     if (setting_checkvertexexists) {
-       val id1 = DB.originalToInternalId(edge.id1)
-       val id2 = DB.originalToInternalId(edge.id2)
-       val v = vertexDataColumn.get(id1)
-       val u = vertexDataColumn.get(id2)
+      val id1 = DB.originalToInternalId(edge.id1)
+      val id2 = DB.originalToInternalId(edge.id2)
+      val v = vertexDataColumn.get(id1)
+      val u = vertexDataColumn.get(id2)
       // Following to prevent optimizatino by compiler
-       if (v.isDefined) existCount += 1
-       if (u.isDefined) existCount += 1
+      if (v.isDefined) existCount += 1
+      if (u.isDefined) existCount += 1
     }
 
     val edgeTypeByte = edgeType(edge.link_type)
@@ -397,11 +399,16 @@ object GraphChiLinkBenchAdapter {
 
     if (res.size > 1000) println("res/2 : %d / %d".format(res.size, resultReceiver.get.size))
 
-    if (res.size > 10000) {
-      val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
-      res.filter(_.time > pivot.time).sortBy(link => -link.time)
+    if (!setting_nosort) {
+
+      if (res.size > 10000) {
+        val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
+        res.filter(_.time > pivot.time).sortBy(link => -link.time)
+      } else {
+        res.sortBy(link => -link.time)
+      }
     } else {
-      res.sortBy(link => -link.time)
+      res
     }
   }
 
@@ -415,13 +422,18 @@ object GraphChiLinkBenchAdapter {
     DB.queryOut(DB.originalToInternalId(id1), edgeType(linkType), resultReceiver)
     val res = resultReceiver.get.filter(_ != null).toArray[Link]
     println("%d id1: %d res : %d / %d  [ %d --- %d, limit: %d, offset:%d]".format(counter.incrementAndGet(), id1, res.size, resultReceiver.get.size, minTimestamp, maxTimestamp, limit, offset))
-    if (res.size > 10000) {
-      val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
-      val filtered = res.filter(_.time > pivot.time).sortBy(link => -link.time)
-      println("filtered size:" + filtered.size)
-      filtered
+
+    if (!setting_nosort) {
+      if (res.size > 10000) {
+        val pivot = Util.QuickSelect.quickSelect(res, 10000, (a: Link, p: Link) => a.time > p.time)
+        val filtered = res.filter(_.time > pivot.time).sortBy(link => -link.time)
+        println("filtered size:" + filtered.size)
+        filtered
+      } else {
+        res.sortBy(link => -link.time)
+      }
     } else {
-      res.sortBy(link => -link.time)
+      res
     }
   }
 
