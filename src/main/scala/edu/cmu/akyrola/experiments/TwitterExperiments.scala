@@ -236,7 +236,7 @@ object TwitterExperiments {
   def main(args: Array[String]) {
     if (args(0) == "inout") {
  		   inAndOutTest(args(1).toInt)
-    }   else if (args(0) == "fof") {
+    }   else if (args(0) == "in") {
     inTest(args(1).toInt)
     } else if (args(0) == "fof") {
         fofTest(args(1).toInt, pagerank=false)
