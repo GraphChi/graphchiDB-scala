@@ -138,7 +138,7 @@ public class QueryShard {
         inEdgeStartChannel.close();
     }
 
-    public static long totalPinnedSize = 0;
+    public static long totalPinnedSize = 0, totalOrigSize = 0;
     void loadPointers() throws IOException {
         File pointerFile = new File(ChiFilenames.getFilenameShardsAdjPointers(adjFile.getAbsolutePath()));
         if (!pinIndexToMemory) {
@@ -151,6 +151,7 @@ public class QueryShard {
             byte[] data = new byte[(int)pointerFile.length()];
 
             if (data.length == 0) return;
+            totalOrigSize += data.length;
 
             FileInputStream fis = new FileInputStream(pointerFile);
             int i = 0;
@@ -190,7 +191,7 @@ public class QueryShard {
             totalPinnedSize += gammaSeqVertices.sizeInBytes();
             totalPinnedSize += gammaSeqOffs.sizeInBytes();
 
-            System.out.println("Total pinned size " + totalPinnedSize / 1024.0 / 1024.0 + " mb");
+            System.out.println("Total pinned size " + totalPinnedSize / 1024.0 / 1024.0 + " mb, orig=" + totalOrigSize / 1024 / 1024 + "mb");
 
             pointerIdxBuffer = null;
 
