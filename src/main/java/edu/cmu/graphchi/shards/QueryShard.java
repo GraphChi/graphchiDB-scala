@@ -52,6 +52,9 @@ public class QueryShard {
 
     private final Timer inEdgePhase1Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase1"));
     private final Timer inEdgePhase2Timer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-phase2"));
+
+    private final Timer findEdgeByOffTimerScan = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "findEdgeByOffTimerScan"));
+
     private final Counter cacheMissCounter = GraphChiEnvironment.metrics.counter("querycache-misses");
     private final Counter cacheHitCounter = GraphChiEnvironment.metrics.counter("querycache-hits");
 
@@ -578,11 +581,13 @@ public class QueryShard {
             // TODO
             if (qoff > curoff && qoff - curoff < 100) {
                 long last = cur;
+                final Timer.Context tmr = findEdgeByOffTimerScan.time();
                 while(curoff <= qoff) {
                     last = cur;
                     cur = tmpBuffer.get();
                     curoff = VertexIdTranslate.getAux(cur);
                 }
+                tmr.stop();
                 return VertexIdTranslate.getVertexId(last);
             }
 
