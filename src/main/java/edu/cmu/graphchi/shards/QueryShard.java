@@ -757,7 +757,7 @@ public class QueryShard {
                 while (offsetIterator.hasNext()) {
                     off = offsetIterator.next();
 
-                    if (off - lastOff > 8196) {
+                    if (off - lastOff > 8196 && tmpPointerIdxBuffer != null) {
                         // magic threshold when to consult the index
                         ShardIndex.IndexEntry skipIdx = index.lookupByOffset(off * 8);
                         tmpPointerIdxBuffer.position(skipIdx.vertexSeq);
