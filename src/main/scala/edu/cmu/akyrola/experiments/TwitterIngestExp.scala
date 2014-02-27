@@ -68,10 +68,8 @@ object TwitterIngestExp {
             val toks = ln.split("\t")
             val from = Integer.parseInt(toks(0))
             val to = Integer.parseInt(toks(1))
-            val edgeType = if ((from + to) % 3 == 0) "follow" else "like"
 
-            DB.addEdgeOrigId(0, from, to, (System.currentTimeMillis() / 1000 - r.nextInt(24 * 3600 * 365 * 5)).toInt,
-              typeColumn.indexForName(edgeType))
+            DB.addEdgeOrigId(0, from, to)
             i += 1
             if (i % 1000 == 0) ingestMeter.mark(1000)
             if (i % 1000000 == 0) {
