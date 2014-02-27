@@ -49,7 +49,7 @@ object GraphChiDatabaseAdmin {
 class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false,
                        enableVertexShardBits : Boolean=true, numShards: Int = 256) {
   // Create a tree of shards... think about more elegant way
-  val shardSizes = {
+ /* val shardSizes = {
     def appendIf(szs:List[Int]) : List[Int] = if (szs.head > 16) appendIf(szs.head / 4 :: szs) else szs
     val list = appendIf(List(numShards)).reverse
     if (list.last % 4 != 0) {
@@ -57,7 +57,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     } else {
       list
     }
-  }
+  }*/
+  val shardSizes = List(numShards)
+
+
+  println("============== WARNING: NO LSM TREE (RESEARCH BRANCH) ===============")
+  println("Shard tree %s ".format(shardSizes))
 
   val shardIdStarts = shardSizes.scan(0)(_+_)
 

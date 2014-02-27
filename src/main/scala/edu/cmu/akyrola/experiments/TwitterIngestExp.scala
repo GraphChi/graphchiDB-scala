@@ -23,10 +23,10 @@ object TwitterIngestExp {
   val source =  "/Users/akyrola/graphs/twitter_rv.net"
   val baseFilename = "/Users/akyrola/graphs/DB/twitter/twitter_rv.net"
 
-  GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards=64)
+  GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards=128)
 
 
-  val DB = new GraphChiDatabase(baseFilename, numShards=64)
+  val DB = new GraphChiDatabase(baseFilename, numShards=128)
 
   /* Create columns */
   val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
