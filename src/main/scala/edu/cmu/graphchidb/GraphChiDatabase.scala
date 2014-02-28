@@ -61,8 +61,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   //val shardSizes = List(numShards)
 
 
- // println("============== WARNING: NO LSM TREE (RESEARCH BRANCH) ===============")
-//  println("Shard tree %s ".format(shardSizes))
+  // println("============== WARNING: NO LSM TREE (RESEARCH BRANCH) ===============")
+  //  println("Shard tree %s ".format(shardSizes))
 
   val shardIdStarts = shardSizes.scan(0)(_+_)
 
@@ -134,8 +134,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
   // TODO: hardcoded
   def shardSizeLimit = {
-      val maxSizeInBytes = 256 * 1024L * 1024L // todo, remove hard coding
-      maxSizeInBytes / (8 + edgeEncoderDecoder.edgeSize)
+    val maxSizeInBytes = 256 * 1024L * 1024L // todo, remove hard coding
+    maxSizeInBytes / (8 + edgeEncoderDecoder.edgeSize)
   }
   val durableTransactionLog = System.getProperty("durabletransactions", "0").equals("1")
 
@@ -243,12 +243,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         persistentShardLock.readLock().lock()
         // Note: not parallel in order to not use too much memory (buffer flush is parallel)
         destShards.foreach( destShard => {
+
+
+          destShard.checkSize()
+
           while(!destShard.mergeInProgress.compareAndSet(false, true)) {
             println("Waiting for parent shard to merge....")
             Thread.sleep(200)
           }
-
-          destShard.checkSize()
 
           println("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
 
@@ -759,34 +761,34 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def checkBuffersAndParents(): Unit = {
-    val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
-    val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
-    if (nonPendings.nonEmpty) {
-      val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
-      try {
-        if (maxBuffer.numEdges >= perBufferTrigger) {
-          reportBufferStats
-          this.bufferDrainLock.synchronized { // assure only one parallel drain happening at once (to save memory)
-            maxBuffer.mergeToParentsAndClear()
+    for(i <- 1 to 5) { // Hack
+      val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
+      val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
+      if (nonPendings.nonEmpty) {
+        val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
+        try {
+
+          if (math.random < (maxBuffer.numEdges * 1.0 / perBufferTrigger) ) {   // Probabilistic hack
+            reportBufferStats
+            this.bufferDrainLock.synchronized { // assure only one parallel drain happening at once (to save memory)
+              maxBuffer.mergeToParentsAndClear()
+            }
+
           }
-          checkBuffersAndParents()
-
+        } catch {
+          case e : Exception => e.printStackTrace()
         }
-      } catch {
-        case e : Exception => e.printStackTrace()
-      }
-    } else {
-      println("No buffers to merge ... check disk shards")
+      } else {
+        println("No buffers to merge ... check disk shards")
 
-      val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
-      if (!shardsAndSizesToMerge.isEmpty) {
-        val shardToMerge = shardsAndSizesToMerge.head._2
-        println("Found shard with over 75perc capacity -- will merge: shard=%d / %d edges".format(shardToMerge.shardId, shardToMerge.numEdges))
-        shardToMerge.mergeToParents()
-        // Try again
-        checkBuffersAndParents()
-      }
+        val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
+        if (!shardsAndSizesToMerge.isEmpty) {
+          val shardToMerge = shardsAndSizesToMerge.head._2
+          println("Found shard with over 75perc capacity -- will merge: shard=%d / %d edges".format(shardToMerge.shardId, shardToMerge.numEdges))
+          shardToMerge.mergeToParents()
+        }
 
+      }
     }
   }
 
