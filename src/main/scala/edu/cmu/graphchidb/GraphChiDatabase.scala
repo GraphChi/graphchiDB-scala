@@ -128,7 +128,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   // TODO: hardcoded
-  val shardSizeLimit = 2000000000L / 256L
+  def shardSizeLimit = {
+      val maxSizeInBytes = 256 * 1024L * 1024L // todo, remove hard coding
+      maxSizeInBytes / (8 + edgeEncoderDecoder.edgeSize)
+  }
   val durableTransactionLog = System.getProperty("durabletransactions", "0").equals("1")
 
 
@@ -185,7 +188,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           // NOTE: there is slight change that this shard becomes even larger.
           diskShardPurgeLock.synchronized {
             if (persistentShard.getNumEdges > shardSizeLimit) {
-              log("Shard %d  /%d too full --> merge upwards".format(_shardId, levelIdx))
+              log("Shard %d  /%d too full (limit: %d edges) --> merge upwards".format(_shardId, levelIdx, shardSizeLimit))
               mergeToParents()
             }
           }

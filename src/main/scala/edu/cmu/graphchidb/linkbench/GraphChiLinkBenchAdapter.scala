@@ -160,15 +160,18 @@ object GraphChiLinkBenchAdapter {
       val console = new FileAppender(fmt, logfileName + ".log");
       Logger.getLogger(ConfigUtil.LINKBENCH_LOGGER).addAppender(console)
 
+      val numShards = if (p1.get("maxid1").toString.toInt > 500000000) { 512 } else { 256 }
+
+
       if (currentPhase.ordinal() == Phase.LOAD.ordinal()) {
         println("GraphChiLinkBenchAdapter: reset node store, startId: " + 0)
-        GraphChiDatabaseAdmin.createDatabase(baseFilename)
+        GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards=numShards)
         idSequence.set(0)
       }
 
       println("Initializing, curphase = " + currentPhase.ordinal())
 
-      DB = new GraphChiDatabase(baseFilename, disableDegree = true)
+      DB = new GraphChiDatabase(baseFilename, disableDegree = true, enableVertexShardBits=false, numShards = numShards)
       /* Create columns */
       edgeDataColumn = DB.createCustomTypeColumn[LinkContainer]("linkdata", DB.edgeIndexing, LinkToBytesConverter)
       vertexDataColumn = DB.createCustomTypeColumn[NodeContainer]("nodedata", DB.vertexIndexing, NodeToBytesConverter)
