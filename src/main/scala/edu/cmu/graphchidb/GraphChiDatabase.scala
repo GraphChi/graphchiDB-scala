@@ -58,6 +58,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       list
     }
   }
+  //val shardSizes = List(numShards)
+
+
+ // println("============== WARNING: NO LSM TREE (RESEARCH BRANCH) ===============")
+//  println("Shard tree %s ".format(shardSizes))
 
   val shardIdStarts = shardSizes.scan(0)(_+_)
 

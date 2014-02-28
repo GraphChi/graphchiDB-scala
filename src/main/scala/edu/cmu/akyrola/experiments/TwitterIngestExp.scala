@@ -28,12 +28,6 @@ object TwitterIngestExp {
 
   val DB = new GraphChiDatabase(baseFilename, numShards=64)
 
-  /* Create columns */
-  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
-  val typeColumn = DB.createCategoricalColumn("type",  IndexedSeq("follow", "like"), DB.edgeIndexing)
-//  val pagerankComputation = new Pagerank(DB)
-
-
   DB.initialize()
 
   def startIngest() {
