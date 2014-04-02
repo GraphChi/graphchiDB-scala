@@ -1,22 +1,18 @@
 package edu.cmu.graphchi.preprocessing;
 
 import edu.cmu.graphchi.ChiFilenames;
-import edu.cmu.graphchi.ChiLogger;
-import edu.cmu.graphchi.datablocks.BytesToValueConverter;
 import scala.actors.threadpool.locks.Lock;
 
 import static edu.cmu.graphchi.util.Sorting.*;
 
 import java.io.*;
-import java.util.HashSet;
 import java.util.Random;
-import java.util.logging.Logger;
 
 /**
  *
  * @author Aapo Kyrola
  */
-public class FastSharder <VertexValueType, EdgeValueType> {
+public class FastSharder {
 
 
 

@@ -761,6 +761,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def checkBuffersAndParents(): Unit = {
+    if (totalBufferedEdges < 0.4 * bufferLimit) {
+      return
+    }
+
     for(i <- 1 to 5) { // Hack
       val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
       val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
