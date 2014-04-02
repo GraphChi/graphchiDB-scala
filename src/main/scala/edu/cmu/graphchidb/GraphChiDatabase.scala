@@ -1,7 +1,7 @@
 package edu.cmu.graphchidb
 
 import edu.cmu.graphchi.{GraphChiEnvironment, ChiFilenames, VertexInterval}
-import edu.cmu.graphchi.preprocessing.{EdgeProcessor, VertexProcessor, FastSharder, VertexIdTranslate}
+import edu.cmu.graphchi.preprocessing.{FastSharder, VertexIdTranslate}
 import java.io.{IOException, FileOutputStream, File}
 
 import scala.collection.JavaConversions._
@@ -9,7 +9,6 @@ import edu.cmu.graphchidb.storage._
 import edu.cmu.graphchi.queries.{FinishQueryException, QueryCallback}
 import edu.cmu.graphchidb.Util.async
 import java.nio.{BufferUnderflowException, ByteBuffer}
-import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
 import edu.cmu.graphchidb.queries.QueryResult
 import java.{util, lang}
 import edu.cmu.graphchidb.queries.internal.QueryResultContainer
