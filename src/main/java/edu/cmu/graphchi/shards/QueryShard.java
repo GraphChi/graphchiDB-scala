@@ -4,6 +4,7 @@ import static com.codahale.metrics.MetricRegistry.name;
 
 import com.codahale.metrics.Counter;
 import com.codahale.metrics.Timer;
+import com.typesafe.config.Config;
 import edu.cmu.graphchi.ChiFilenames;
 import edu.cmu.graphchi.GraphChiEnvironment;
 import edu.cmu.graphchi.VertexInterval;
@@ -43,6 +44,8 @@ public class QueryShard {
     private IntBuffer inEdgeStartBuffer;
     private VertexInterval interval;
 
+    private Config dbConfig;
+
 
     private static final Timer inEdgeIndexLookupTimer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-indexlookup"));
 
@@ -58,9 +61,8 @@ public class QueryShard {
     private final Counter cacheMissCounter = GraphChiEnvironment.metrics.counter("querycache-misses");
     private final Counter cacheHitCounter = GraphChiEnvironment.metrics.counter("querycache-hits");
 
-    public static boolean pinIndexToMemory = Integer.parseInt(System.getProperty("queryshard.pinindex", "0")) == 1;
-    // For research purposes only:
-    public static boolean disableSparseIndex = Integer.parseInt(System.getProperty("queryshard.disablesparseindex", "0")) == 1;
+    public boolean pinIndexToMemory = true;
+
 
     /* Pinned compressed indices */
     private IncreasingEliasGammaSeq gammaSeqVertices;
@@ -68,27 +70,29 @@ public class QueryShard {
 
     private int numEdges;
 
-    public static int queryCacheSize = Integer.parseInt(System.getProperty("queryshard.cachesize", "0"));
+    public int queryCacheSize;
     public static boolean freezeCache = false;
 
     private Map queryCache =  (queryCacheSize == 0 ? null : Collections.synchronizedMap(new HashMap(queryCacheSize)));
 
-    static {
-        System.out.println("Query cache size: " + queryCacheSize);
-    }
-
-    public QueryShard(String filename, int shardNum, int numShards) throws IOException {
-        this(filename, shardNum, numShards, ChiFilenames.loadIntervals(filename, numShards).get(shardNum));
-    }
-
     public final static int BYTES_PER_EDGE = 8;
 
-    public QueryShard(String fileName, int shardNum, int numShards, VertexInterval interval) throws IOException {
+
+
+    public QueryShard(String filename, int shardNum, int numShards, Config dbConfig) throws IOException {
+        this(filename, shardNum, numShards, ChiFilenames.loadIntervals(filename, numShards).get(shardNum), dbConfig);
+    }
+
+
+    public QueryShard(String fileName, int shardNum, int numShards, VertexInterval interval, Config dbConfig) throws IOException {
         this.shardNum = shardNum;
         this.numShards = numShards;
         this.fileName = fileName;
-
         this.interval = interval;
+        this.dbConfig = dbConfig;
+
+        pinIndexToMemory = dbConfig.getBoolean("queryshard.pinindex");
+        queryCacheSize = dbConfig.getInt("queryshard.cachesize");
 
         adjFile = new File(ChiFilenames.getFilenameShardsAdj(fileName, shardNum, numShards));
         numEdges = (int) (adjFile.length() / BYTES_PER_EDGE);
@@ -106,11 +110,7 @@ public class QueryShard {
 
 
     public ShardIndex createSparseIndex() throws IOException {
-        if (!disableSparseIndex) {
-            return new ShardIndex(adjFile);
-        } else {
-            return ShardIndex.createEmptyIndex();
-        }
+       return new ShardIndex(adjFile);
     }
 
     public boolean isEmpty() {
@@ -146,8 +146,6 @@ public class QueryShard {
             pointerIdxBuffer = ptrFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, pointerFile.length()).asLongBuffer();
             ptrFileChannel.close();
         } else {
-
-            System.out.println("Reading fully: " + pointerFile.getName());
             byte[] data = new byte[(int)pointerFile.length()];
 
             if (data.length == 0) return;
@@ -170,13 +168,6 @@ public class QueryShard {
                 long x = pointerIdxBuffer.get(j);
                 vertices[j] = VertexIdTranslate.getVertexId(x);
                 offs[j] = VertexIdTranslate.getAux(x);
-
-                if (j>0 && vertices[j] == vertices[j-1]) {
-                    System.out.println(j + " / " + vertices.length + " equals " + vertices[j]);
-                }
-                if (j>0 && offs[j] == offs[j-1]) {
-                    System.out.println(j + " / " + offs.length + " off equals " + offs[j] + " (" + vertices[j-1] + ", " + vertices[j] + ")");
-                }
             }
 
             boolean extraZero = (offs.length > 1 && offs[1] == offs[0]);
@@ -190,9 +181,6 @@ public class QueryShard {
 
             totalPinnedSize += gammaSeqVertices.sizeInBytes();
             totalPinnedSize += gammaSeqOffs.sizeInBytes();
-
-            System.out.println("Total pinned size " + totalPinnedSize / 1024.0 / 1024.0 + " mb, orig=" + totalOrigSize / 1024 / 1024 + "mb");
-
             pointerIdxBuffer = null;
 
         }
@@ -598,7 +586,6 @@ public class QueryShard {
 
             if (curoff > qoff) {
                 low = 0;
-                System.out.println("Jumping backwards!");
             }
             if (curoff == qoff) {
                 return VertexIdTranslate.getVertexId(cur);
@@ -630,10 +617,6 @@ public class QueryShard {
             if (idx == -1) {
                 for(int i=0; i<gammaSeqOffs.length(); i++) {
                     long x = gammaSeqOffs.get(i);
-                    System.out.println(i + " / " + x + " != " + qoff);
-                    if (qoff == x) {
-                        System.out.println(" ===> could not find " + qoff + " but found at " + i + " / " + gammaSeqOffs.length());
-                    }
                     if (x  > qoff) break;
                 }
 
@@ -758,7 +741,7 @@ public class QueryShard {
                 while (offsetIterator.hasNext()) {
                     off = offsetIterator.next();
 
-                    if (!disableSparseIndex && off - lastOff > 8196 && tmpPointerIdxBuffer != null) {
+                    if (off - lastOff > 8196 && tmpPointerIdxBuffer != null) {
                         // magic threshold when to consult the index
                         ShardIndex.IndexEntry skipIdx = index.lookupByOffset(off * 8);
                         if (skipIdx.fileOffset > lastOff) {

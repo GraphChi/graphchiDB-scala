@@ -1,5 +1,6 @@
 package edu.cmu.graphchi.shards;
 
+import com.typesafe.config.ConfigFactory;
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.FastSharder;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
@@ -26,7 +27,7 @@ public class TestQueryShard {
 
         FastSharder.writeAdjacencyShard(baseFilename, 0, 1, 1, srcs, dsts, new byte[srcs.length], 0, 101, false, null);
 
-        QueryShard shards = new QueryShard(baseFilename, 0, 1, new VertexInterval(0, 101, 0));
+        QueryShard shards = new QueryShard(baseFilename, 0, 1, new VertexInterval(0, 101, 0), ConfigFactory.load());
 
         EdgeIterator iter = shards.edgeIterator();
 

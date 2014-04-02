@@ -2,7 +2,7 @@ package edu.cmu.graphchidb
 
 import edu.cmu.graphchi.{GraphChiEnvironment, ChiFilenames, VertexInterval}
 import edu.cmu.graphchi.preprocessing.{FastSharder, VertexIdTranslate}
-import java.io.{IOException, FileOutputStream, File}
+import java.io.{FilenameFilter, IOException, FileOutputStream, File}
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
@@ -23,20 +23,27 @@ import edu.cmu.graphchi.util.Sorting
 import edu.cmu.graphchidb.compute.Computation
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import edu.cmu.graphchidb.storage.VarDataColumn
-
-
-// TODO: refactor: separate database creation and definition from the graphchidatabase class
+import com.typesafe.config.{ConfigFactory, Config}
 
 
 object GraphChiDatabaseAdmin {
 
-  def createDatabase(baseFilename: String, numShards:Int = 256, maxId: Long = 1L<<33) : Boolean= {
+  def createDatabase(baseFilename: String, numShards:Int = 256,
+                     maxId: Long = 1L<<33,
+                     replaceExistingFiles:Boolean=false) : Boolean= {
+    val graphName = new File(baseFilename).getName
+    val directory = new File(baseFilename).getParentFile
+    if (!directory.exists()) directory.mkdir()
 
-    // Temporary code!
-    FastSharder.createEmptyGraph(baseFilename, numShards, maxId)
-    true
+    if (!replaceExistingFiles && directory.listFiles(new FilenameFilter {
+      def accept(dir: File, name: String) = name.contains(graphName)
+    }).length > 0) {
+      throw new IllegalStateException("Database already exists in directory: " + directory)
+    } else {
+      FastSharder.createEmptyGraph(baseFilename, numShards, maxId)
+      true
+    }
   }
-
 
 }
 
@@ -45,8 +52,20 @@ object GraphChiDatabaseAdmin {
  * Defines a sharded graphchi database.
  * @author Aapo Kyrola
  */
-class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false,
-                       enableVertexShardBits : Boolean=true, numShards: Int = 256) {
+class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
+                       numShards: Int = 256) {
+
+
+  lazy val config = ConfigFactory.parseFileAnySyntax(new File("conf/graphchidb.conf"))
+
+  val bufferLimit = config.getLong("graphchidb.max_buffered_edges")
+
+  /* Optimization that is largely redundant nowadays.. */
+  val enableVertexShardBits  = false
+
+  println("Buffer limit: " + bufferLimit)
+
+
   // Create a tree of shards... think about more elegant way
   val shardSizes = {
     def appendIf(szs:List[Int]) : List[Int] = if (szs.head > 16) appendIf(szs.head / 4 :: szs) else szs
@@ -136,7 +155,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val maxSizeInBytes = 256 * 1024L * 1024L // todo, remove hard coding
     maxSizeInBytes / (8 + edgeEncoderDecoder.edgeSize)
   }
-  val durableTransactionLog = System.getProperty("durabletransactions", "0").equals("1")
+
+  val durableTransactionLog = config.getBoolean("graphchidb.durabletransactions")
 
 
   sealed abstract class Shard
@@ -153,12 +173,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
     var persistentShard = {
       try {
-        new QueryShard(baseFilename, shardId, numShards, myInterval)
+        new QueryShard(baseFilename, shardId, numShards, myInterval, config)
       } catch {
         case ioe: IOException => {
           // TODO: improve
           FastSharder.createEmptyShard(baseFilename, numShards, shardId)
-          new QueryShard(baseFilename, shardId, numShards, myInterval)
+          new QueryShard(baseFilename, shardId, numShards, myInterval, config)
         }
       }
     }
@@ -166,7 +186,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     def numEdges = persistentShard.getNumEdges
 
     def reset() : Unit = {
-      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
+      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval,  config)
     }
 
 
@@ -247,11 +267,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           destShard.checkSize()
 
           while(!destShard.mergeInProgress.compareAndSet(false, true)) {
-            println("Waiting for parent shard to merge....")
+            log("Waiting for parent shard to merge....")
             Thread.sleep(200)
           }
 
-          println("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
+          log("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
 
 
           val myEdges = readIntoBuffer(destShard.myInterval)
@@ -419,8 +439,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           trEdgeEncoder.encode(trBuffer, values:_*)
           transactionLogOut.write(trBuffer.array())
         }
-      } catch {
-        case e: Exception => e.printStackTrace()
       } finally {
         bufferLock.readLock().unlock()
       }
@@ -541,7 +559,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
         val edgeSize = edgeEncoderDecoder.edgeSize
 
-        println("Buffer %d starting merge %s".format(bufferShardId, Thread.currentThread().getName))
+        log("Buffer %d starting merge %s".format(bufferShardId, Thread.currentThread().getName))
 
         timed("mergeToAndClear %d".format(bufferShardId), {
           bufferLock.writeLock().lock()
@@ -608,7 +626,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                   invokePurgeListeners()
 
                   while(!destShard.mergeInProgress.compareAndSet(false, true)) {
-                    println("Buffer: waiting for parent to merge... (%d) %s".format(destShard.shardId, Thread.currentThread().getName))
                     Thread.sleep(200)
                   }
 
@@ -638,8 +655,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
                   log("Merging buffer %d -> %d (%d buffered edges, %d from old)".format(bufferShardId, destShard.shardId,
                     myEdges.numEdges, destEdges.numEdges))
-                  println("Merging buffer %d -> %d (%d buffered edges, %d from old, thread: %s)".format(bufferShardId, destShard.shardId,
-                    myEdges.numEdges, destEdges.numEdges, Thread.currentThread().getName))
 
                   // Write shard
                   timed("buffermerge-writeshard", {
@@ -668,9 +683,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                   destShard.mergeInProgress.compareAndSet(true, false)
                   log("Remove from oldBuffers: %d/%d %s".format(bufferShardId, parentIdx, parentIntervals(parentIdx)))
                   // Remove the edges from the buffer since they are now assumed to be in the persistent shard
-                  println("Finished Merging buffer %d -> %d  thread: %s)".format(bufferShardId, destShard.shardId,
-                    Thread.currentThread().getName))
-                  oldBufferLock.synchronized {
+                   oldBufferLock.synchronized {
                     oldBuffers = oldBuffers.patch(parentIdx, IndexedSeq(intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
                       bufferId=edgeBufferId(bufferShardId, parentIdx, interval.getId)), interval))), 1)
                   }
@@ -698,15 +711,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
         myAssert(oldBuffers.size == buffers.size)
 
-        if (oldBuffers.map(_.map(_.buffer.numEdges).sum).sum != 0) {
-          println("Old buffers still have %d edges".format(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum))
-        }
-
         myAssert(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum == 0)
       }
-      /* Check if upstream shards too big - not in parallel to limit memory consumption */
-      println("Buffer %d finished merge %s".format(bufferShardId, Thread.currentThread().getName))
-
     }
 
   }
@@ -765,7 +771,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
 
     for(i <- 1 to 5) { // Hack
-      val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
+    val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
       val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
       if (nonPendings.nonEmpty) {
         val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
@@ -782,12 +788,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           case e : Exception => e.printStackTrace()
         }
       } else {
-        println("No buffers to merge ... check disk shards")
 
         val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
         if (!shardsAndSizesToMerge.isEmpty) {
           val shardToMerge = shardsAndSizesToMerge.head._2
-          println("Found shard with over 75perc capacity -- will merge: shard=%d / %d edges".format(shardToMerge.shardId, shardToMerge.numEdges))
           shardToMerge.mergeToParents()
         }
 
@@ -1271,7 +1275,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val bufferResults = bufferPointers.map(ptr => {
       ptr -> getByPointer(column, ptr, buf)
     }).toMap
-    println("Retrieved %d buffer results, %d persistent", bufferPointers.size, persistentPointers.size)
     persistentResults ++ bufferResults
   }
 

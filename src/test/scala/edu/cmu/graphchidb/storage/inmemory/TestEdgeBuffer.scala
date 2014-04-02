@@ -27,7 +27,7 @@ class TestEdgeBuffer {
     def isValid =  (col2 == (src + dst) % 10000) && (col3 == (src - dst) % 333 && col1 == "c")
   }
 
-  val db = new GraphChiDatabase(testDb, 2)
+  val db = new GraphChiDatabase(testDb, numShards=2)
   val catColumn = db.createCategoricalColumn("col1", IndexedSeq("a", "b", "c"), db.edgeIndexing)
   db.createIntegerColumn("col2", db.edgeIndexing)
   db.createIntegerColumn("col3", db.edgeIndexing)
