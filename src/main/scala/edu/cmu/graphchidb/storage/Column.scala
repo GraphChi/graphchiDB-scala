@@ -49,6 +49,8 @@ trait Column[T] {
 
   def delete : Unit
 
+  def typeInfo: String = ""
+
 }
 
 class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: DatabaseIndexing,
@@ -59,6 +61,8 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
   def encode(value: T, out: ByteBuffer) = converter.toBytes(value, out)
   def decode(in: ByteBuffer) = converter.fromBytes(in)
   def elementSize = converter.sizeOf
+
+  override def typeInfo = converter.getClass.getName
 
   def indexing = _indexing
   def blockFilename(shardNum: Int) = filePrefix + "." + shardNum

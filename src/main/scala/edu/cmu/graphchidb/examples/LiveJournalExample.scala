@@ -33,7 +33,7 @@ object LiveJournalExample {
   val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
 
   /* Create edge columns */
-  val timestampColumn = DB.createLongColumn("timestamp", DB.edgeIndexing)
+  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
   val weightColumn = DB.createFloatColumn("weight",   DB.edgeIndexing)
 
   DB.initialize()

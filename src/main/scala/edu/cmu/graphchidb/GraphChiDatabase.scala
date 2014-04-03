@@ -683,7 +683,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
                   destShard.mergeInProgress.compareAndSet(true, false)
                   log("Remove from oldBuffers: %d/%d %s".format(bufferShardId, parentIdx, parentIntervals(parentIdx)))
                   // Remove the edges from the buffer since they are now assumed to be in the persistent shard
-                   oldBufferLock.synchronized {
+                  oldBufferLock.synchronized {
                     oldBuffers = oldBuffers.patch(parentIdx, IndexedSeq(intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
                       bufferId=edgeBufferId(bufferShardId, parentIdx, interval.getId)), interval))), 1)
                   }
@@ -1536,9 +1536,23 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       def encode(out: ByteBuffer, values: Any*) = {
         if (values.size != idxRange.size)
           throw new IllegalArgumentException("Number of inputs must match the encoder configuration: %d != given %d".format(idxRange.size, values.size))
-        idxRange.foreach(i => {
-          encoderSeq(i)(values(i), out)
-        })
+        try {
+          idxRange.foreach(i => {
+            encoderSeq(i)(values(i), out)
+          })
+        } catch {
+          case e:Exception => {
+            System.err.println("---------------------------")
+            System.err.println("Error encoding edge values to bytes. You need to provide edge values in the same order as they we given:")
+            columns(edgeIndexing).zipWithIndex.foreach {
+              case (colSpec:(String, Column[Any]), i:Int) => {
+                System.err.println("  Column [" + i + "]: " + colSpec._1  + " (expected " + columnLengths(i) +
+                  " byte-value, converter " + colSpec._2.typeInfo + ", was given [" + values(i) + "])")
+              }}
+            System.err.println("---------------------------")
+            throw e
+          }
+        }
         _edgeSize
       }
 
