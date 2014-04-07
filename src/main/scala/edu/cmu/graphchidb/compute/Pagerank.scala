@@ -3,6 +3,7 @@ package edu.cmu.graphchidb.compute
 import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.storage.Column
 import edu.cmu.graphchidb.Util._
+import edu.cmu.graphchi.VertexInterval
 
 /**
  * The benchmark everyone does.
@@ -13,13 +14,13 @@ class Pagerank(db: GraphChiDatabase) extends Computation {
   val columnName = "pagerank"
   var pagerankColumn  = db.column("pagerank", db.vertexIndexing).getOrElse(db.createFloatColumn(columnName, db.vertexIndexing)).asInstanceOf[Column[Float]]
 
-  def computeForInterval(intervalId: Int, minVertex: Long, maxVertex: Long) = {
+  def computeForInterval(interval: VertexInterval,  minVertex: Long, maxVertex: Long) = {
       val len = (maxVertex - minVertex + 1).toInt
       val accumulators = new Array[Float](len)
 
       val degreeColumn = db.degreeColumn
 
-      db.sweepInEdgesWithJoin[Float, Long](intervalId, maxVertex, pagerankColumn, degreeColumn)(
+      db.sweepInEdgesWithJoin[Float, Long](interval, maxVertex, pagerankColumn, degreeColumn)(
         (src: Long, dst: Long, edgeType: Byte, pagerank: Float, degree: Long) => {
             val outDeg = 5 // loBytes(degree)
 

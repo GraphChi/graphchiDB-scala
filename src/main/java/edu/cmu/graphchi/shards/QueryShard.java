@@ -110,7 +110,7 @@ public class QueryShard {
 
 
     public ShardIndex createSparseIndex() throws IOException {
-       return new ShardIndex(adjFile);
+        return new ShardIndex(adjFile);
     }
 
     public boolean isEmpty() {
@@ -205,13 +205,13 @@ public class QueryShard {
                 for(int i=0; i<n; i++) {
                     long e = tmpAdjBuffer.get();
                     long v = VertexIdTranslate.getVertexId(e);
-                     if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
+                    if (v == dst && VertexIdTranslate.getType(e) == edgeType) {
                         return PointerUtil.encodePointer(shardNum, (int) adjOffset + i);
                     } else if (v > dst) {
                         break;
                     }
                 }
-             } else {
+            } else {
                 // Binary search
                 int low = (int)adjOffset;
                 int high = low + n;
@@ -480,6 +480,7 @@ public class QueryShard {
         long cur;
         long next;
 
+
         PointerPair(long cur, long next) {
             this.cur = cur;
             this.next = next;
@@ -488,28 +489,29 @@ public class QueryShard {
 
     /**
      * Returns the vertex idx for given vertex in the pointer file, or -1 if not found.
+     * Note: moves the position of the tmpBuffer  bytebuffer.
      */
-    private PointerPair findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry, final LongBuffer tmpBuffer, long[] workarr) {
-        if (tmpBuffer != null) {
+    private PointerPair findIdxAndPos(long vertexId, ShardIndex.IndexEntry sparseIndexEntry, final LongBuffer tmpPtrBuffer, long[] workarr) {
+        if (tmpPtrBuffer != null) {
             assert(sparseIndexEntry.vertex <= vertexId);
 
             // Not pinned
-            if (tmpBuffer.capacity() == 0) return new PointerPair(-1, -1);
+            if (tmpPtrBuffer.capacity() == 0) return new PointerPair(-1, -1);
 
             int vertexSeq = sparseIndexEntry.vertexSeq;
             long curvid = sparseIndexEntry.vertex;
 
             if (sparseIndexEntry.nextEntry == null) {
                 // Linear search
-                tmpBuffer.position(vertexSeq);
-                long ptr = tmpBuffer.get();
+                tmpPtrBuffer.position(vertexSeq);
+                long ptr = tmpPtrBuffer.get();
                 while(curvid <= vertexId) {
                     try {
                         curvid = VertexIdTranslate.getVertexId(ptr);
                         if (curvid == vertexId) {
-                            return new PointerPair(VertexIdTranslate.getAux(ptr), VertexIdTranslate.getAux(tmpBuffer.get()));
+                            return new PointerPair(VertexIdTranslate.getAux(ptr), VertexIdTranslate.getAux(tmpPtrBuffer.get()));
                         }
-                        ptr = tmpBuffer.get();
+                        ptr = tmpPtrBuffer.get();
                     } catch (BufferUnderflowException bufe) {
                         return new PointerPair(-1, -1);
                     }
@@ -518,15 +520,15 @@ public class QueryShard {
                 // Binary search
                 int low = sparseIndexEntry.vertexSeq;
                 int high = sparseIndexEntry.nextEntry.vertexSeq;
-                int n = tmpBuffer.capacity();
+                int n = tmpPtrBuffer.capacity();
 
                 while(low <= high) {
                     int idx = ((high + low) / 2);
-                    long ptr = tmpBuffer.get(idx);
+                    long ptr = tmpPtrBuffer.get(idx);
 
                     curvid = VertexIdTranslate.getVertexId(ptr);
                     if (curvid == vertexId) {
-                        return new PointerPair(VertexIdTranslate.getAux(ptr), VertexIdTranslate.getAux(tmpBuffer.get(idx + 1)));
+                        return new PointerPair(VertexIdTranslate.getAux(ptr), VertexIdTranslate.getAux(tmpPtrBuffer.get(idx + 1)));
                     }
                     if (curvid < vertexId) {
                         low = idx + 1;
@@ -578,7 +580,7 @@ public class QueryShard {
                 }
 
                 if (tmpBuffer.position() > 0) {
-                     tmpBuffer.position(tmpBuffer.position() - 1);  // Backtrack one
+                    tmpBuffer.position(tmpBuffer.position() - 1);  // Backtrack one
                 }
                 tmr.stop();
                 return VertexIdTranslate.getVertexId(last);
@@ -781,15 +783,31 @@ public class QueryShard {
 
 
     public EdgeIterator edgeIterator() {
+        return edgeIterator(0);
+    }
+
+    public EdgeIterator edgeIterator(long fromSrcVertex) {
         if (!pinIndexToMemory) {
             final LongBuffer iterBuffer = adjBuffer.duplicate();
-            iterBuffer.position(0);
             final LongBuffer iterPointerBuffer = pointerIdxBuffer.duplicate();
-            iterPointerBuffer.position(0);
 
+
+            if (fromSrcVertex <= 0) {
+                iterBuffer.position(0);
+                iterPointerBuffer.position(0);
+            } else {
+                ShardIndex.IndexEntry entry = null;
+                entry = (pinIndexToMemory ? null :  index.lookup(fromSrcVertex)); // ugly
+
+                PointerPair ptr = findIdxAndPos(fromSrcVertex, entry, iterPointerBuffer, new long[2]);
+                if (ptr.cur != (-1)) {
+                    iterBuffer.position((int)ptr.cur);
+                    iterPointerBuffer.position(iterPointerBuffer.position() - 1);
+                }
+            }
 
             return new EdgeIterator() {
-                int idx = (-1);
+                int idx = iterBuffer.position() - 1;
                 long ptr = (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
                 long nextPtr =  (iterPointerBuffer.capacity() > 0 ?  iterPointerBuffer.get() : -1);
                 long nextOff = VertexIdTranslate.getAux(nextPtr);
@@ -873,13 +891,22 @@ public class QueryShard {
                 };
             }
             final LongBuffer iterBuffer = adjBuffer.duplicate();
-            iterBuffer.position(0);
-            final Iterator<Long> iterPointerVertices = gammaSeqVertices.iterator();
-            final Iterator<Long> iterPointerOffs = gammaSeqOffs.iterator();
+              if (fromSrcVertex == 0) {
+                iterBuffer.position(0);
+            } else {
+                PointerPair ptr = findIdxAndPos(fromSrcVertex, null, null, new long[2]);
+                if (ptr.cur != (-1)) {
+                    iterBuffer.position((int)ptr.cur);
+                }
+            }
+
+            final Iterator<Long> iterPointerVertices = gammaSeqVertices.iterator(fromSrcVertex);
+            final Iterator<Long> iterPointerOffs = gammaSeqOffs.iterator(fromSrcVertex);
+
 
 
             return new EdgeIterator() {
-                int idx = (-1);
+                int idx = iterBuffer.position() - 1;
                 long ptr = (iterPointerVertices.hasNext() ?  VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next()) : -1);
                 long nextPtr =  (iterPointerVertices.hasNext() ?  VertexIdTranslate.encodeVertexPacket((byte)0, iterPointerVertices.next(), iterPointerOffs.next()) : -1);
                 long nextOff = VertexIdTranslate.getAux(nextPtr);

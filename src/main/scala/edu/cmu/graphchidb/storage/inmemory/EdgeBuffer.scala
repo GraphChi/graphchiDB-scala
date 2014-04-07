@@ -14,7 +14,7 @@ import edu.cmu.graphchi.preprocessing.VertexIdTranslate
  * Note: not thread-safe.
  * @author Aapo Kyrola
  */
-class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: Int = 1024, bufferId: Int) {
+class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: Int = 1024, val bufferId: Int) {
 
   val edgeSize = encoderDecoder.edgeSize
   val tmpBuffer = ByteBuffer.allocate(edgeSize)

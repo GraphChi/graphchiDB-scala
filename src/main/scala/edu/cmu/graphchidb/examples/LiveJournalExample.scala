@@ -7,6 +7,7 @@ import scala.io.Source
 import java.io.File
 
 import edu.cmu.graphchidb.Util._
+import edu.cmu.graphchidb.examples.computation.ConnectedComponentsLabelProp
 
 /**
  * Example application create a database of the live journal graph.
@@ -28,12 +29,12 @@ object LiveJournalExample {
 
   val baseFilename = "/Users/akyrola/graphs/DB/livejournal/lj"
 
+  GraphChiDatabaseAdmin.createDatabaseIfNotExists(baseFilename, numShards = 16)
 
-  GraphChiDatabaseAdmin.createDatabase(baseFilename, numShards = 16, replaceExistingFiles = true)
   val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
 
   /* Create edge columns */
-  val timestampColumn = DB.createIntegerColumn("timestamp", DB.edgeIndexing)
+  val timestampColumn = DB.createLongColumn("timestamp", DB.edgeIndexing)
   val weightColumn = DB.createFloatColumn("weight",   DB.edgeIndexing)
 
   DB.initialize()
@@ -66,5 +67,13 @@ object LiveJournalExample {
     }
   }
 
+
+  def connectedComponents() {
+      val vertexCCColumn = DB.columnT[Long]("cc", DB.vertexIndexing).getOrElse(DB.createLongColumn("cc", DB.vertexIndexing))
+      val edgeCCColumn = DB.columnT[Long]("cce", DB.edgeIndexing).getOrElse(DB.createLongColumn("cce", DB.edgeIndexing))
+
+      val ccAlgo = new ConnectedComponentsLabelProp
+      DB.runGraphChiComputation(ccAlgo, vertexCCColumn, edgeCCColumn, 100, enableScheduler=true)
+  }
 
 }

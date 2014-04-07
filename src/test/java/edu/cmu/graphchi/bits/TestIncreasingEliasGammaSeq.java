@@ -121,7 +121,7 @@ public class TestIncreasingEliasGammaSeq {
 
         long t1 = System.currentTimeMillis();
         orig[0] = 0;
-        Random r = new Random();
+        Random r = new Random(19820904);
         for(int i=1; i<orig.length; i++) {
             long delta = 1 +  Math.abs(r.nextLong() % 100);
             orig[i] = orig[i - 1] + delta;
@@ -137,6 +137,41 @@ public class TestIncreasingEliasGammaSeq {
             long x = iter.next();
             assertEquals(orig[j], x);
             j++;
+        }
+        assertEquals(j, orig.length);
+
+    }
+
+    @Test
+    public void testIteratorWithStart() {
+        long[] orig = new long[1000000];
+
+        long t1 = System.currentTimeMillis();
+        orig[0] = 0;
+        Random r = new Random(19820904);
+        for(int i=1; i<orig.length; i++) {
+            long delta = 1 +  Math.abs(r.nextLong() % 100);
+            orig[i] = orig[i - 1] + delta;
+        }
+
+        long t2 = System.currentTimeMillis();
+
+        IncreasingEliasGammaSeq egSeq = new IncreasingEliasGammaSeq(orig);
+
+        for(int tries=0; tries<50; tries++) {
+            int j = Math.abs(r.nextInt() % orig.length);
+            int startj = j;
+            Iterator<Long> iter = egSeq.iterator(orig[startj]);
+            while(iter.hasNext()) {
+                assertTrue(iter.hasNext());
+                long x = iter.next();
+                if (j >= orig.length || orig[j] != x) {
+                   System.err.println("Mismatch: j =" + j + "/" + orig.length + ", startj=" + startj + ", try=" + tries);
+                }
+                assertEquals(orig[j], x);
+                j++;
+            }
+            assertEquals(j, orig.length);
         }
     }
 }
