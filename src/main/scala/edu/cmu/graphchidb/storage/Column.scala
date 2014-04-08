@@ -46,6 +46,7 @@ trait Column[T] {
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit
 
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B
+  def foreach(op: T => Unit) : Unit
 
   def delete : Unit
 
@@ -158,6 +159,10 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
     })(converter) }
   }
 
+  def foreach(op: T => Unit) : Unit = {
+    (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).foreach(op)(converter))
+  }
+
 }
 
 class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String],
@@ -242,6 +247,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
   }
 
 
+
   def set(_idx: Long, value: T) = {
     val idx = vertexIdTranslate.backward(_idx)
     val pstmt = dbConnection.prepareStatement("replace into %s (id, %s) values(?, ?)".format(tableName, columnName))
@@ -266,6 +272,10 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
   }
 
   def indexing = _indexing
+
+  def foreach(op: T => Unit) : Unit= {
+    throw new NotImplementedException
+  }
 
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit= throw new NotImplementedException
 }

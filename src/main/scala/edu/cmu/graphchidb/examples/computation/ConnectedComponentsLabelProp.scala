@@ -3,6 +3,8 @@ package edu.cmu.graphchidb.examples.computation
 import edu.cmu.graphchidb.compute.{GraphChiContext, GraphChiVertex, VertexCentricComputation}
 import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.storage.Column
+import java.util
+import java.util.Collections
 
 /**
  * Label propagation version of connected components. The label of vertex
@@ -35,15 +37,33 @@ class ConnectedComponentsLabelProp( database: GraphChiDatabase)
     }
     assert(vertex.outc.get == vertex.outDegree)
 
-    val minLabel = if (context.iteration == 0) { vertex.id } else {
-         math.min(vertex.id, vertex.edges.foldLeft(0L)((mn, edge) => math.min(mn, edge.getValue))) }
+    val minLabel = math.min(vertex.id, vertex.edgeValues.foldLeft(vertex.id)((mn, label) => math.min(mn, label)))
        if (minLabel != vertex.getData) {
           vertex.setData(minLabel)
-          vertex.edges.foreach(edge => edge.setValue(minLabel))
-          context.scheduler.addTasks(vertex.edges)
+          vertex.setAllEdgeValues(minLabel)
+          context.scheduler.addTasks(vertex.edgeVertexIds)
        }
   }
 
   def edgeDataColumn = Some(edgeColumn)
   def vertexDataColumn = Some(vertexColumn)
+
+  // Ugly, straight from java
+  def printStats()  = {
+    val counts = new util.HashMap[Long, IdCount](1000000)
+    vertexColumn.foreach( {label => {
+        var cnt = counts.get(label)
+        if (cnt == null) {
+          cnt = new IdCount(label, 1)
+          counts.put(label, cnt)
+        }
+         cnt.count += 1
+    } })
+
+    val finalCounts = new util.ArrayList(counts.values())
+    Collections.sort(finalCounts)
+    for(i <- 1 to math.min(20, finalCounts.size())) {
+        println("%d. component: " + finalCounts.get(i - 1))
+    }
+  }
 }

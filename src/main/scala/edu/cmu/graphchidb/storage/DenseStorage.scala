@@ -7,7 +7,8 @@ import java.nio.{BufferUnderflowException, ByteBuffer}
 /**
  * @author Aapo Kyrola
  */
-class MemoryMappedDenseByteStorageBlock(file: File, _size: Option[Long], elementSize: Int, truncate : Boolean = false) extends IndexedByteStorageBlock {
+class MemoryMappedDenseByteStorageBlock(file: File, _size: Option[Long], elementSize: Int, truncate : Boolean = false)
+  extends IndexedByteStorageBlock {
 
   /** If file exists and is of proper size, do nothing - otherwise initialize */
   if (!file.exists()) {
