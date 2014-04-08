@@ -51,12 +51,18 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
 
   def addInEdge(vertexId: Long, dataPtr: Long) : Unit = {
     val i = inc.getAndIncrement
+    if (inc.get() > inDegree) {
+      System.err.println("Mismatch vertex " + id + " inc=" + inc + " inDeg=" + inDegree)
+    }
     edgeSpec(i * 2) = vertexId
     edgeSpec(i * 2 + 1) = dataPtr
   }
 
   def addOutEdge(vertexId: Long, dataPtr: Long) : Unit = {
     val i = outc.getAndIncrement  + inDegree
+    if (outc.get() > outDegree) {
+       System.err.println("Mismatch vertex " + id + " outc=" + outc + " outDeg=" + outDegree)
+    }
     edgeSpec(i * 2) = vertexId
     edgeSpec(i * 2 + 1) = dataPtr
   }

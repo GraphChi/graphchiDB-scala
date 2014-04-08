@@ -36,26 +36,26 @@ class BitSetScheduler(indexing: DatabaseIndexing) extends  Scheduler {
   var newTasks: Boolean = false
 
   override def addTask(vertexId: Long, alreadyThisIteration : Boolean = false) =  {
-     val localIdx = indexing.globalToLocal(vertexId).toInt
-     nextSchedule(indexing.shardForIndex(vertexId)).+=(localIdx)
-     if (alreadyThisIteration) {
-       currentSchedule(indexing.shardForIndex(vertexId)).+=(localIdx)
-     }
+    val localIdx = indexing.globalToLocal(vertexId).toInt
+    nextSchedule(indexing.shardForIndex(vertexId)).+=(localIdx)
+    if (alreadyThisIteration) {
+      currentSchedule(indexing.shardForIndex(vertexId)).+=(localIdx)
+    }
     newTasks = true
-   }
+  }
 
   override def hasNewTasks = newTasks
 
   override def addTaskToAll() = {
-      currentSchedule.foreach(bitset => bitset.++=(0 until bitset.size))
+    (0 until indexing.nShards).foreach(i => currentSchedule(i).++=(0 until indexing.shardSize(i).toInt))
   }
 
   override def isScheduled(vertexId: Long) = currentSchedule(indexing.shardForIndex(vertexId))(indexing.globalToLocal(vertexId).toInt)
 
   override def swap  = {
-      val newSchedule = new BitSetScheduler(indexing)
-      newSchedule.currentSchedule.zip(this.nextSchedule).foreach(tp => tp._1.++=(tp._2))
-      newSchedule
+    val newSchedule = new BitSetScheduler(indexing)
+    newSchedule.currentSchedule.zip(this.nextSchedule).foreach(tp => tp._1.++=(tp._2))
+    newSchedule
   }
 
 }

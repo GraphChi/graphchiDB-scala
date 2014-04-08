@@ -890,6 +890,8 @@ public class QueryShard {
                     }
                 };
             }
+
+            long startOff = 0;
             final LongBuffer iterBuffer = adjBuffer.duplicate();
               if (fromSrcVertex == 0) {
                 iterBuffer.position(0);
@@ -897,13 +899,12 @@ public class QueryShard {
                 PointerPair ptr = findIdxAndPos(fromSrcVertex, null, null, new long[2]);
                 if (ptr.cur != (-1)) {
                     iterBuffer.position((int)ptr.cur);
+                    startOff = ptr.cur;
                 }
             }
 
             final Iterator<Long> iterPointerVertices = gammaSeqVertices.iterator(fromSrcVertex);
-            final Iterator<Long> iterPointerOffs = gammaSeqOffs.iterator(fromSrcVertex);
-
-
+            final Iterator<Long> iterPointerOffs = gammaSeqOffs.iterator(startOff);
 
             return new EdgeIterator() {
                 int idx = iterBuffer.position() - 1;

@@ -903,6 +903,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   /* Columns */
   def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing,
                               temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
     this.synchronized {
       val col =  new CategoricalColumn(columns(indexing).size, filePrefix=baseFilename + "_COLUMN_cat_" + indexing.name + "_" + name.toLowerCase,
         indexing, values, deleteOnExit = temporary)
@@ -913,6 +914,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def createFloatColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Float](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_float_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter, deleteOnExit = temporary)
@@ -922,6 +925,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def createIntegerColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Int](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter, deleteOnExit = temporary)
@@ -931,6 +936,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def createShortColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Short](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_short_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.ShortByteConverter, deleteOnExit = temporary)
@@ -940,6 +947,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def createByteColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Byte](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_byte_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.ByteByteConverter, deleteOnExit = temporary)
@@ -949,6 +958,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def createLongColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Long](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter, deleteOnExit = temporary)
@@ -958,6 +969,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def createCustomTypeColumn[T](name: String, indexing: DatabaseIndexing, converter: ByteConverter[T], temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[T](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_custom" + converter.sizeOf + "_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter=converter, deleteOnExit = temporary)
@@ -1817,24 +1830,30 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   // Sliding windows
   def sweepOutEdgesWithJoinPtr[T1](interval: VertexInterval, col1: Column[T1])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
     val shardsToSweep = shards
-    shardsToSweep.par.foreach(shard => {
-      shard.persistentShardLock.readLock().lock()
+    shardsToSweep.foreach(shard => {
       try {
-        val edgeIterator = shard.persistentShard.edgeIterator(interval.getFirstVertex)
-        var idx = 0
-        var finished = false
-        while(edgeIterator.hasNext && !finished) {
-          edgeIterator.next()
-          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
-          if (src <= interval.getLastVertex) {
-            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, idx))
-          } else {
-            finished = true
+        shard.persistentShardLock.readLock().lock()
+        try {
+          val edgeIterator = shard.persistentShard.edgeIterator(interval.getFirstVertex)
+          var idx = 0
+          var finished = false
+          while(edgeIterator.hasNext && !finished) {
+            edgeIterator.next()
+            val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+            if (src <= interval.getLastVertex) {
+              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, idx))
+            } else {
+              finished = true
+            }
+            idx += 1
           }
-          idx += 1
+        } catch {
+          case err : Exception => err.printStackTrace()
+        } finally {
+          shard.persistentShardLock.readLock().unlock()
         }
-      } finally {
-        shard.persistentShardLock.readLock().unlock()
+      } catch {
+        case err : Exception => err.printStackTrace()
       }
     })
 
@@ -1961,10 +1980,6 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       execIntervals.foreach{ case (intervalSt: Long, intervalEn: Long) => {
         var subIntervalSt = intervalSt
 
-
-        println(execIntervals)
-
-
         while (subIntervalSt < intervalEn) {
           var subIntervalEn = subIntervalSt - 1
           var intervalEdges = 0L
@@ -1979,26 +1994,46 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
             if (subIntervalEn % 100000 == 0) {
               println("%d / %d edges: intervalEdges %d".format(subIntervalEn, intervalEn, intervalEdges))
             }
-            val (inc, outc) = (inDegree(subIntervalEn), outDegree(subIntervalEn))
-            intervalEdges += inc + outc
-            vertices.append(new GraphChiVertex[VT, ET](subIntervalEn, this, vertexDataColumn, edgeDataColumn, inc, outc))
+
+            if (scheduler.isScheduled(subIntervalEn)) {
+              val (inc, outc) = (inDegree(subIntervalEn), outDegree(subIntervalEn))
+              intervalEdges += inc + outc
+              vertices.append(new GraphChiVertex[VT, ET](subIntervalEn, this, vertexDataColumn, edgeDataColumn, inc, outc
+              ))
+            } else {
+              vertices.append(null)
+            }
           }
 
           /* Load edges (parallel sliding windows) */
-          // 1. In=edges
+          // 1. In-edges
           this.sweepInEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), subIntervalEn, edgeDataColumn
-          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) =>
-            vertices((dst - subIntervalSt).toInt).addInEdge(src, dataPtr))
+          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
+            val v = vertices((dst - subIntervalSt).toInt)
+            try {
+              if (v != null) { v.addInEdge(src, dataPtr)}
+            } catch {
+              case e:Exception => e.printStackTrace()
+            }
+          }
+          )
 
           // 2. Out-edges (parallel)
           this.sweepOutEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), edgeDataColumn
-          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) =>
-            vertices((src - subIntervalSt).toInt).addOutEdge(dst, dataPtr))
+          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
+            try {
+
+              val v = vertices((src - subIntervalSt).toInt)
+              if (v != null) { v.addOutEdge(dst, dataPtr) }
+            } catch {
+              case e:Exception => e.printStackTrace()
+            }
+          })
 
 
           /* Execute update functions -- not parallel now */
           println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
-          vertices.foreach( v => algo.update(v, ctx, this))
+          vertices.foreach( v => if (v != null) { algo.update(v, ctx, this) } )
           println("Done...")
 
           subIntervalSt = subIntervalEn + 1
