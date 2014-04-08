@@ -35,12 +35,12 @@ class GraphChiContext(val iteration: Int, val maxIterations: Int, val scheduler:
 class GraphChiEdge[EdgeDataType](val vertexId: Long, dataPtr: Long, dataColumn: Option[Column[EdgeDataType]], database: GraphChiDatabase) {
 
   def getValue : EdgeDataType = dataColumn match {
-    case column: Column[EdgeDataType] => database.getByPointer(column, dataPtr).get
+    case Some(column: Column[EdgeDataType]) => database.getByPointer(column, dataPtr).get
     case None => throw new RuntimeException("Tried to get edge value but no edge data column defined")
   }
 
   def setValue(newVal: EdgeDataType) =  dataColumn match {
-    case column: Column[EdgeDataType] => database.setByPointer(column, dataPtr, newVal)
+    case Some(column:Column[EdgeDataType]) => database.setByPointer(column, dataPtr, newVal)
     case None => throw new RuntimeException("Tried to set edge value but no edge data column defined")
   }
 
@@ -94,11 +94,11 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
   def getNumEdges = inDegree + outDegree
 
   def getData = vertexDataColumn match {
-    case column : Column[VertexDataType] => column.get(id).get
+    case Some(column: Column[VertexDataType])=> column.get(id).get
     case None => throw new RuntimeException("Tried to get vertex data, btu vertex data column not defined")
   }
   def setData(newVal: VertexDataType) = vertexDataColumn match {
-    case column : Column[VertexDataType] => column.set(id, newVal)
+    case Some(column: Column[VertexDataType]) => column.set(id, newVal)
     case None => throw new RuntimeException("Tried to set vertex data, btu vertex data column not defined")
   }
 }
