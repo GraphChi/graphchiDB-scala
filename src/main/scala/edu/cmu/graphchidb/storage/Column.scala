@@ -51,12 +51,22 @@ trait Column[T] {
 
   def typeInfo: String = ""
 
+  // Bit ugly
+  def autoFillVertex : Option[(Long) => T]
+  def autoFillEdge : Option[(Long, Long, Byte) => T]
+
 }
 
 class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: DatabaseIndexing,
                     converter: ByteConverter[T], deleteOnExit:Boolean=false) extends Column[T] {
 
   override def columnId = id
+
+  /* Autofill functions (used mainly for computation) */
+  var autoFillVertexFunc : Option[(Long) => T] = None
+  var autoFillEdgeFunc : Option[(Long, Long, Byte) => T] = None
+  override def autoFillVertex = autoFillVertexFunc
+  override def autoFillEdge = autoFillEdgeFunc
 
   def encode(value: T, out: ByteBuffer) = converter.toBytes(value, out)
   def decode(in: ByteBuffer) = converter.fromBytes(in)
@@ -174,11 +184,15 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
   def decode(in: ByteBuffer) = throw new UnsupportedOperationException
   def elementSize = throw new UnsupportedOperationException
 
+  def autoFillVertex : Option[(Long) => T] = None
+  def autoFillEdge : Option[(Long, Long, Byte) => T] = None
+
   override def columnId = id
 
   override  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = throw new UnsupportedOperationException
 
   def delete = throw new NotImplementedException
+
 
 
   // TODO: temporary code

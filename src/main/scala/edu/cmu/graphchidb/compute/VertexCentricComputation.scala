@@ -15,32 +15,40 @@ trait VertexCentricComputation[VertexValueType, EdgeValueType] {
    * Update function to be implemented by an algorithm
    * @param vertex
    * @param context
-   * @param database
    */
-  def update(vertex: GraphChiVertex[VertexValueType, EdgeValueType], context: GraphChiContext, database: GraphChiDatabase)
+  def update(vertex: GraphChiVertex[VertexValueType, EdgeValueType], context: GraphChiContext)
 
   /* Callbacks, similar to what GraphChi does */
   def beforeIteration(context: GraphChiContext) = {}
   def afterIteration(context: GraphChiContext) = {}
+
+  def edgeDataColumn : Option[Column[EdgeValueType]]
+  def vertexDataColumn : Option[Column[VertexValueType]]
 }
 
 
 class GraphChiContext(val iteration: Int, val maxIterations: Int, val scheduler: Scheduler) {
- }
+}
 
 
 
-class GraphChiEdge[EdgeDataType](val vertexId: Long, dataPtr: Long, dataColumn: Column[EdgeDataType], database: GraphChiDatabase) {
+class GraphChiEdge[EdgeDataType](val vertexId: Long, dataPtr: Long, dataColumn: Option[Column[EdgeDataType]], database: GraphChiDatabase) {
 
-  def getValue : EdgeDataType = database.getByPointer(dataColumn, dataPtr).get
+  def getValue : EdgeDataType = dataColumn match {
+    case column: Column[EdgeDataType] => database.getByPointer(column, dataPtr).get
+    case None => throw new RuntimeException("Tried to get edge value but no edge data column defined")
+  }
 
-  def setValue(newVal: EdgeDataType) = database.setByPointer(dataColumn, dataPtr, newVal)
+  def setValue(newVal: EdgeDataType) =  dataColumn match {
+    case column: Column[EdgeDataType] => database.setByPointer(column, dataPtr, newVal)
+    case None => throw new RuntimeException("Tried to set edge value but no edge data column defined")
+  }
 
 }
 
 class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: GraphChiDatabase,
-                                                   vertexDataColumn: Column[VertexDataType],
-                                                   edgeDataColumn: Column[EdgeDataType],
+                                                   vertexDataColumn: Option[Column[VertexDataType]],
+                                                   edgeDataColumn: Option[Column[EdgeDataType]],
                                                    val inDegree: Int, val outDegree: Int) {
   /* Internal specification of edges */
   val inc = new AtomicInteger(0)
@@ -61,8 +69,8 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
   def addOutEdge(vertexId: Long, dataPtr: Long) : Unit = {
     val i = outc.getAndIncrement  + inDegree
     if (outc.get() > outDegree) {
-       System.err.println("Mismatch vertex " + id + " outc=" + outc + " outDeg=" + outDegree)
-       assert(false)
+      System.err.println("Mismatch vertex " + id + " outc=" + outc + " outDeg=" + outDegree)
+      assert(false)
     }
     edgeSpec(i * 2) = vertexId
     edgeSpec(i * 2 + 1) = dataPtr
@@ -72,7 +80,7 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
     new GraphChiEdge[EdgeDataType](edgeSpec(i * 2), edgeSpec(i * 2 + 1), edgeDataColumn, database)
 
   def inEdge(i: Int) = if (i < inDegree) { edge(i) } else
-    { throw new ArrayIndexOutOfBoundsException("Asked in-edge %d, but in-degree only %d".format(i, inDegree))}
+  { throw new ArrayIndexOutOfBoundsException("Asked in-edge %d, but in-degree only %d".format(i, inDegree))}
 
   def outEdge(i : Int)  =  if (i < outDegree) { edge(i + inDegree) } else
   { throw new ArrayIndexOutOfBoundsException("Asked in-edge %d, but in-degree only %d".format(i, outDegree))}
@@ -85,8 +93,12 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
   def getNumOutEdges = outDegree
   def getNumEdges = inDegree + outDegree
 
-  def getData = vertexDataColumn.get(id).get
-
-  def setData(newVal: VertexDataType) = vertexDataColumn.set(id, newVal)
-
+  def getData = vertexDataColumn match {
+    case column : Column[VertexDataType] => column.get(id).get
+    case None => throw new RuntimeException("Tried to get vertex data, btu vertex data column not defined")
+  }
+  def setData(newVal: VertexDataType) = vertexDataColumn match {
+    case column : Column[VertexDataType] => column.set(id, newVal)
+    case None => throw new RuntimeException("Tried to set vertex data, btu vertex data column not defined")
+  }
 }

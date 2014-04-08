@@ -2,6 +2,7 @@ package edu.cmu.graphchidb.examples.computation
 
 import edu.cmu.graphchidb.compute.{GraphChiContext, GraphChiVertex, VertexCentricComputation}
 import edu.cmu.graphchidb.GraphChiDatabase
+import edu.cmu.graphchidb.storage.Column
 
 /**
  * Label propagation version of connected components. The label of vertex
@@ -9,14 +10,21 @@ import edu.cmu.graphchidb.GraphChiDatabase
  * but this is a useful example application.
  * @author Aapo Kyrola
  */
-class ConnectedComponentsLabelProp extends VertexCentricComputation[Long, Long] {
+class ConnectedComponentsLabelProp( database: GraphChiDatabase)
+    extends VertexCentricComputation[Long, Long] {
+
+   private val vertexColumn = database.createLongColumn("cc", database.vertexIndexing)
+   private val edgeColumn = database.createLongColumn("cce", database.edgeIndexing)
+   edgeColumn.autoFillEdgeFunc =  Some((src: Long, dst: Long, edgeType: Byte) => math.min(src, dst))
+   vertexColumn.autoFillVertexFunc = Some((id: Long) => id)
+
+
   /**
    * Update function to be implemented by an algorithm
    * @param vertex
    * @param context
-   * @param database
    */
-  def update(vertex: GraphChiVertex[Long, Long], context: GraphChiContext, database: GraphChiDatabase) = {
+  def update(vertex: GraphChiVertex[Long, Long], context: GraphChiContext) = {
     // debug
     if (vertex.inc.get != vertex.inDegree) {
       System.err.println("Mismatch in indeg: " + vertex.inc.get + " / " + vertex.inDegree)
@@ -35,4 +43,7 @@ class ConnectedComponentsLabelProp extends VertexCentricComputation[Long, Long] 
           context.scheduler.addTasks(vertex.edges)
        }
   }
+
+  def edgeDataColumn = Some(edgeColumn)
+  def vertexDataColumn = Some(vertexColumn)
 }

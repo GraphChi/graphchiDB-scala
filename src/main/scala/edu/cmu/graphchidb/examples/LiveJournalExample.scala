@@ -36,8 +36,9 @@ object LiveJournalExample {
   /* Create edge columns */
   val timestampColumn = DB.createLongColumn("timestamp", DB.edgeIndexing)
   val weightColumn = DB.createFloatColumn("weight",   DB.edgeIndexing)
-  val vertexCCColumn = DB.createLongColumn("cc", DB.vertexIndexing)
-  val edgeCCColumn =DB.createLongColumn("cce", DB.edgeIndexing)
+
+
+  val ccAlgo = new ConnectedComponentsLabelProp(DB)
 
   DB.initialize()
 
@@ -58,7 +59,7 @@ object LiveJournalExample {
             val timestamp = System.currentTimeMillis() - r.nextLong() % 1000000
             val weight = r.nextFloat()
 
-            DB.addEdgeOrigId(0, from, to, timestamp, weight, Math.min(from, to).toLong)
+            DB.addEdgeOrigId(0, from, to, timestamp, weight)
             i += 1
             if (i % 1000 == 0) ingestMeter.mark(1000)
             if (i % 1000000 == 0) println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(i) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
@@ -71,9 +72,7 @@ object LiveJournalExample {
 
 
   def connectedComponents() {
-
-      val ccAlgo = new ConnectedComponentsLabelProp
-      DB.runGraphChiComputation(ccAlgo, vertexCCColumn, edgeCCColumn, 100, enableScheduler=true)
+      DB.runGraphChiComputation(ccAlgo, 100, enableScheduler=true)
   }
 
 }

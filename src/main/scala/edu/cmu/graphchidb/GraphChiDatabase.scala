@@ -814,7 +814,19 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   var databaseOpen : Boolean = true
   var buffersEmpty: Boolean = true
 
+  var autoFilledEdgeColumns : Seq[Column[Any]]  = Seq()
+  var autoFilledVertexColumns: Seq[Column[Any]] = Seq()
+
+  def autoFillEdgeValues = (src: Long, dst: Long, edgeType: Byte) => autoFilledEdgeColumns.map(_.autoFillEdge.get(src, dst, edgeType))
+
   def initialize() : Unit = {
+    // Sort columns so that auto-filled columns are last
+    columns(edgeIndexing) = columns(edgeIndexing).filter(_._2.autoFillEdge.isEmpty) ++ columns(edgeIndexing).filter(_._2.autoFillEdge.isDefined)
+
+    // Auto filled columns
+    autoFilledEdgeColumns = columns(edgeIndexing).filter(_._2.autoFillEdge.isDefined).map(_._2)
+    autoFilledVertexColumns = columns(vertexIndexing).filter(_._2.autoFillVertex.isDefined).map(_._2)
+
     bufferShards.foreach(_.init())
 
     // Add shutdown hook
@@ -847,6 +859,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     })
     flusherThread.setDaemon(true)
     flusherThread.start()
+
   }
 
   def close() = {
@@ -1020,6 +1033,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   def totalBufferedEdges = bufferShards.map(_.numEdgesInclDeletions).sum
 
 
+  private def autoFillVertexValue(vertexId: Long) = {
+      autoFilledVertexColumns.foreach(c => c.set(vertexId, c.autoFillVertex.get(vertexId)))
+  }
+
   def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
@@ -1034,8 +1051,20 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       updateVertexRecords(src)
       updateVertexRecords(dst)
 
+
+      if (autoFilledVertexColumns.nonEmpty) {
+        // Check if vertex was just added
+        if (inDegree(dst) + outDegree(dst) == 0) {
+          autoFillVertexValue(dst)
+        }
+        if (inDegree(src) + outDegree(src) == 0) {
+          autoFillVertexValue(src)
+        }
+      }
+
       incrementInDegree(dst)
       incrementOutDegree(src)
+
 
       if (enableVertexShardBits) {
         val curBits = shardBitsCol.get(src).getOrElse(0L)
@@ -1045,15 +1074,15 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         }
       }
 
-      bufferForEdge(src, dst).addEdge(edgeType, src, dst, values:_*)
+      bufferForEdge(src, dst).addEdge(edgeType, src, dst,  values ++ autoFillEdgeValues(src, dst, edgeType) :_*)
     }
 
     /* Buffer flushing. TODO: make smarter. */
 
     if (counter.incrementAndGet() % 100000 == 0) {
       while(totalBufferedEdges > bufferLimit) {
-        log("Buffers full, waiting... %d / %d".format(totalBufferedEdges, bufferLimit))
-        bufferDrainMonitor.synchronized {
+          log("Buffers full, waiting... %d / %d".format(totalBufferedEdges, bufferLimit))
+          bufferDrainMonitor.synchronized {
           bufferDrainMonitor.notifyAll()
         }
         Thread.sleep(500)
@@ -1605,6 +1634,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
 
+
+
   /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
   val degreeColumn = createLongColumn("degree", vertexIndexing)
   val shardBitsCol = createLongColumn("shardbits", vertexIndexing)
@@ -1786,7 +1817,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     }
   }
 
-  def sweepInEdgesWithJoinPtr[T1](interval: VertexInterval, maxVertex: Long, col1: Column[T1])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
+  def sweepInEdgesWithJoinPtr[T1](interval: VertexInterval, maxVertex: Long, col1: Option[Column[T1]])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
 
     shardsToSweep.foreach(shard => {
@@ -1828,7 +1859,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   // Sliding windows
-  def sweepOutEdgesWithJoinPtr[T1](interval: VertexInterval, col1: Column[T1])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
+  def sweepOutEdgesWithJoinPtr[T1](interval: VertexInterval, col1: Option[Column[T1]])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
     val shardsToSweep = shards
     shardsToSweep.foreach(shard => {
       try {
@@ -1958,10 +1989,14 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
   /* Runs vertex-centric computation, similar to GraphChi */
   def runGraphChiComputation[VT, ET](algo: VertexCentricComputation[VT, ET],
-                                     vertexDataColumn: Column[VT], edgeDataColumn: Column[ET],
                                      numIterations: Int, enableScheduler:Boolean=false) :Unit = {
+
+    val vertexDataColumn = algo.vertexDataColumn
+    val edgeDataColumn = algo.edgeDataColumn
+
     var scheduler = if (enableScheduler) { new BitSetScheduler(vertexIndexing) } else { new Scheduler() {} }
     scheduler.addTaskToAll()
+
     breakable { for(iter <- 0 until numIterations) {
       val ctx = new GraphChiContext(iter, numIterations, scheduler)
 
@@ -2033,7 +2068,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
           /* Execute update functions -- not parallel now */
           println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
-          vertices.foreach( v => if (v != null) { algo.update(v, ctx, this) } )
+          vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
           println("Done...")
 
           subIntervalSt = subIntervalEn + 1
