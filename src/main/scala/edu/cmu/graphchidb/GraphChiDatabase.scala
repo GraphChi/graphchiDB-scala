@@ -1804,7 +1804,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
-             updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, idx))
+            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, idx))
           }
           idx += 1
         }
@@ -1812,6 +1812,51 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     } finally {
       bufferToSweep.bufferLock.readLock().unlock()
     }
+  }
+
+  // Sliding windows
+  def sweepOutEdgesWithJoinPtr[T1](interval: VertexInterval, col1: Column[T1])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
+    val shardsToSweep = shards
+    shardsToSweep.par.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
+        val edgeIterator = shard.persistentShard.edgeIterator(interval.getFirstVertex)
+        var idx = 0
+        var finished = false
+        while(edgeIterator.hasNext && !finished) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (src <= interval.getLastVertex) {
+            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, idx))
+          } else {
+            finished = true
+          }
+          idx += 1
+        }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
+
+    bufferShards.par.foreach(bufferToSweep => {
+      bufferToSweep.bufferLock.readLock().lock()
+      try {
+        (bufferToSweep.buffers ++ bufferToSweep.oldBuffers).flatten.filter(_.interval.intersects(interval)).foreach(buf => {
+          val edgeIterator = buf.buffer.edgeIterator
+          var idx = 0
+          while(edgeIterator.hasNext) {
+            edgeIterator.next()
+            val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+            if (interval.contains(src)) {
+              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, idx))
+            }
+            idx += 1
+          }
+        })
+      } finally {
+        bufferToSweep.bufferLock.readLock().unlock()
+      }
+    })
   }
 
   def sweepAllEdges( )(updateFunc: (Long, Long, Byte) => Unit) = {
@@ -1904,8 +1949,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       /* Get main intervals */
       val execIntervals = (0 until vertexIndexing.nShards).map(i => {
         val first = vertexIndexing.localToGlobal(i, 0)
-        val sz = vertexIndexing.shardSize(i)
-        (first, first + sz - 1)
+        val last = intervalMaxVertexId(i)
+        (first, last)
       })
 
       // TODO: locking!
@@ -1916,15 +1961,24 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       execIntervals.foreach{ case (intervalSt: Long, intervalEn: Long) => {
         var subIntervalSt = intervalSt
 
+
+        println(execIntervals)
+
+
         while (subIntervalSt < intervalEn) {
           var subIntervalEn = subIntervalSt - 1
-          var intervalEdges = 0
+          var intervalEdges = 0L
 
           val vertices = new ArrayBuffer[GraphChiVertex[VT, ET]](100000)
 
           /* Initialize vertices */
-          while(intervalEdges < maxEdgesPerInterval || subIntervalEn == intervalEn) {
+          while(intervalEdges < maxEdgesPerInterval && subIntervalEn < intervalEn) {
+
+            // TODO: make work better with very sparsely spaced vertex IDs
             subIntervalEn += 1
+            if (subIntervalEn % 100000 == 0) {
+              println("%d / %d edges: intervalEdges %d".format(subIntervalEn, intervalEn, intervalEdges))
+            }
             val (inc, outc) = (inDegree(subIntervalEn), outDegree(subIntervalEn))
             intervalEdges += inc + outc
             vertices.append(new GraphChiVertex[VT, ET](subIntervalEn, this, vertexDataColumn, edgeDataColumn, inc, outc))
@@ -1933,16 +1987,19 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
           /* Load edges (parallel sliding windows) */
           // 1. In=edges
           this.sweepInEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), subIntervalEn, edgeDataColumn
-            ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) =>
-              vertices((dst - subIntervalEn).toInt).addInEdge(src, dataPtr))
+          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) =>
+            vertices((dst - subIntervalSt).toInt).addInEdge(src, dataPtr))
 
           // 2. Out-edges (parallel)
-
+          this.sweepOutEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), edgeDataColumn
+          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) =>
+            vertices((src - subIntervalSt).toInt).addOutEdge(dst, dataPtr))
 
 
           /* Execute update functions -- not parallel now */
           println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
           vertices.foreach( v => algo.update(v, ctx, this))
+          println("Done...")
 
           subIntervalSt = subIntervalEn + 1
         }

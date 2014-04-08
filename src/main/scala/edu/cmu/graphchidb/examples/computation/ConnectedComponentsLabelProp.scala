@@ -17,7 +17,8 @@ class ConnectedComponentsLabelProp extends VertexCentricComputation[Long, Long] 
    * @param database
    */
   def update(vertex: GraphChiVertex[Long, Long], context: GraphChiContext, database: GraphChiDatabase) = {
-       val minLabel = math.min(vertex.id, vertex.edges.foldLeft(0L)((mn, edge) => math.min(mn, edge.getValue)))
+       val minLabel = if (context.iteration == 0) { vertex.id } else {
+         math.min(vertex.id, vertex.edges.foldLeft(0L)((mn, edge) => math.min(mn, edge.getValue))) }
        if (minLabel != vertex.getData) {
           vertex.setData(minLabel)
           vertex.edges.foreach(edge => edge.setValue(minLabel))

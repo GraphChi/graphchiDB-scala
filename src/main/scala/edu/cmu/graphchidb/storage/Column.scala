@@ -72,6 +72,15 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
     shard =>
       if (!sparse) {
         val f = new File(blockFilename(shard))
+
+        if (!_indexing.allowAutoExpansion) {
+          val expectedSize = indexing.shardSize(shard) * converter.sizeOf
+          if (!f.exists() || f.length() < expectedSize) {
+            println("Column file " + f.getName + " did not exists, or wrong size: " + expectedSize)
+            Util.initializeFile(f, expectedSize.toInt)
+          }
+        }
+
         if (deleteOnExit) f.deleteOnExit()
         new  MemoryMappedDenseByteStorageBlock(f, None,
           converter.sizeOf) with DataBlock[T]
@@ -134,15 +143,15 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
 
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B = {
     (0 until blocks.size).foldLeft(z){ case (cum: B, shardIdx: Int) => blocks(shardIdx).foldLeft(cum)(
-      {
-        case (cum: B, x: T, localIdx: Int) => op(cum, x, indexing.localToGlobal(shardIdx, localIdx))
-      })(converter) }
+    {
+      case (cum: B, x: T, localIdx: Int) => op(cum, x, indexing.localToGlobal(shardIdx, localIdx))
+    })(converter) }
   }
 
 }
 
 class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String],
-                         deleteOnExit: Boolean = false)
+                        deleteOnExit: Boolean = false)
   extends FileColumn[Byte](id, filePrefix, sparse=false, indexing, ByteByteConverter, deleteOnExit) {
 
   def byteToInt(b: Byte) : Int = if (b < 0) 256 + b  else b
@@ -215,7 +224,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
 
   }
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B = {
-      throw new NotImplementedException
+    throw new NotImplementedException
   }
 
 

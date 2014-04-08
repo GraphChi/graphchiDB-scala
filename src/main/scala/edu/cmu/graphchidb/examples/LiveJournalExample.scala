@@ -19,7 +19,7 @@ object LiveJournalExample {
   /**
     * Run in scala console
 
-   import edu.cmu.graphchidb.examples.LiveJournalExample._
+
    startIngest
 
    *

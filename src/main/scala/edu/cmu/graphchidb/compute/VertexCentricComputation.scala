@@ -78,8 +78,8 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
   def getNumOutEdges = outDegree
   def getNumEdges = inDegree + outDegree
 
-  def getData = database.getByPointer(vertexDataColumn, id).get
+  def getData = vertexDataColumn.get(id).get
 
-  def setData(newVal: VertexDataType) = database.getByPointer(vertexDataColumn, id)
+  def setData(newVal: VertexDataType) = vertexDataColumn.set(id, newVal)
 
 }

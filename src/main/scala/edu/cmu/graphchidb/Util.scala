@@ -2,6 +2,7 @@ package edu.cmu.graphchidb
 
 import java.nio.ByteBuffer
 import scala.util.Random
+import java.io.{RandomAccessFile, FileOutputStream, File}
 
 /**
  * Random utility functions
@@ -51,6 +52,20 @@ object Util {
         quickSelect(left, n, comp, rand)
       }
     }
+  }
+
+  def initializeFile(f: File, sizeInBytes: Int) : Unit = {
+      val bb = new Array[Byte](4096)
+      if (!f.exists()) f.createNewFile()
+      var n = sizeInBytes - f.length()
+      val fout = new RandomAccessFile(f, "rw")
+      fout.seek(f.length())
+      while(n > 0) {
+         val l = math.min(4096, n).toInt
+         fout.write(bb, 0, l)
+         n -= l
+      }
+      fout.close()
   }
 
 }
