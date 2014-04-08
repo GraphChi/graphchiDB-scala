@@ -159,14 +159,22 @@ public class TestIncreasingEliasGammaSeq {
         IncreasingEliasGammaSeq egSeq = new IncreasingEliasGammaSeq(orig);
 
         for(int tries=0; tries<50; tries++) {
+            boolean shifted = false;
+
             int j = Math.abs(r.nextInt() % orig.length);
             int startj = j;
-            Iterator<Long> iter = egSeq.iterator(orig[startj]);
+            long st = orig[startj];
+            if (startj > 0 && orig[startj - 1] < st - 1) {
+                st--; // Shifted
+                shifted = true;
+            }
+            Iterator<Long> iter = egSeq.iterator(st);
             while(iter.hasNext()) {
                 assertTrue(iter.hasNext());
                 long x = iter.next();
                 if (j >= orig.length || orig[j] != x) {
                    System.err.println("Mismatch: j =" + j + "/" + orig.length + ", startj=" + startj + ", try=" + tries);
+                   System.out.println("shifted: " + shifted);
                 }
                 assertEquals(orig[j], x);
                 j++;

@@ -144,6 +144,11 @@ public class IncreasingEliasGammaSeq {
 
     // TODO: potential bug: there can be extra zero-bits in the end
     public int getIndex(long value) {
+       return getIndex(value, false);
+    }
+
+
+        public int getIndex(long value, boolean returnNext) {
         int indexIdx = Arrays.binarySearch(indexValues, value);
         if (indexIdx < 0) {
             indexIdx = -(indexIdx + 1) - 1;
@@ -203,7 +208,7 @@ public class IncreasingEliasGammaSeq {
             cumulant += delta;
         }
 
-        if (cumulant > value) return -1;
+        if (cumulant > value && !returnNext) return -1;
 
         return curidx;
     }

@@ -17,7 +17,17 @@ class ConnectedComponentsLabelProp extends VertexCentricComputation[Long, Long] 
    * @param database
    */
   def update(vertex: GraphChiVertex[Long, Long], context: GraphChiContext, database: GraphChiDatabase) = {
-       val minLabel = if (context.iteration == 0) { vertex.id } else {
+    // debug
+    if (vertex.inc.get != vertex.inDegree) {
+      System.err.println("Mismatch in indeg: " + vertex.inc.get + " / " + vertex.inDegree)
+    }
+   // assert(vertex.inc.get == vertex.inDegree)
+    if (vertex.inc.get != vertex.inDegree) {
+      System.err.println("Mismatch in outdeg: " + vertex.outc.get + " / " + vertex.outDegree)
+    }
+    assert(vertex.outc.get == vertex.outDegree)
+
+    val minLabel = if (context.iteration == 0) { vertex.id } else {
          math.min(vertex.id, vertex.edges.foldLeft(0L)((mn, edge) => math.min(mn, edge.getValue))) }
        if (minLabel != vertex.getData) {
           vertex.setData(minLabel)

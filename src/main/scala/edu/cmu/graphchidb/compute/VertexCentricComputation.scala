@@ -43,8 +43,8 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
                                                    edgeDataColumn: Column[EdgeDataType],
                                                    val inDegree: Int, val outDegree: Int) {
   /* Internal specification of edges */
-  private val inc = new AtomicInteger(0)
-  private val outc = new AtomicInteger(0)
+  val inc = new AtomicInteger(0)
+  val outc = new AtomicInteger(0)
   // First in-edges, then out-edges. Alternating tuples (vertex-id, dataPtr)
   private val edgeSpec = new Array[Long]((inDegree + outDegree) * 2)
 
@@ -62,6 +62,7 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
     val i = outc.getAndIncrement  + inDegree
     if (outc.get() > outDegree) {
        System.err.println("Mismatch vertex " + id + " outc=" + outc + " outDeg=" + outDegree)
+       assert(false)
     }
     edgeSpec(i * 2) = vertexId
     edgeSpec(i * 2 + 1) = dataPtr
