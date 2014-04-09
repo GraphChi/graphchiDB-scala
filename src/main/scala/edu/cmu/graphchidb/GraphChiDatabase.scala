@@ -1735,16 +1735,14 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       shard.persistentShardLock.readLock().lock()
       try {
         val edgeIterator = shard.persistentShard.edgeIterator()
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst) && dst <= maxVertex) {
-            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, shard.shardId)
-            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, shard.shardId)
+            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, shard.shardId)
+            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, edgeIterator.getIdx, shard.shardId)
             updateFunc(src, dst, edgeIterator.getType, v1, v2)
           }
-          idx += 1
         }
       } finally {
         shard.persistentShardLock.readLock().unlock()
@@ -1756,16 +1754,14 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     try {
       bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
         val edgeIterator = buf.buffer.edgeIterator
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
-          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
-            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
+          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, buffer=Some(buf.buffer))
+            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, edgeIterator.getIdx, buffer=Some(buf.buffer))
             updateFunc(src, dst, edgeIterator.getType, v1, v2)
           }
-          idx += 1
         }
       })
     } finally {
@@ -1781,15 +1777,13 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       shard.persistentShardLock.readLock().lock()
       try {
         val edgeIterator = shard.persistentShard.edgeIterator()
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst) && dst <= maxVertex) {
-            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, shard.shardId)
+            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, shard.shardId)
             updateFunc(src, dst, edgeIterator.getType, v1)
           }
-          idx += 1
         }
       } finally {
         shard.persistentShardLock.readLock().unlock()
@@ -1801,15 +1795,13 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     try {
       bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
         val edgeIterator = buf.buffer.edgeIterator
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
-          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
+          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, buffer=Some(buf.buffer))
             updateFunc(src, dst, edgeIterator.getType, v1)
           }
-          idx += 1
         }
       })
     } finally {
@@ -1824,14 +1816,12 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       shard.persistentShardLock.readLock().lock()
       try {
         val edgeIterator = shard.persistentShard.edgeIterator()
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst) && dst <= maxVertex) {
-            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, idx))
+            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, edgeIterator.getIdx))
           }
-          idx += 1
         }
       } finally {
         shard.persistentShardLock.readLock().unlock()
@@ -1843,14 +1833,12 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     try {
       bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
         val edgeIterator = buf.buffer.edgeIterator
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
-            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, idx))
+            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, edgeIterator.getIdx))
           }
-          idx += 1
         }
       })
     } finally {
@@ -1866,17 +1854,15 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         shard.persistentShardLock.readLock().lock()
         try {
           val edgeIterator = shard.persistentShard.edgeIterator(interval.getFirstVertex)
-          var idx = 0
           var finished = false
           while(edgeIterator.hasNext && !finished) {
             edgeIterator.next()
             val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
             if (src <= interval.getLastVertex) {
-              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, idx))
+              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, edgeIterator.getIdx()))
             } else {
               finished = true
             }
-            idx += 1
           }
         } catch {
           case err : Exception => err.printStackTrace()
@@ -1893,14 +1879,12 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       try {
         (bufferToSweep.buffers ++ bufferToSweep.oldBuffers).flatten.filter(_.interval.intersects(interval)).foreach(buf => {
           val edgeIterator = buf.buffer.edgeIterator
-          var idx = 0
           while(edgeIterator.hasNext) {
             edgeIterator.next()
             val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
             if (interval.contains(src)) {
-              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, idx))
+              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, edgeIterator.getIdx))
             }
-            idx += 1
           }
         })
       } finally {

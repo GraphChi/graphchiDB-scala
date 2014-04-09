@@ -14,6 +14,9 @@ public interface EdgeIterator {
 
     long getDst();
 
+    // The index of the current edge
+    int getIdx();
+
     public byte getType();
 
 }

@@ -245,6 +245,8 @@ class EdgeBuffer(encoderDecoder : EdgeEncoderDecoder, initialCapacityNumEdges: I
     def getSrc = srcArray(i)
 
     def getType = extractType(dstArrayWithType(i))
+
+    def getIdx = i
   }
 
 }

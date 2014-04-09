@@ -66,6 +66,7 @@ object LiveJournalExample {
               + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
           }
         })
+        DB.flushAllBuffers()
       })
     }
   }

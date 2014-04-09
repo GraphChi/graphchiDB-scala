@@ -111,11 +111,11 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
 
 
 
-  def foreach(op: T => Unit)(implicit converter: ByteConverter[T])  : Unit = {
+  def foreach(op: (Long,T) => Unit)(implicit converter: ByteConverter[T])  : Unit = {
     val n = size()
     for( i <- 0 until n) {
       val xOpt : Option[T] = get(i)(converter)
-      if (xOpt.isDefined) op(xOpt.get)
+      if (xOpt.isDefined) op(i, xOpt.get)
     }
   }
 

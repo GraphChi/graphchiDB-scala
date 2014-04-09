@@ -46,7 +46,7 @@ trait Column[T] {
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit
 
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B
-  def foreach(op: T => Unit) : Unit
+  def foreach(op: (Long, T) => Unit) : Unit
 
   def delete : Unit
 
@@ -159,8 +159,9 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
     })(converter) }
   }
 
-  def foreach(op: T => Unit) : Unit = {
-    (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).foreach(op)(converter))
+  def foreach(op: (Long, T) => Unit) : Unit = {
+    (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).foreach((localIdx:Long, v: T)
+         => op(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
   }
 
 }
@@ -273,7 +274,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
 
   def indexing = _indexing
 
-  def foreach(op: T => Unit) : Unit= {
+  def foreach(op: (Long,T) => Unit) : Unit= {
     throw new NotImplementedException
   }
 

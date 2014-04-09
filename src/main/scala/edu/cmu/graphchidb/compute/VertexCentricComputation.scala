@@ -86,6 +86,9 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
   { throw new ArrayIndexOutOfBoundsException("Asked in-edge %d, but in-degree only %d".format(i, outDegree))}
 
   def edges = (0 until getNumEdges).toStream.map {i => edge(i)}
+
+  def printEdgePtrs =  (0 until getNumEdges).foreach {i => println("%d:%d".format(edgeSpec(i * 2), edgeSpec(i * 2 + 1))) }
+
   def edgeValues =  (0 until getNumEdges).toStream.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1)).get}
   def edgeVertexIds =  (0 until getNumEdges).toStream.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2)).get}
 

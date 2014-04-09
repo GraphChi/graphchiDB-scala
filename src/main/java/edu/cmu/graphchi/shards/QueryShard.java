@@ -866,6 +866,11 @@ public class QueryShard {
                 public byte getType() {
                     return curType;
                 }
+
+                @Override
+                public int getIdx() {
+                    return idx;
+                }
             };
         } else {
             if (gammaSeqVertices == null) {
@@ -892,6 +897,10 @@ public class QueryShard {
 
                     @Override
                     public byte getType() {
+                        return 0;
+                    }
+                    @Override
+                    public int getIdx() {
                         return 0;
                     }
                 };
@@ -968,6 +977,11 @@ public class QueryShard {
                 @Override
                 public byte getType() {
                     return curType;
+                }
+
+                @Override
+                public int getIdx() {
+                    return idx;
                 }
             };
         }
