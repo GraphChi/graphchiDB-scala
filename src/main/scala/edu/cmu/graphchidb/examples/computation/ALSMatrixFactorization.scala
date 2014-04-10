@@ -48,7 +48,7 @@ object FactorVec {
        val fv = new FactorVec
        var i = 0
        while(i < D) {
-          fv.values(i) = bb.getDouble(i)
+          fv.values(i) = bb.getDouble
           i += 1
        }
        fv
@@ -88,7 +88,7 @@ class FactorVec {
 
     def dot(other: FactorVec) = {
       var i = 0
-      var x = 0
+      var x = 0.0
       while(i < values.length) {
         x += values(i) * other.values(i)
         i += 1
@@ -174,8 +174,10 @@ class ALSMatrixFactorization(factorColumnName: String, ratingColumn: Column[Byte
     thisLatent.dot(nbrLatent)
   }
 
+  override def beforeIteration(ctx: GraphChiContext) = println("ALS: Start iteration %d".format(ctx.iteration))
+
   def computeRMSE = {
-      var rmse = 0
+      var rmse = 0.0
       var count = 0L
       database.sweepInEdgesWithJoin(ratingColumn)( (src:Long, dst:Long, edgeType: Byte, rating: Byte) => {
            val observation = rating.toDouble

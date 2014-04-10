@@ -1769,11 +1769,11 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     }
   }
 
-  def sweepInEdgesWithJoin[T1](col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) = {
+  def sweepInEdgesWithJoin[T1](col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) : Unit = {
       intervals.foreach(interval => sweepInEdgesWithJoin(interval, interval.getLastVertex, col1)(updateFunc))
   }
 
-  def sweepInEdgesWithJoin[T1](interval: VertexInterval, maxVertex: Long, col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) = {
+  def sweepInEdgesWithJoin[T1](interval: VertexInterval, maxVertex: Long, col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) : Unit = {
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
 
     shardsToSweep.foreach(shard => {
@@ -2002,6 +2002,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       /* Maximum edges a time */
       val maxEdgesPerInterval = config.getLong("graphchi_computation.max_edges_interval")
 
+      algo.beforeIteration(ctx)
+
       execIntervals.foreach{ case (intervalSt: Long, intervalEn: Long) => {
         var subIntervalSt = intervalSt
 
@@ -2067,12 +2069,17 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       }
 
 
+      algo.afterIteration(ctx)
+
+
       if (scheduler.hasNewTasks || !enableScheduler) {
         scheduler = scheduler.swap
       } else {
         println("No new tasks")
         break
       }
+
+
 
     } }
   }

@@ -25,9 +25,9 @@ object LiveJournalExample {
    *
    */
 
-  val sourceFile =  "/Users/akyrola/graphs/soc-LiveJournal1.txt"
+  val sourceFile =  System.getProperty("user.home")  + "/graphs/soc-LiveJournal1.txt"
 
-  val baseFilename = "/Users/akyrola/graphs/DB/livejournal/lj"
+  val baseFilename = System.getProperty("user.home")  + "/graphs/DB/livejournal/lj"
 
   GraphChiDatabaseAdmin.createDatabaseIfNotExists(baseFilename, numShards = 16)
 

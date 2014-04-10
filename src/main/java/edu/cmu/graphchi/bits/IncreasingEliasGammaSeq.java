@@ -434,6 +434,10 @@ public class IncreasingEliasGammaSeq {
 
     // This code is becoming horrible...
     public Iterator<Long> iterator(final long start) {
+        if (start == 0) {
+            return iterator();
+        }
+
         int indexIdx = Arrays.binarySearch(indexValues, start);
         if (indexIdx < 0) indexIdx = -(indexIdx + 1) - 1;
 

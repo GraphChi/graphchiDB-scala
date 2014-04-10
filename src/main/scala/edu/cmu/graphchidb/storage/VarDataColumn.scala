@@ -107,6 +107,8 @@ class VarDataColumn(name: String,  filePrefix: String, indexing: DatabaseIndexin
 
   }
 
+  def insert(str: String) : Long = insert(str.getBytes)
+
   def insert(data: Array[Byte]) : Long = {
     lock.writeLock().lock
     try {

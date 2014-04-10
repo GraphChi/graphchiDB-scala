@@ -87,7 +87,6 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
         if (!_indexing.allowAutoExpansion) {
           val expectedSize = indexing.shardSize(shard) * converter.sizeOf
           if (!f.exists() || f.length() < expectedSize) {
-            println("Column file " + f.getName + " did not exists, or wrong size: " + expectedSize)
             Util.initializeFile(f, expectedSize.toInt)
           }
         }
