@@ -1769,6 +1769,9 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     }
   }
 
+  def sweepInEdgesWithJoin[T1](col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) = {
+      intervals.foreach(interval => sweepInEdgesWithJoin(interval, interval.getLastVertex, col1)(updateFunc))
+  }
 
   def sweepInEdgesWithJoin[T1](interval: VertexInterval, maxVertex: Long, col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) = {
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
@@ -1929,6 +1932,9 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       }
     })
   }
+
+
+
 
   def sweepInEdges(interval: VertexInterval, maxVertex: Long)(updateFunc: (Long, Long, Byte) => Unit) = {
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))

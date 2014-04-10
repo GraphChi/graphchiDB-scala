@@ -12,7 +12,7 @@ import java.util.Collections
  * but this is a useful example application.
  * @author Aapo Kyrola
  */
-class ConnectedComponentsLabelProp( database: GraphChiDatabase)
+class ConnectedComponentsLabelProp(database: GraphChiDatabase)
   extends VertexCentricComputation[Long, Long] {
 
   private val vertexColumn = database.createLongColumn("cc", database.vertexIndexing)
@@ -36,22 +36,12 @@ class ConnectedComponentsLabelProp( database: GraphChiDatabase)
       System.err.println("Mismatch in outdeg: " + vertex.outc.get + " / " + vertex.outDegree)
     }
     assert(vertex.outc.get == vertex.outDegree)
-    if (vertex.id == 8053240178L || vertex.id == 1610679185L) {
-       vertex.printEdgePtrs
-       vertex.edgeValues.foreach(l => println(" bf: %d".format(l)))
 
-    }
     val minLabel = vertex.edgeValues.foldLeft(vertex.id)((mn, label) => math.min(mn, label))
-    if (vertex.id == 8053240178L || vertex.id == 1610679185L) {
-        println("%d --> %d".format(vertex.id, minLabel))
-    }
+
     if (minLabel != vertex.getData || context.iteration == 0) {
       vertex.setData(minLabel)
       vertex.setAllEdgeValues(minLabel)
-      if (vertex.id == 8053240178L || vertex.id == 1610679185L) {
-        println("set %d --> %d".format(vertex.id, minLabel))
-        vertex.edgeValues.foreach(l => println(" l:%d".format(l)))
-      }
       context.scheduler.addTasks(vertex.edgeVertexIds)
     }
   }
