@@ -87,7 +87,7 @@ object MovieDatabase {
         val year = if (toks(1) == "NULL") { 0 } else { Integer.parseInt(toks(1))}
         val name = toks(2)
 
-        movieYearColumn.set(movieId, year)
+        movieYearColumn.set(movieId, year.toShort)
         val namePtr = movieNameColumn.insert(name)
         movieNamePtrColumn.set(movieId, namePtr)
       })
