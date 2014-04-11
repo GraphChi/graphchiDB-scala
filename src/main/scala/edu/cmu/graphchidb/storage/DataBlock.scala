@@ -128,6 +128,18 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
     }
   }
 
+  def select(cond: (Long, T) => Boolean)(implicit converter: ByteConverter[T]) : Iterator[(Long, T)] = {
+    val n = size()
+    (0 until n).iterator.filter(i => {
+      val xOpt : Option[T] = get(i)(converter)
+      if (xOpt.isDefined) {
+        cond(i, xOpt.get)
+      } else {
+        false
+      }
+    }).map(i => (i, get(i)(converter).get))
+  }
+
 }
 
 /*

@@ -16,7 +16,7 @@ trait Scheduler {
   def isScheduled(vertexId: Long) = true
 
   // TODO: pass only vertex ids to avoid object creation
-  def addTasks[T](edges: Stream[Long], alreadyThisIteration : Boolean = false) =
+  def addTasks[T](edges: Iterator[Long], alreadyThisIteration : Boolean = false) =
     edges.foreach(vid => addTask(vid, alreadyThisIteration))
 
   def swap : Scheduler = this

@@ -51,7 +51,7 @@ trait Column[T] {
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B
   def foreach(op: (Long, T) => Unit) : Unit
 
-
+  def select(op: (Long, T) => Boolean) : Iterator[(Long, T)]
 
   def delete : Unit
 
@@ -165,14 +165,42 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
 
   def foreach(op: (Long, T) => Unit) : Unit = {
     (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).foreach((localIdx:Long, v: T)
-         => op(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
+    => op(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
   }
 
   def updateAll(updateFunc: (Long, Option[T]) => T) : Unit = {
     (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).updateAll((localIdx:Long, v: Option[T])
-      => updateFunc(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
+    => updateFunc(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
   }
 
+  def select(cond: (Long, T) => Boolean) : Iterator[(Long, T)]  = {
+
+    // Probably easier ways to do this exist....
+    new Iterator[(Long, T)] {
+      var shardIdx = 0
+
+      def itForShard(s: Int) =  blocks(s).select((localIdx:Long, v: T) =>
+        cond(indexing.localToGlobal(s, localIdx), v))(converter)
+
+      var currentIterator = itForShard(0)
+
+      def hasNext = if (currentIterator.hasNext) { true } else {
+        shardIdx += 1
+        if (shardIdx >= blocks.size) {
+          false
+        } else {
+          currentIterator = itForShard(shardIdx)
+          hasNext
+        }
+      }
+
+      def next() = {
+        val (localIdx, v) = currentIterator.next()
+        (indexing.localToGlobal(shardIdx, localIdx), v)
+      }
+    }
+
+  }
 }
 
 class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String],
@@ -289,5 +317,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
 
 
   def updateAll(updateFunc: (Long, Option[T]) => T) : Unit = throw new NotImplementedException
-  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit= throw new NotImplementedException
+  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit = throw new NotImplementedException
+  def select(op: (Long, T) => Boolean) : Iterator[(Long, T)]  = throw new NotImplementedException
+
 }

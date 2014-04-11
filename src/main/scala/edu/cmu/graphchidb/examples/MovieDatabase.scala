@@ -42,6 +42,12 @@ object MovieDatabase {
   // Edges for rating
   val ratingEdgeColumn = DB.createByteColumn("rating", DB.edgeIndexing)
 
+  // Vertex type
+  val vertexTypeColumn = DB.createCategoricalColumn("vertextype", IndexedSeq("null", "movie", "user"), DB.vertexIndexing, temporary=false)
+  // auto-fill
+  vertexTypeColumn.autoFillVertexFunc = Some((vertexId) => vertexTypeColumn.indexForName(
+    if (DB.internalToOriginalId(vertexId) < userIdOffset) { "movie" } else { "user "}))
+
   // Movie parameters
   val movieYearColumn = DB.createShortColumn("year", DB.vertexIndexing)
 
@@ -80,25 +86,59 @@ object MovieDatabase {
 
       println("Finished inserting ratings, now populate movie information")
 
-      // Read movie names
-      Source.fromFile(new File(movieNamesFile)).getLines().foreach( ln => {
-        val toks = ln.split(",")
-        val movieId = Integer.parseInt(toks(0))
-        val year = if (toks(1) == "NULL") { 0 } else { Integer.parseInt(toks(1))}
-        val name = toks(2)
-
-        movieYearColumn.set(movieId, year.toShort)
-        val namePtr = movieNameColumn.insert(name)
-        movieNamePtrColumn.set(movieId, namePtr)
-      })
+      insertMovieInfo
 
       println("Done ingest.")
+
 
     }
 
   }
 
+
+  def insertMovieInfo = {
+    // Read movie names
+    Source.fromFile(new File(movieNamesFile), "iso-8859-1").getLines().foreach( ln => {
+      println(ln)
+      val toks = ln.split(",")
+      val origMovieId = Integer.parseInt(toks(0))
+      val year = if (toks(1) == "NULL") { 0 } else { Integer.parseInt(toks(1))}
+      val name = toks(2)
+
+      val movieId = DB.originalToInternalId(origMovieId) // Annoying
+
+      movieYearColumn.set(movieId, year.toShort)
+      val namePtr = movieNameColumn.insert(name)
+      movieNamePtrColumn.set(movieId, namePtr)
+    })
+    DB.flushAllBuffers()
+  }
+
+  /**
+   *  Run ALS to compute the model for recommendations.
+   */
   def runALS = DB.runGraphChiComputation(alsComputation, numIterations=5, enableScheduler=false)
 
+  val movieTypeId = vertexTypeColumn.indexForName("movie")
+
+
+  /**
+   *  @return Top 20 top-predicted movies as tuples (rating, original-movieid, internal-movieid, movie name)
+   */
+  def recommendForUser(origUserId: Long) = {
+    val userId = internalUserId(origUserId)
+    val movieIds = vertexTypeColumn.select((vid, t) => t == movieTypeId).map(tup => tup._1).toIndexedSeq
+    val movieIdsAndRatings = movieIds.map(movieId => (movieId, alsComputation.predictRating(userId, movieId))).sortBy(-_._2).take(20)
+
+    movieIdsAndRatings.map { case (mvid: Long, rating: Double)=> (rating, DB.internalToOriginalId(mvid),  mvid, movieNameColumn.getString(movieNamePtrColumn.get(mvid).get)) }
+
+  }
+
+  def movies = {
+    vertexTypeColumn.select((vid, t) => t == movieTypeId).map(tup => tup._1).map(mvid => (DB.internalToOriginalId(mvid), mvid, movieNameColumn.getString(movieNamePtrColumn.get(mvid).get)))
+  }
+
+  /* Mapping from user ids in original data to the ids used by the database */
+  def internalUserId(userId: Long) = DB.originalToInternalId(userIdOffset + userId)
 
 }

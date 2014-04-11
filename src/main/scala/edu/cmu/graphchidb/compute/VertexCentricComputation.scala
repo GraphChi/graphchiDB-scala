@@ -87,12 +87,12 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
   def outEdge(i : Int)  =  if (i < outDegree) { edge(i + inDegree) } else
   { throw new ArrayIndexOutOfBoundsException("Asked in-edge %d, but in-degree only %d".format(i, outDegree))}
 
-  def edges = (0 until getNumEdges).toStream.map {i => edge(i)}
+  def edges = (0 until getNumEdges).iterator.map {i => edge(i)}
 
   def printEdgePtrs =  (0 until getNumEdges).foreach {i => println("%d:%d".format(edgeSpec(i * 2), edgeSpec(i * 2 + 1))) }
 
-  def edgeValues =  (0 until getNumEdges).toStream.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1)).get}
-  def edgeVertexIds =  (0 until getNumEdges).toStream.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2)).get}
+  def edgeValues =  (0 until getNumEdges).iterator.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1)).get}
+  def edgeVertexIds =  (0 until getNumEdges).iterator.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2)).get}
 
   def setAllEdgeValues(newVal: EdgeDataType) =
     (0 until getNumEdges).foreach {i => database.setByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1), newVal)}
@@ -102,8 +102,8 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
 
 
 
-  def inEdges = (0 until getNumOutEdges).toStream.map {i => outEdge(i)}
-  def outEdges = (0 until getNumInEdges).toStream.map {i => inEdge(i)}
+  def inEdges = (0 until getNumOutEdges).iterator.map {i => outEdge(i)}
+  def outEdges = (0 until getNumInEdges).iterator.map {i => inEdge(i)}
 
   def getNumInEdges = inDegree
   def getNumOutEdges = outDegree

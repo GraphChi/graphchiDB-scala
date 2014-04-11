@@ -2073,7 +2073,6 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       }
       }
 
-
       algo.afterIteration(ctx)
 
 
@@ -2083,8 +2082,6 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         println("No new tasks")
         break
       }
-
-
 
     } }
   }

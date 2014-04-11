@@ -8,6 +8,7 @@ import java.io.File
 
 import edu.cmu.graphchidb.Util._
 import edu.cmu.graphchidb.examples.computation.ConnectedComponentsLabelProp
+import edu.cmu.graphchidb.queries.Queries
 
 /**
  * Example application create a database of the live journal graph.
@@ -19,8 +20,15 @@ object LiveJournalExample {
   /**
     * Run in scala console
 
+   import  edu.cmu.graphchidb.examples.LiveJournalExample._
 
+   // To initialize DB
    startIngest
+
+   // Some testing
+   recommendFriends(8737)
+   recommendFriends(2419)
+
 
    *
    */
@@ -74,6 +82,16 @@ object LiveJournalExample {
 
   def connectedComponents() {
       DB.runGraphChiComputation(ccAlgo, 100, enableScheduler=true)
+  }
+
+  /**
+   * Example: finds the friends-of-friends of user, that are not her friends, and groups them based
+   * on how many user's friends are friends of them.
+   * Returns top 20 friend of friends that are not my friends */
+  def recommendFriends(userIdOrigId: Long) = {
+    val userId = DB.originalToInternalId(userIdOrigId)
+    val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExcl(userId, 0)(DB)
+    friendsOfFriendsNotMyFriends.toSeq.sortBy(-_._2).take(20).map(tup => (DB.internalToOriginalId(tup._1), tup._2))
   }
 
 }

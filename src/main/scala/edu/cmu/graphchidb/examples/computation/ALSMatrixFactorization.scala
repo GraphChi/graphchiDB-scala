@@ -194,5 +194,7 @@ class ALSMatrixFactorization(factorColumnName: String, ratingColumn: Column[Byte
     factorColumn.updateAll((vertexId: Long, factorOpt: Option[FactorVec]) => factorOpt.getOrElse(new FactorVec()).randomize)
   }
 
+
+
   override def isParallel = true
 }

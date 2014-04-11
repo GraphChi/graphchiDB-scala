@@ -164,6 +164,8 @@ class VarDataColumn(name: String,  filePrefix: String, indexing: DatabaseIndexin
     }
   }
 
+  def getString(globalId: Long) = new String(get(globalId))
+
   def delete(id: Long) : Unit = {
     // Not implemented now
   }
