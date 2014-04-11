@@ -1,6 +1,6 @@
 package edu.cmu.graphchidb.examples.computation
 
- import edu.cmu.graphchidb.GraphChiDatabase
+import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.compute.{GraphChiContext, GraphChiVertex, VertexCentricComputation}
 import edu.cmu.graphchidb.storage.{Column, ByteConverter}
 import java.nio.ByteBuffer
@@ -45,20 +45,20 @@ object FactorVec {
   /** Converter that converts bytes to factors. Necessary evil... */
   implicit object FactorVecByteConverter extends ByteConverter[FactorVec] {
     def fromBytes(bb: ByteBuffer) = {
-       val fv = new FactorVec
-       var i = 0
-       while(i < D) {
-          fv.values(i) = bb.getDouble
-          i += 1
-       }
-       fv
+      val fv = new FactorVec
+      var i = 0
+      while(i < D) {
+        fv.values(i) = bb.getDouble
+        i += 1
+      }
+      fv
     }
 
     def toBytes(fv: FactorVec, out: ByteBuffer) = {
       var i = 0
       while(i < D) {
-         out.putDouble(fv.values(i))
-         i += 1
+        out.putDouble(fv.values(i))
+        i += 1
       }
     }
 
@@ -67,36 +67,36 @@ object FactorVec {
 }
 
 class FactorVec {
-    val values: Array[Double] = new Array[Double](FactorVec.D)
-    def randomize = {
-        var i = 0
-        while(i < values.length) {
-            values(i) = math.random
-            i += 1
-        }
-        this
+  val values: Array[Double] = new Array[Double](FactorVec.D)
+  def randomize = {
+    var i = 0
+    while(i < values.length) {
+      values(i) = math.random
+      i += 1
     }
+    this
+  }
 
-    def this(rv: RealVector) {
-      this()
-      var i = 0
-      while(i < values.length) {
-        values(i) = rv.getEntry(i)
-        i += 1
-      }
+  def this(rv: RealVector) {
+    this()
+    var i = 0
+    while(i < values.length) {
+      values(i) = rv.getEntry(i)
+      i += 1
     }
+  }
 
-    def dot(other: FactorVec) = {
-      var i = 0
-      var x = 0.0
-      while(i < values.length) {
-        x += values(i) * other.values(i)
-        i += 1
-      }
-      x
+  def dot(other: FactorVec) = {
+    var i = 0
+    var x = 0.0
+    while(i < values.length) {
+      x += values(i) * other.values(i)
+      i += 1
     }
+    x
+  }
 
-    def apply(i: Int) = values(i)
+  def apply(i: Int) = values(i)
 }
 
 
@@ -118,50 +118,52 @@ class ALSMatrixFactorization(factorColumnName: String, ratingColumn: Column[Byte
    * @param context
    */
   def update(vertex: GraphChiVertex[FactorVec, Byte], context: GraphChiContext) : Unit = {
-     if (vertex.getNumEdges == 0) return
-     val XtX = new BlockRealMatrix(D, D)
-     val Xty = new ArrayRealVector(D)
+    if (vertex.getNumEdges == 0) return
+    val XtX = new BlockRealMatrix(D, D)
+    val Xty = new ArrayRealVector(D)
 
 
 
-     vertex.edges.foreach(edge => {
-         val observation = edge.getValue.toDouble
-         val neighborLatent = factorColumn.get(edge.vertexId).get
+    vertex.edges.foreach(edge => {
+      val observation = edge.getValue.toDouble
+      val neighborLatent = factorColumn.get(edge.vertexId).get
 
-         var i = 0
-         while(i < D) { // Use ugly while loops for performance reasons
-            Xty.setEntry(i, Xty.getEntry(i) + neighborLatent(i) * observation)
-            var j = 1
-            while(j < D) {
-                XtX.setEntry(j, i, XtX.getEntry(j ,i) + neighborLatent(i) * neighborLatent(j))
-                j += 1
-              }
-            i += 1
-         }
+      var i = 0
+      while(i < D) { // Use ugly while loops for performance reasons
+        Xty.setEntry(i, Xty.getEntry(i) + neighborLatent(i) * observation)
+        var j = i
+        while(j < D) {
+          XtX.setEntry(j, i, XtX.getEntry(j, i) + neighborLatent(i) * neighborLatent(j))
+          j += 1
+        }
+        i += 1
+      }
+    })
+    // Symmetrize
+    var  i = 0
+    while(i < D) {
+      var j = i + 1
+      while(j < D) {
+        XtX.setEntry(i, j, XtX.getEntry(j, i))
+        j += 1
+      }
+      i += 1
+    }
 
-         // Symmetrize
-         i = 0
-         while(i < D) {
-            var j = i + 1
-            while(j < D) {
-                XtX.setEntry(i, j, XtX.getEntry(j, i))
-                j += 1
-            }
-            i += 1
-         }
+    // Diagonal, add regularization
+    i = 0
+    while(i < D) {
+      XtX.setEntry(i, i, XtX.getEntry(i, i) + LAMBDA * vertex.getNumEdges)
+      i += 1
+    }
 
-         // Diagonal, add regularization
-         i = 0
-         while(i < D) {
-             XtX.setEntry(i, i, XtX.getEntry(i, i) + LAMBDA * vertex.getNumEdges)
-             i += 1
-         }
-
-        // Solve the least-squares optimization using Cholesky Decomposition
-        val newLatent = new FactorVec(new CholeskyDecompositionImpl(XtX).getSolver.solve(Xty))
-        factorColumn.set(vertex.id, newLatent)
-
-     })
+    try {
+      // Solve the least-squares optimization using Cholesky Decomposition
+      val newLatent = new FactorVec(new CholeskyDecompositionImpl(XtX).getSolver.solve(Xty))
+      factorColumn.set(vertex.id, newLatent)
+    } catch {
+      case npdf:  NotPositiveDefiniteMatrixException  => println("Not positive definite: " + XtX)
+    }
   }
 
   def edgeDataColumn = Some(ratingColumn)
@@ -177,14 +179,20 @@ class ALSMatrixFactorization(factorColumnName: String, ratingColumn: Column[Byte
   override def beforeIteration(ctx: GraphChiContext) = println("ALS: Start iteration %d".format(ctx.iteration))
 
   def computeRMSE = {
-      var rmse = 0.0
-      var count = 0L
-      database.sweepInEdgesWithJoin(ratingColumn)( (src:Long, dst:Long, edgeType: Byte, rating: Byte) => {
-           val observation = rating.toDouble
-           val prediction = predictRating(src, dst)
-           rmse += (observation - prediction) * (observation - prediction)
-           count += 1
-      })
-     (math.sqrt(rmse / count), count)
+    var rmse = 0.0
+    var count = 0L
+    database.sweepInEdgesWithJoin(ratingColumn)( (src:Long, dst:Long, edgeType: Byte, rating: Byte) => {
+      val observation = rating.toDouble
+      val prediction = predictRating(src, dst)
+      rmse += (observation - prediction) * (observation - prediction)
+      count += 1
+    })
+    (math.sqrt(rmse / count), count)
   }
+
+  def reset = {
+    factorColumn.updateAll((vertexId: Long, factorOpt: Option[FactorVec]) => factorOpt.getOrElse(new FactorVec()).randomize)
+  }
+
+  override def isParallel = true
 }

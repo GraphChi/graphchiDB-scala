@@ -119,6 +119,15 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
     }
   }
 
+  def updateAll(op: (Long, Option[T]) => T) (implicit converter: ByteConverter[T])  : Unit = {
+    val n = size()
+    for( i <- 0 until n) {
+      val xOpt : Option[T] = get(i)(converter)
+      val newVal = op(i, xOpt)
+      set(i, newVal)
+    }
+  }
+
 }
 
 /*

@@ -1034,7 +1034,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
 
   private def autoFillVertexValue(vertexId: Long) = {
-      autoFilledVertexColumns.foreach(c => c.set(vertexId, c.autoFillVertex.get(vertexId)))
+    autoFilledVertexColumns.foreach(c => c.set(vertexId, c.autoFillVertex.get(vertexId)))
   }
 
   def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
@@ -1081,8 +1081,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
     if (counter.incrementAndGet() % 100000 == 0) {
       while(totalBufferedEdges > bufferLimit) {
-          log("Buffers full, waiting... %d / %d".format(totalBufferedEdges, bufferLimit))
-          bufferDrainMonitor.synchronized {
+        log("Buffers full, waiting... %d / %d".format(totalBufferedEdges, bufferLimit))
+        bufferDrainMonitor.synchronized {
           bufferDrainMonitor.notifyAll()
         }
         Thread.sleep(500)
@@ -1770,7 +1770,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def sweepInEdgesWithJoin[T1](col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) : Unit = {
-      intervals.foreach(interval => sweepInEdgesWithJoin(interval, interval.getLastVertex, col1)(updateFunc))
+    intervals.foreach(interval => sweepInEdgesWithJoin(interval, interval.getLastVertex, col1)(updateFunc))
   }
 
   def sweepInEdgesWithJoin[T1](interval: VertexInterval, maxVertex: Long, col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) : Unit = {
@@ -2059,8 +2059,13 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
 
           /* Execute update functions -- not parallel now */
-          println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
-          vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
+          if (algo.isParallel) {
+            println("Update subinterval (parallel) " + subIntervalSt + " -- " + subIntervalEn)
+            vertices.par.foreach( v => if (v != null) { algo.update(v, ctx) } )
+          } else {
+            println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
+            vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
+          }
           println("Done...")
 
           subIntervalSt = subIntervalEn + 1

@@ -24,6 +24,8 @@ trait VertexCentricComputation[VertexValueType, EdgeValueType] {
 
   def edgeDataColumn : Option[Column[EdgeValueType]]
   def vertexDataColumn : Option[Column[VertexValueType]]
+
+  def isParallel = false
 }
 
 

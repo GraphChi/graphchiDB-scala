@@ -39,6 +39,9 @@ trait Column[T] {
     val cur = get(idx)
     set(idx, updateFunc(cur))
   }
+
+  def updateAll(updateFunc: (Long, Option[T]) => T) : Unit
+
   def indexing: DatabaseIndexing
 
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit
@@ -47,6 +50,8 @@ trait Column[T] {
 
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B
   def foreach(op: (Long, T) => Unit) : Unit
+
+
 
   def delete : Unit
 
@@ -163,6 +168,11 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
          => op(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
   }
 
+  def updateAll(updateFunc: (Long, Option[T]) => T) : Unit = {
+    (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).updateAll((localIdx:Long, v: Option[T])
+      => updateFunc(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
+  }
+
 }
 
 class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String],
@@ -277,5 +287,7 @@ class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _inde
     throw new NotImplementedException
   }
 
+
+  def updateAll(updateFunc: (Long, Option[T]) => T) : Unit = throw new NotImplementedException
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit= throw new NotImplementedException
 }
