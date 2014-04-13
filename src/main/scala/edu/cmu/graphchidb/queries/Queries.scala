@@ -23,14 +23,25 @@ object Queries {
     */
   def friendsOfFriendsExcl(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
     db.timed("FoF", {
-      val friends = queryVertex(internalId, db)
-      val result = friends->traverseOut(edgeType)->traverseOut(edgeType)->selectOut(edgeType, groupByCount, dst => !friends.hasVertex(dst))
+      val start = queryVertex(internalId, db)
+      val result = start->traverseOut(edgeType)->selectOut(edgeType, groupByCount, dst => !start.hasVertex(dst))
       result.results })
   }
 
-  def friendsOfFriendsSet(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
-    val friends = queryVertex(internalId, db)
-    friends->traverseOut(edgeType)->traverseOut(edgeType)
+  /** Finds friends of friends of search vertex and groups by the number of common
+    * followers. Excludes the immediate friends and limits the first-level friends.
+    * @param internalId
+    * @param edgeType
+    * @param maxFriends
+    * @param db
+    * @return
+    */
+  def friendsOfFriendsExclWithLimit(internalId: Long, edgeType: Byte, maxFriends:Int = 100)(implicit db: GraphChiDatabase) = {
+    db.timed("FoF-limit", {
+      val start = queryVertex(internalId, db)
+      val friends = start->traverseOut(edgeType)->limit(maxFriends, randomize=true)
+      val result = friends->selectOut(edgeType, groupByCount, dst => !start.hasVertex(dst))
+      result.results })
   }
 
 

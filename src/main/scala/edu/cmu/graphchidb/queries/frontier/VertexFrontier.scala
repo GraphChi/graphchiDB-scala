@@ -1,8 +1,9 @@
 package edu.cmu.graphchidb.queries.frontier
 
-import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
+import edu.cmu.graphchidb.{DatabaseIndexing, GraphChiDatabase}
 import scala.collection.{mutable, BitSet}
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
+import scala.util.Random
 
 /**
  * A set of vertices. Ligra-style computation.
@@ -26,7 +27,32 @@ trait VertexFrontier {
 
   def ->[T](f : VertexFrontier => T) = f(this)
 
+
+  def limit(maxSize: Int, randomSample:Boolean) : VertexFrontier
+
+  def limitF(maxSize: Int, randomSample:Boolean, db: GraphChiDatabase, indexing: DatabaseIndexing) : VertexFrontier = {
+    if (size <= maxSize) {
+      this
+    } else {
+      printf("Orig size: %d\n", size)
+
+      val sq =
+        if (randomSample) {
+          Random.shuffle(toSeq)
+        } else {
+          toSeq
+        }
+      printf("Sq size: %d\n", sq.size)
+
+      val newElements = sq take maxSize
+      printf("After size: %d\n", newElements.size)
+
+      new SparseVertexFrontier(indexing, newElements.toSet, db)
+    }
+  }
+
 }
+
 
 
 
@@ -79,6 +105,7 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
         None
       }
     }
+
   }
 
   def insert(vertexId: Long) : Unit = {
@@ -104,9 +131,13 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
     sparseFrontier
   }
 
+
   def toSet = toSparse.toSet
 
   def toSeq = (0 until indexing.nShards).map(shardIdx => shardBitSets(shardIdx).toSeq.map(j => indexing.localToGlobal(shardIdx, j))).flatten
+
+  def limit(maxSize: Int, randomSample:Boolean) : VertexFrontier = limitF(maxSize, randomSample, db, indexing)
+
 }
 
 
@@ -149,6 +180,8 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
     denseFrontier
   }
   def toSeq: Seq[Long] = backingSet.toSeq
+
+  def limit(maxSize: Int, randomSample:Boolean) : VertexFrontier = limitF(maxSize, randomSample, db, indexing)
 }
 
 object VertexFrontier {

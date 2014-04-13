@@ -53,11 +53,14 @@ object FrontierQueries {
     def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long])= throw new IllegalStateException()
   }
 
+
+  def limit(maxSize: Int, randomize: Boolean) : queryFunction = (frontier : VertexFrontier) => frontier.limit(maxSize, randomize)
+
   /* Creates new frontier of the out-neighbors of the frontier */
   def traverseOut(edgeType: Byte) : queryFunction = {
     def topDown(frontier:SparseVertexFrontier) : VertexFrontier = {
       val frontierCallback = new FrontierCallback(frontier.db)
-      frontier.db.queryOutMultiple(frontier.toSet.toSeq, edgeType, frontierCallback)
+      frontier.db.queryOutMultiple(frontier.toSeq, edgeType, frontierCallback)
       frontierCallback.frontier
     }
 

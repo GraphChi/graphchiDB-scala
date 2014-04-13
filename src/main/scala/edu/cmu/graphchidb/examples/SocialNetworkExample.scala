@@ -11,8 +11,8 @@ import edu.cmu.graphchidb.examples.computation.ConnectedComponentsLabelProp
 import edu.cmu.graphchidb.queries.Queries
 
 /**
- * Example application create a database of the live journal graph.
- * We create fake timestamp and weight attributes for each edge (with random values).
+ * Example application for social network graph.
+ * We create fake timestamp and weight attributes for each edge (with random values). This is just for demonstration.
  * @author Aapo Kyrola
  */
 object SocialNetworkExample {
@@ -20,7 +20,7 @@ object SocialNetworkExample {
   /**
     * Run in scala console
 
-   import  edu.cmu.graphchidb.examples.LiveJournalExample._
+   import  edu.cmu.graphchidb.examples.SocialNetworkExample._
 
    // To initialize DB
    startIngest
@@ -29,12 +29,13 @@ object SocialNetworkExample {
    recommendFriends(8737)
    recommendFriends(2419)
 
+          recommendFriendsLimited(2419)
 
    *
    */
 
-  val sourceFile =  System.getProperty("user.home")  + "/graphs/soc-LiveJournal1.txt"
 
+  val sourceFile =  System.getProperty("user.home")  + "/graphs/soc-LiveJournal1.txt"
   val baseFilename = System.getProperty("user.home")  + "/graphs/DB/livejournal/lj"
 
   GraphChiDatabaseAdmin.createDatabaseIfNotExists(baseFilename, numShards = 16)
@@ -86,11 +87,19 @@ object SocialNetworkExample {
 
   /**
    * Example: finds the friends-of-friends of user, that are not her friends, and groups them based
-   * on how many user's friends are friends of them.
+   * on how many user's friends are friends of them. Note: this can be very slow when user has many friends.
+   * See function recommendFriendsLimited() for a more efficient, but approximate version.
    * Returns top 20 friend of friends that are not my friends */
   def recommendFriends(userIdOrigId: Long) = {
     val userId = DB.originalToInternalId(userIdOrigId)
     val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExcl(userId, 0)(DB)
+    friendsOfFriendsNotMyFriends.toSeq.sortBy(-_._2).take(20).map(tup => (DB.internalToOriginalId(tup._1), tup._2))
+  }
+
+
+  def recommendFriendsLimited(userIdOrigId: Long) = {
+    val userId = DB.originalToInternalId(userIdOrigId)
+    val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExclWithLimit(userId, 0, maxFriends = 50)(DB)
     friendsOfFriendsNotMyFriends.toSeq.sortBy(-_._2).take(20).map(tup => (DB.internalToOriginalId(tup._1), tup._2))
   }
 
