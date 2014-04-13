@@ -15,7 +15,7 @@ import edu.cmu.graphchidb.queries.Queries
  * We create fake timestamp and weight attributes for each edge (with random values).
  * @author Aapo Kyrola
  */
-object LiveJournalExample {
+object SocialNetworkExample {
 
   /**
     * Run in scala console
