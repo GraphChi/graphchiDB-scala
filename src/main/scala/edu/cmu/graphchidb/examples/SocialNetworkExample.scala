@@ -112,4 +112,9 @@ object SocialNetworkExample {
   }
 
 
+  /* Example of join */
+  def queryOutWithTimestamps(vertexOrigId: Long) = {
+      DB.queryOut(DB.originalToInternalId(vertexOrigId), 0).join(timestampColumn)
+  }
+
 }
