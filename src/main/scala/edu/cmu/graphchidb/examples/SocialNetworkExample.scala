@@ -40,7 +40,7 @@ object SocialNetworkExample {
 
   GraphChiDatabaseAdmin.createDatabaseIfNotExists(baseFilename, numShards = 16)
 
-  val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
+  implicit val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
 
   /* Create edge columns */
   val timestampColumn = DB.createLongColumn("timestamp", DB.edgeIndexing)
@@ -92,15 +92,24 @@ object SocialNetworkExample {
    * Returns top 20 friend of friends that are not my friends */
   def recommendFriends(userIdOrigId: Long) = {
     val userId = DB.originalToInternalId(userIdOrigId)
-    val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExcl(userId, 0)(DB)
+    val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExcl(userId, 0)
     friendsOfFriendsNotMyFriends.toSeq.sortBy(-_._2).take(20).map(tup => (DB.internalToOriginalId(tup._1), tup._2))
   }
 
 
   def recommendFriendsLimited(userIdOrigId: Long) = {
     val userId = DB.originalToInternalId(userIdOrigId)
-    val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExclWithLimit(userId, 0, maxFriends = 50)(DB)
+    val friendsOfFriendsNotMyFriends =  Queries.friendsOfFriendsExclWithLimit(userId, 0, maxFriends = 50)
     friendsOfFriendsNotMyFriends.toSeq.sortBy(-_._2).take(20).map(tup => (DB.internalToOriginalId(tup._1), tup._2))
   }
+
+  /**
+   * Find shortest path between two users
+   */
+  def shortestPath(userFromOrigId: Long, userToOrigId: Long) = {
+     val path = Queries.shortestPath(DB.originalToInternalId(userFromOrigId), DB.originalToInternalId(userToOrigId), maxDepth=5, edgeType=0)
+     path.map { id => DB.internalToOriginalId(id) }
+  }
+
 
 }
