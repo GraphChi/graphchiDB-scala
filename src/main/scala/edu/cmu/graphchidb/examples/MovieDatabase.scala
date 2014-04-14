@@ -105,11 +105,10 @@ object MovieDatabase {
       val year = if (toks(1) == "NULL") { 0 } else { Integer.parseInt(toks(1))}
       val name = toks(2)
 
-      val movieId = DB.originalToInternalId(origMovieId) // Annoying
 
-      movieYearColumn.set(movieId, year.toShort)
       val namePtr = movieNameColumn.insert(name)
-      movieNamePtrColumn.set(movieId, namePtr)
+      DB.setVertexColumnValueOrigId(origMovieId, movieNamePtrColumn, namePtr)  // Notice the use of original ID here.. Confusing?
+      DB.setVertexColumnValueOrigId(origMovieId, movieYearColumn, year.toShort)
     })
     DB.flushAllBuffers()
   }

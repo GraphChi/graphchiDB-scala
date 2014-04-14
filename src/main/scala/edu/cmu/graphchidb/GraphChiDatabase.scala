@@ -1037,7 +1037,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     autoFilledVertexColumns.foreach(c => c.set(vertexId, c.autoFillVertex.get(vertexId)))
   }
 
-  def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
+
+  private def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     if ((edgeType & 0xf0) != 0) {
@@ -1097,9 +1098,17 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     this.bufferDrainLock.synchronized{
       bufferShards.foreach(bufferShard => bufferShard.mergeToParentsAndClear())
     }
+    invokePurgeListeners()
+
   }
 
-
+  /**
+   *  Add edge to the database using the original edge IDs
+   * @param edgeType
+   * @param src
+   * @param dst
+   * @param values
+   */
   def addEdgeOrigId(edgeType: Byte, src:Long, dst:Long, values: Any*) {
     addEdge(edgeType, originalToInternalId(src), originalToInternalId(dst), values:_*)
   }
@@ -1257,6 +1266,14 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def deleteVertexOrigId(vertexId: Long): Boolean = { deleteVertex(originalToInternalId(vertexId)) }
+
+
+  def setVertexColumnValueOrigId[T](vertexId: Long, col: Column[T], newVal: T) = {
+    updateVertexRecords(vertexId)
+    col.set(originalToInternalId(vertexId), newVal)
+  }
+
+  def getVertexColumnValueOrigId[T](vertexId: Long, col: Column[T]) : Option[T] = col.get(originalToInternalId(vertexId))
 
 
   def setByPointer[T](column: Column[T], ptr: Long, value: T) = {
