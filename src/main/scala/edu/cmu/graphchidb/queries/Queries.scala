@@ -1,3 +1,25 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchidb.queries
 
 import edu.cmu.graphchidb.GraphChiDatabase
@@ -23,14 +45,25 @@ object Queries {
     */
   def friendsOfFriendsExcl(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
     db.timed("FoF", {
-      val friends = queryVertex(internalId, db)
-      val result = friends->traverseOut(edgeType)->traverseOut(edgeType)->selectOut(edgeType, groupByCount, dst => !friends.hasVertex(dst))
+      val start = queryVertex(internalId, db)
+      val result = start->traverseOut(edgeType)->selectOut(edgeType, groupByCount, dst => !start.hasVertex(dst))
       result.results })
   }
 
-  def friendsOfFriendsSet(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase) = {
-    val friends = queryVertex(internalId, db)
-    friends->traverseOut(edgeType)->traverseOut(edgeType)
+  /** Finds friends of friends of search vertex and groups by the number of common
+    * followers. Excludes the immediate friends and limits the first-level friends.
+    * @param internalId
+    * @param edgeType
+    * @param maxFriends
+    * @param db
+    * @return
+    */
+  def friendsOfFriendsExclWithLimit(internalId: Long, edgeType: Byte, maxFriends:Int = 100)(implicit db: GraphChiDatabase) = {
+    db.timed("FoF-limit", {
+      val start = queryVertex(internalId, db)
+      val friends = start->traverseOut(edgeType)->limit(maxFriends, randomize=true)
+      val result = friends->selectOut(edgeType, groupByCount, dst => !start.hasVertex(dst))
+      result.results })
   }
 
 

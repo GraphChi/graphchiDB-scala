@@ -1,3 +1,25 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchi.bits;
 
 import org.junit.Test;
@@ -121,7 +143,7 @@ public class TestIncreasingEliasGammaSeq {
 
         long t1 = System.currentTimeMillis();
         orig[0] = 0;
-        Random r = new Random();
+        Random r = new Random(19820904);
         for(int i=1; i<orig.length; i++) {
             long delta = 1 +  Math.abs(r.nextLong() % 100);
             orig[i] = orig[i - 1] + delta;
@@ -137,6 +159,49 @@ public class TestIncreasingEliasGammaSeq {
             long x = iter.next();
             assertEquals(orig[j], x);
             j++;
+        }
+        assertEquals(j, orig.length);
+
+    }
+
+    @Test
+    public void testIteratorWithStart() {
+        long[] orig = new long[1000000];
+
+        long t1 = System.currentTimeMillis();
+        orig[0] = 0;
+        Random r = new Random(19820904);
+        for(int i=1; i<orig.length; i++) {
+            long delta = 1 +  Math.abs(r.nextLong() % 100);
+            orig[i] = orig[i - 1] + delta;
+        }
+
+        long t2 = System.currentTimeMillis();
+
+        IncreasingEliasGammaSeq egSeq = new IncreasingEliasGammaSeq(orig);
+
+        for(int tries=0; tries<50; tries++) {
+            boolean shifted = false;
+
+            int j = Math.abs(r.nextInt() % orig.length);
+            int startj = j;
+            long st = orig[startj];
+            if (startj > 0 && orig[startj - 1] < st - 1) {
+                st--; // Shifted
+                shifted = true;
+            }
+            Iterator<Long> iter = egSeq.iterator(st);
+            while(iter.hasNext()) {
+                assertTrue(iter.hasNext());
+                long x = iter.next();
+                if (j >= orig.length || orig[j] != x) {
+                   System.err.println("Mismatch: j =" + j + "/" + orig.length + ", startj=" + startj + ", try=" + tries);
+                   System.out.println("shifted: " + shifted);
+                }
+                assertEquals(orig[j], x);
+                j++;
+            }
+            assertEquals(j, orig.length);
         }
     }
 }

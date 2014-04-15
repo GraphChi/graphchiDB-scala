@@ -1,127 +1,216 @@
-# GraphChi-java
-Version 0.2
+# GraphChi-DB
+
+GraphChi-DB is a scalable, embedded, single-computer online graph database that can also execute similar large-scale graph computation as [GraphChi](https://github.com/graphchi).
+it has been developed by [Aapo Kyrola](http://www.cs.cmu.edu/~akyrola) as part of his Ph.D. thesis.
+
+GraphChi-DB is written in Scala, with some Java code. Generally, you need to know Scala quite well to be able to use it.
+
+** IMPORTANT: GraphChi-DB is early release, research code. It is buggy, it has awful API, and it is provided with no guarantees.
+DO NOT USE IT FOR ANYTHING IMPORTANT.  **
 
 
-## News
+## License
 
-* Performance has been improved by parallelizing shard loading better (Oct 22, 2013)
-* GraphChi was moved to GitHub from Google Code (July 24). Please report/fix any broken links.
-* GraphChi's Java version has a new cool random walk simulation engine: https://github.com/GraphChi/graphchi-java/wiki/Personalized-Pagerank-with-DrunkardMob
+GraphChi-DB is licensed under the Apache License, Version 2.0
+Each source code file has full license information.
 
+## Requirements
 
+* SSD
+* 8 GB of RAM is recommended. Might work with less.
+* Scala 2.9
 
-# Introduction
+ ## Discussion group
 
-Project for developing the Java version of GraphChi ( http://www.graphchi.org ), the disk-based graph computation engine. To learn more about GraphChi, visit the C++ version's project page: https://github.com/GraphChi/graphchi-cpp
+ Please join the discussion group (shared with GraphChi users).
 
-**NEW:** GraphChi can be used in Hadoop/Pig scripts: [GraphChi for Pig](https://github.com/GraphChi/graphchi-java/wiki/GraphChi-For-Pig).
-
-### How to use
-
- 
-Read the README.txt for information on how to build and run the example applications. You are going to need [Maven](http://maven.apache.org/download.cgi) for building.
-
-It is a very good idea to study the example applications carefully. There are currently three example applications in the package **edu.cmu.graphchi.apps**:
-* [PageRank](https://github.com/GraphChi/graphchi-java/tree/master/src/main/java/edu/cmu/graphchi/apps/Pagerank.java) for computing the famous [PageRank](http://en.wikipedia.org/wiki/PageRank) ranking
-* [Connected Components](https://github.com/GraphChi/graphchi-java/tree/master/src/main/java/edu/cmu/graphchi/apps/ConnectedComponents.java) for computing the weakly connected components
-* [Alternative Least Squares Matrix Factorization](https://github.com/GraphChi/graphchi-java/tree/master/src/main/java/edu/cmu/graphchi/apps/ALSMatrixFactorization.java)
+ http://groups.google.com/group/graphchi-discuss
 
 
+ ## Publication
+
+You can read about GraphChi-DB's design, evaluation and motivation from pre-print [GraphChi-DB: Simple Design For a Scalable Graph Database System - on Just a PC](http://arxiv.org/abs/1403.0701).
+
+# Documentation
+
+Not provided. We suggest you look through the examples (see below), to get the basic idea.
+
+# Examples
+
+**In general, you must be very familiar with Scala and Java development to be able to use GraphChi-DB.** 
+
+## To run
+
+Best way to explore GraphChi-DB is to load the project into an IDE (such as Eclipse or IntelliJ IDEA), and use the Scala Console. This will allow you to interactively explore the data.
+You can also include GraphChi-DB easily in your Scala project.
+
+Following JVM parameters are recommended:
+```
+   -Xmx5G -ea
+```
+
+**Note:** With less than 5 gigabyte of RAM, the database may crash (silently) in an out-of-memory exception. This is because its buffers overflow, and the database cannot yet manage its own memory usage.
+However, do NOT add more memory to the JVM, because GraphChi-DB uses memory mapping of the operating system to manage the data. It is better to leave as much memory for the OS to use for memory mapping.
 
 
+## Example: Social Network
+
+This example creates a graph from a social network data. For each edge, we add a timestamp and weight column. In this example, this values
+are populated with random values, so they are just provided as an example.
+
+In addition, the example computes continously Pagerank for each vertex. You can also invoke a connected components computation. Note that these computations operate in the background and if the graph changes, also their results can become incorrect. 
+
+This example shows also how to compute simple social network recommendations based on friends-of-friends. 
 
 ### Input data
 
-GraphChi-java supports [edge-list](https://github.com/GraphChi/graphchi-cpp/wiki/Edge-List-Format) and: [adjacency list](https://github.com/GraphChi/graphchi-cpp/wiki/Adjacency-List-Format) formats.
+To run this example, you need to have some input graph. You can try these:
+* Live Journal: http://snap.stanford.edu/data/soc-LiveJournal1.html
+* Twitter graph (2010): http://an.kaist.ac.kr/traces/WWW2010.html
 
-To preprocess the graph, you need to call "sharder" in the beginning of your program. For example, if you graph has floating-point input values for each edge, you can call it as follows:
+Remember to configure the proper filenames in the code. Look for variable "sourceFile".
+
+
+### Example session
+
+```scala
+   import  edu.cmu.graphchidb.examples.SocialNetworkExample._
+
+   // To initialize DB (you need to do this only on your first session)
+   startIngest
+
+   // Some testing
+   recommendFriends(8737)
+   recommendFriends(2419)
+   recommendFriendsLimited(2419)
+   
+   // In and out neighbors
+   DB.queryIn(DB.originalToInternalId(2409), 0)
+   DB.queryOut(DB.originalToInternalId(8737), 0)
+
+   // To run connected components
+   connectedComponents()
+
+   // After a while, you can ask
+   ccAlgo.printStats
+
+   // To get a vertex component label (which might not be yet the final one)
+   ccAlgo.vertexDataColumn.get.get(DB.originalToInternalId(8737)).get
+
+   // To get pagerank of a vertex (note, that it is being continuously updated), so this
+   // just looks up the value.
+   pagerankCol.get(DB.originalToInternalId(8737)).get
+```
+
+
+
+## Example: Wikipedia Graph
+
+This example application reads Wikipedia's SQL dumps and creates a graph of the wikipedia pages. It allows you to then find shortest paths between pages. You can consider extending it with Pagerank, Connected Components etc. by using techniques from the previous example.
+
+### Input data
+
+Wikipedia dumps are available here: http://dumps.wikimedia.org/enwiki/latest/
+
+You need **two** files: 
+* Pagelinks: for example http://dumps.wikimedia.org/enwiki/20140402/enwiki-20140402-pagelinks.sql.gz
+* Per-page data: http://dumps.wikimedia.org/enwiki/20140402/enwiki-20140402-page.sql.gz
+
+The example application includes a very hacky, but very fast, parser for the data. Note that it has been tested only with the English wikipedia data.
+
+
+### Example session: Ingest
+
+You need to run this only on your first session:
+```scala
+  import  edu.cmu.graphchidb.examples.WikipediaGraph._
+
+  // If first time, populate the DB (takes 3 hours on SSD, MacBook Pro)
+  populate()
+```
+
+### Example session: Play
+
+Note, that the first query will take a long time as the application needs to compute the page title index. Also, it takes time before the graph is fully cached (using memory mapping).
+
+```scala
+  import  edu.cmu.graphchidb.examples.WikipediaGraph._ shortestPath("Barack_Obama", "Sauli_Niinisto")
+  shortestPath("Helsinki", "Pittsburgh")
+  shortestPath("Carnegie_Mellon_University", "Graph")
+```
+
+## Example: Movie Database and Recommender
+
+This example creates a database of movies and a graph of user - movie ratings. After the database has been populated, you can run matrix factorization using the Alternating Least Squares (ALS) algorithm and use it to recommend movies to a user. Note, that this is overly simple recommender algorithm and unlikely to produce very good results.
+
+### Data
+
+You can get Netflix Prize movie rating database from here:  http://www.select.cs.cmu.edu/code/graphlab/datasets/
+
+Download the "netflix_mm" file.
+
+
+### Example session
+
+Ingest:
+```scala
+ import edu.cmu.graphchidb.examples.MovieDatabase._
+  startIngest
+```
+
+Recommend
+```scala
+  import edu.cmu.graphchidb.examples.MovieDatabase._
+  recommendForUser(X)
+```
+
+### Notes
+This example is a bit awkward: GraphChi-DB does not support typed vertices, so we need to use different range of IDs for movie and user vertices. Variable "userIdOffset" is used for this. The example functions in the app include the translation.
+
+
+# Notes
+
+## Online
+
+An added edge is immediately visible to queries and subsequent computation. That is, you can query the database while inserting new data.
+There is currently no batch mode to insert edges. Still, even in the online mode you can expect to be able to insert over 100K edges per second.
+
+## ID-mapping
+
+GraphChi-DB maps original vertex IDs to an internal ID space. Functions that ask for "origId" expect you to provide the original vertex ID (from the source data).
+Typically you need to map IDs returned by the database into original IDs. See the example applications for examples. The GraphChiDB class has two functions to map between the ID spaces:
+
+```scala
+DB.originalToInternalId(origId)
+DB.internalToOriginalId(internalId)
+```
+
+This mapping is awkward, but crucial for the performance of the database. See the publication for more information.
+
+
+
+## Durability
+
+New edges are first added to in-memory buffers. When the buffers are full, they are flushed to disk. If the computer crashes when the edges are in buffers, they are lost!
+GraphChi-DB has also a durable mode which logs all edges to a file before adding them to buffers (see the configuration file). However, there is currently no method to recover after a crash.
+
+GraphChi-DB uses a shutdown hook to flush the buffered edges to disk. It is important not to force-kill the JVM! You can also manually call
 
 ```java
-    protected static FastSharder createSharder(String graphName, int numShards) throws IOException {
-            return new FastSharder<Float, Float>(graphName, numShards, new VertexProcessor<Float>() {
-                public Float receiveVertexValue(int vertexId, String token) {
-                    return (token == null ? 0.0f : Float.parseFloat(token));
-                }
-            }, new EdgeProcessor<Float>() {
-                public Float receiveEdge(int from, int to, String token) {
-                    return (token == null ? 0.0f : Float.parseFloat(token));
-                }
-            }, new FloatConverter(), new FloatConverter());
-        }
-    
-        public static void main(String[] args) throws  Exception {
-            String baseFilename = args[0];
-            int nShards = Integer.parseInt(args[1]);
-            String filetype= args[2]; // "edgelist" or "adjacency"
-    
-            /* Create shards */
-            FastSharder sharder = createSharder(baseFilename, nShards);
-            if (new File(ChiFilenames.getFilenameIntervals(baseFilename, nShards)).exists()) {
-                    sharder.shard(new FileInputStream(new File(baseFilename)), filetype);
-                } else {
-                    logger.info("Found shards -- no need to preprocess");
-                }
-        ....
-```
-
-**Note:** (For edge-lists only) initial values for vertices are also now supported. If you define a self-edge (i.e edge with same source and destination), the value of the 'edge' is interpreted as value for the vertex. Thus you need to provide both a vertex-value and edge-value parser to the FastSharder.
-
-
-### Hadoop / PIG
-
-Since version 0.2 (January 2013), GraphChi Java programs can be directly invoked from [Pig](http://pig.apache.org). More information will on page GraphChiForPig.
-
-Example PIG script:
+DB.flushAllBuffers()
 
 ```
-    REGISTER graphchi-java-0.2-jar-with-dependencies.jar;
-    
-    pagerank = LOAD '/user/akyrola/graphs/soc-LiveJournal1.txt' USING edu.cmu.graphchi.apps.pig.PigPagerank as (vertex:int, rank:float);
-    
-    STORE pagerank INTO '/user/akyrola/pagerank';
+
+Again, see the example applications...
+
+## Debug log
+
+Inside the database directory, there is a debug log-file that is written by the database.
+
+```
+   tail -f *debug.txt*
 ```
 
+## Deleting database
 
-### Scala
-
-An early Scala-wrapper is also provided. See [PagerankScala](https://github.com/GraphChi/graphchi-java/blob/master/src/main/scala/edu/cmu/graphchi/scala/apps/PagerankScala.scala) for example.
-
-
-### Differences to the C++ version
-
-Following features are not implemented in the Java-version:
-* dynamic graphs
-* dynamic edge data
-
-GraphChi implements a preprocessing step called "sharding", which reads an input graph and stores it in efficient binary format on the disk (see [Introduction to GraphChi](https://github.com/GraphChi/graphchi-cpp/wiki/Introduction-To-GraphChi) for more information). Java-version now includes its own sharding code (called "FastSharder"), which differs from the C++ version: FastSharder shuffles the order of vertices to guarantee (with high probability) an even distribution of edges over shards. Thus, internally GraphChi's Java-version uses different vertex IDs than in the original graph. 
-
-Translating between the internal ids and original ids is easy using the **VertexIdTranslate** class:
-
-```Java
-         VertexIdTranslate trans = engine.getVertexIdTranslate();
-         for(int i=0; i < engine.numVertices(); i++) {
-              System.out.println("Internal id " + i + " = original id " + trans.backward(i));
-          }
-```
-
-
-### Performance
-
-On a new MacBook Pro (2012), I can run Pagerank on a Twitter-graph with 1.5 B edges (available from http://an.kaist.ac.kr/traces/WWW2010.html/)  in about 10 minutes / iteration.  It is 2-3x slower than the C++ version on an SSD disk.  I expect this performance to be sufficient for many users, especially researchers and analysts who do need real-time performance but favor a convenient programming environment.
-
-
-## Acknowledgements
-
-I want to thank Twitter and particularly the Personalization and Recommendations Team for the my internship during Fall 2012. M
-any of the improvements to mature the GraphChi's Java-version were done during the course of the internship. 
-
-Aapo Kyrola akyrola----at----cs.cmu.edu
-
-
-
-
--- Aapo Kyrola, 
-akyrola@cs.cmu.edu
-
-
-
+To delete your database, just remove the directory containing the database. You need to restart your application as well.

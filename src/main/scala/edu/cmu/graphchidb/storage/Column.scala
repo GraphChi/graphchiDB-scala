@@ -1,18 +1,34 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchidb.storage
 
-import edu.cmu.graphchidb.{Util, GraphChiDatabase, DatabaseIndexing}
+import edu.cmu.graphchidb.{Util, DatabaseIndexing}
 import edu.cmu.graphchidb.storage.ByteConverters._
 
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import java.io._
-import java.sql.DriverManager
-import edu.cmu.graphchi.preprocessing.VertexIdTranslate
-import java.nio.{MappedByteBuffer, LongBuffer, ByteBuffer}
-import scala.Some
-import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
-import java.nio.channels.FileChannel.MapMode
-import java.util.concurrent.locks.ReentrantReadWriteLock
-import scala.collection.mutable.ArrayBuffer
+import java.nio.{ByteBuffer}
+
 
 /**
  *
@@ -39,6 +55,9 @@ trait Column[T] {
     val cur = get(idx)
     set(idx, updateFunc(cur))
   }
+
+  def updateAll(updateFunc: (Long, Option[T]) => T) : Unit
+
   def indexing: DatabaseIndexing
 
   def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit
@@ -46,8 +65,17 @@ trait Column[T] {
   def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit
 
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B
+  def foreach(op: (Long, T) => Unit) : Unit
+
+  def select(op: (Long, T) => Boolean) : Iterator[(Long, T)]
 
   def delete : Unit
+
+  def typeInfo: String = ""
+
+  // Bit ugly
+  def autoFillVertex : Option[(Long) => T]
+  def autoFillEdge : Option[(Long, Long, Byte) => T]
 
 }
 
@@ -56,9 +84,17 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
 
   override def columnId = id
 
+  /* Autofill functions (used mainly for computation) */
+  var autoFillVertexFunc : Option[(Long) => T] = None
+  var autoFillEdgeFunc : Option[(Long, Long, Byte) => T] = None
+  override def autoFillVertex = autoFillVertexFunc
+  override def autoFillEdge = autoFillEdgeFunc
+
   def encode(value: T, out: ByteBuffer) = converter.toBytes(value, out)
   def decode(in: ByteBuffer) = converter.fromBytes(in)
   def elementSize = converter.sizeOf
+
+  override def typeInfo = converter.getClass.getName
 
   def indexing = _indexing
   def blockFilename(shardNum: Int) = filePrefix + "." + shardNum
@@ -68,6 +104,14 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
     shard =>
       if (!sparse) {
         val f = new File(blockFilename(shard))
+
+        if (!_indexing.allowAutoExpansion) {
+          val expectedSize = indexing.shardSize(shard) * converter.sizeOf
+          if (!f.exists() || f.length() < expectedSize) {
+            Util.initializeFile(f, expectedSize.toInt)
+          }
+        }
+
         if (deleteOnExit) f.deleteOnExit()
         new  MemoryMappedDenseByteStorageBlock(f, None,
           converter.sizeOf) with DataBlock[T]
@@ -130,15 +174,53 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
 
   def foldLeft[B](z: B)(op: (B, T, Long) => B): B = {
     (0 until blocks.size).foldLeft(z){ case (cum: B, shardIdx: Int) => blocks(shardIdx).foldLeft(cum)(
-      {
-        case (cum: B, x: T, localIdx: Int) => op(cum, x, indexing.localToGlobal(shardIdx, localIdx))
-      })(converter) }
+    {
+      case (cum: B, x: T, localIdx: Int) => op(cum, x, indexing.localToGlobal(shardIdx, localIdx))
+    })(converter) }
   }
 
+  def foreach(op: (Long, T) => Unit) : Unit = {
+    (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).foreach((localIdx:Long, v: T)
+    => op(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
+  }
+
+  def updateAll(updateFunc: (Long, Option[T]) => T) : Unit = {
+    (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).updateAll((localIdx:Long, v: Option[T])
+    => updateFunc(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
+  }
+
+  def select(cond: (Long, T) => Boolean) : Iterator[(Long, T)]  = {
+
+    // Probably easier ways to do this exist....
+    new Iterator[(Long, T)] {
+      var shardIdx = 0
+
+      def itForShard(s: Int) =  blocks(s).select((localIdx:Long, v: T) =>
+        cond(indexing.localToGlobal(s, localIdx), v))(converter)
+
+      var currentIterator = itForShard(0)
+
+      def hasNext = if (currentIterator.hasNext) { true } else {
+        shardIdx += 1
+        if (shardIdx >= blocks.size) {
+          false
+        } else {
+          currentIterator = itForShard(shardIdx)
+          hasNext
+        }
+      }
+
+      def next() = {
+        val (localIdx, v) = currentIterator.next()
+        (indexing.localToGlobal(shardIdx, localIdx), v)
+      }
+    }
+
+  }
 }
 
 class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing, values: IndexedSeq[String],
-                         deleteOnExit: Boolean = false)
+                        deleteOnExit: Boolean = false)
   extends FileColumn[Byte](id, filePrefix, sparse=false, indexing, ByteByteConverter, deleteOnExit) {
 
   def byteToInt(b: Byte) : Int = if (b < 0) 256 + b  else b
@@ -153,92 +235,3 @@ class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing,
 
 }
 
-
-class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _indexing: DatabaseIndexing,
-                           vertexIdTranslate: VertexIdTranslate) extends Column[T] {
-
-  def encode(value: T, out: ByteBuffer) = throw new UnsupportedOperationException
-  def decode(in: ByteBuffer) = throw new UnsupportedOperationException
-  def elementSize = throw new UnsupportedOperationException
-
-  override def columnId = id
-
-  override  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = throw new UnsupportedOperationException
-
-  def delete = throw new NotImplementedException
-
-
-  // TODO: temporary code
-  val dbConnection = {
-    Class.forName("com.mysql.jdbc.Driver")
-    DriverManager.getConnection("jdbc:mysql://127.0.0.1/graphchidb?" +
-      "user=graphchidb&password=dbchi9999")
-  }
-
-  def get(_idx: Long) = {
-    val idx = vertexIdTranslate.backward(_idx)
-    val pstmt = dbConnection.prepareStatement("select %s from %s where id=?".format(columnName, tableName))
-    try {
-      pstmt.setLong(1, idx)
-      val rs = pstmt.executeQuery()
-      if (rs.next()) Some(rs.getObject(1).asInstanceOf[T]) else None
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-  }
-
-  override def getName(idx: Long) = get(idx).map(a => a.toString).headOption
-
-
-  override def getMany(_idxs: Set[Long]) : Map[Long, Option[T]] = {
-    val idxs = new Array[Long](_idxs.size)
-    _idxs.zipWithIndex.foreach { tp=> { idxs(tp._2) = vertexIdTranslate.backward(tp._1) } }
-
-    val pstmt = dbConnection.prepareStatement("select id, %s from %s where id in (%s)".format(columnName, tableName,
-      idxs.mkString(",")))
-    try {
-      val rs = pstmt.executeQuery()
-
-      new Iterator[(Long, Option[T])] {
-        def hasNext = rs.next()
-        def next() = (vertexIdTranslate.forward(rs.getLong(1)), Some(rs.getObject(2).asInstanceOf[T]))
-      }.toStream.toMap
-
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-
-
-  }
-  def foldLeft[B](z: B)(op: (B, T, Long) => B): B = {
-      throw new NotImplementedException
-  }
-
-
-  def set(_idx: Long, value: T) = {
-    val idx = vertexIdTranslate.backward(_idx)
-    val pstmt = dbConnection.prepareStatement("replace into %s (id, %s) values(?, ?)".format(tableName, columnName))
-    try {
-      pstmt.setLong(1, idx)
-      pstmt.setObject(2, value)
-      pstmt.executeUpdate()
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-  }
-
-  def getByName(name: String) : Option[Long] = {
-    val pstmt = dbConnection.prepareStatement("select id from %s where %s=?".format(tableName, columnName))
-    try {
-      pstmt.setString(1, name)
-      val rs = pstmt.executeQuery()
-      if (rs.next) Some(vertexIdTranslate.forward(rs.getLong(1))) else None
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-  }
-
-  def indexing = _indexing
-
-  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit= throw new NotImplementedException
-}

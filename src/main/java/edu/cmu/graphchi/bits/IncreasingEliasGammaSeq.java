@@ -1,3 +1,25 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchi.bits;
 
 import java.io.ByteArrayOutputStream;
@@ -89,8 +111,6 @@ public class IncreasingEliasGammaSeq {
             throw new RuntimeException(ioe);
         }
 
-        System.out.println("Encoded " + sizeInBytes() + " bytes vs. " + original.length * 8);
-        System.out.println("Index size: " + (indexValues.length * 8 + indexBitIdx.length * 4) + " bytes");
     }
 
     public long get(int idx) {
@@ -146,6 +166,11 @@ public class IncreasingEliasGammaSeq {
 
     // TODO: potential bug: there can be extra zero-bits in the end
     public int getIndex(long value) {
+       return getIndex(value, false);
+    }
+
+
+        public int getIndex(long value, boolean returnNext) {
         int indexIdx = Arrays.binarySearch(indexValues, value);
         if (indexIdx < 0) {
             indexIdx = -(indexIdx + 1) - 1;
@@ -205,7 +230,7 @@ public class IncreasingEliasGammaSeq {
             cumulant += delta;
         }
 
-        if (cumulant > value) return -1;
+        if (cumulant > value && !returnNext) return -1;
 
         return curidx;
     }
@@ -320,7 +345,7 @@ public class IncreasingEliasGammaSeq {
                 if (bitOffset == 8 ) {
                     bitOffset = 0;
                     currentByteIdx++;
-                    if (currentByteIdx <= bits.length - 1) {
+                    if (currentByteIdx < bits.length) {
                         currentByte = bits[currentByteIdx];
                     }
                 }
@@ -407,7 +432,7 @@ public class IncreasingEliasGammaSeq {
                         if (bitOffset == 8 ) {
                             bitOffset = 0;
                             currentByteIdx++;
-                            if (currentByteIdx < bits.length - 1) {
+                            if (currentByteIdx  < bits.length) {
                                 currentByte = bits[currentByteIdx];
                             }
                         }
@@ -429,21 +454,54 @@ public class IncreasingEliasGammaSeq {
         };
     }
 
-    public Iterator<Long> iterator() {
+    // This code is becoming horrible...
+    public Iterator<Long> iterator(final long start) {
+        if (start == 0) {
+            return iterator();
+        }
+
+        int indexIdx = Arrays.binarySearch(indexValues, start);
+        if (indexIdx < 0) indexIdx = -(indexIdx + 1) - 1;
+
+        final int _indexIdx = indexIdx;
+
         return new Iterator<Long>() {
-            int j = 0;
-            long cumulant = (-1);
-            int bitOffset = 0;
-            byte currentByte = (bits.length > 0 ? bits[0] : 0);
-            int currentByteIdx = 0;
+
+            int newIdx = _indexIdx * indexInterval;
+            int bitIdx = indexBitIdx[_indexIdx];
+            long cumulant = indexValues[_indexIdx];
+
+            int currentByteIdx = bitIdx / 8;
+            int bitOffset = bitIdx % 8;
+            byte currentByte = bits[currentByteIdx];
+            int j = newIdx;
+            boolean first = true;
+
 
             @Override
             public boolean hasNext() {
-                return j < length - 1;
+                return j <= length - 1;
             }
 
             @Override
             public Long next() {
+                if (first) j++; // hack
+
+                if (first && cumulant == start) {
+                    first = false;
+                    return start;
+                }
+                first = false;
+
+                // Prefix
+                long x;
+                do {
+                    x = _next();
+                } while (x < start);
+                return x;
+            }
+
+            public Long _next() {
                  /* Prefix */
                 boolean bit = false;
                 int zeros = (-1);
@@ -454,7 +512,7 @@ public class IncreasingEliasGammaSeq {
                     if (bitOffset == 8 ) {
                         bitOffset = 0;
                         currentByteIdx++;
-                        currentByte = bits[currentByteIdx];
+                        if (currentByteIdx  < bits.length) currentByte = bits[currentByteIdx];
                     }
                     zeros++;
                 } while(!bit);
@@ -469,7 +527,7 @@ public class IncreasingEliasGammaSeq {
                     if (bitOffset == 8 ) {
                         bitOffset = 0;
                         currentByteIdx++;
-                        if (currentByteIdx < bits.length - 1) {
+                        if (currentByteIdx  < bits.length) {
                             currentByte = bits[currentByteIdx];
                         }
                     }
@@ -489,6 +547,69 @@ public class IncreasingEliasGammaSeq {
             }
         };
     }
+
+    public Iterator<Long> iterator() {
+        return new Iterator<Long>() {
+            int j = 0;
+            long cumulant = (-1);
+            int bitOffset = 0;
+            byte currentByte = (bits.length > 0 ? bits[0] : 0);
+            int currentByteIdx = 0;
+
+            @Override
+            public boolean hasNext() {
+                return j <= length - 1;
+            }
+
+            @Override
+            public Long next() {
+                 /* Prefix */
+                boolean bit;
+                int zeros = (-1);
+                do {
+                    bitOffset ++;
+                    byte mask = (byte) (1 << (8-bitOffset));
+                    bit = (currentByte & mask) != 0;
+                    if (bitOffset == 8 ) {
+                        bitOffset = 0;
+                        currentByteIdx++;
+                        if (currentByteIdx < bits.length) currentByte = bits[currentByteIdx];
+                    }
+                    zeros++;
+                } while(!bit);
+
+            /* Bits */
+                int delta = (1 << zeros);
+                while(zeros > 0) {
+                    zeros--;
+                    bitOffset ++;
+                    byte mask = (byte) (1 << (8-bitOffset));
+                    bit = (currentByte & mask) != 0;
+                    if (bitOffset == 8 ) {
+                        bitOffset = 0;
+                        currentByteIdx++;
+                        if (currentByteIdx < bits.length) {
+                            currentByte = bits[currentByteIdx];
+                        }
+                    }
+                    if (bit) {
+                        delta = delta | (1 << zeros);
+                    }
+                }
+
+                cumulant += delta;
+                j++;
+                return cumulant;
+            }
+
+            @Override
+            public void remove() {
+                throw new UnsupportedOperationException();
+            }
+        };
+    }
+
+
 
     public int length() {
         return length;

@@ -1,15 +1,37 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
+
 package edu.cmu.graphchidb
 
 import edu.cmu.graphchi.{GraphChiEnvironment, ChiFilenames, VertexInterval}
-import edu.cmu.graphchi.preprocessing.{EdgeProcessor, VertexProcessor, FastSharder, VertexIdTranslate}
-import java.io.{IOException, FileOutputStream, File}
+import edu.cmu.graphchi.preprocessing.{FastSharder, VertexIdTranslate}
+import java.io.{FilenameFilter, IOException, FileOutputStream, File}
 
 import scala.collection.JavaConversions._
 import edu.cmu.graphchidb.storage._
 import edu.cmu.graphchi.queries.{FinishQueryException, QueryCallback}
 import edu.cmu.graphchidb.Util.async
 import java.nio.{BufferUnderflowException, ByteBuffer}
-import edu.cmu.graphchi.datablocks.{BytesToValueConverter, BooleanConverter}
 import edu.cmu.graphchidb.queries.QueryResult
 import java.{util, lang}
 import edu.cmu.graphchidb.queries.internal.QueryResultContainer
@@ -21,23 +43,41 @@ import java.text.SimpleDateFormat
 import java.util.concurrent.locks.{Lock, ReadWriteLock}
 import scala.actors.threadpool.locks.ReentrantReadWriteLock
 import edu.cmu.graphchi.util.Sorting
-import edu.cmu.graphchidb.compute.Computation
+import edu.cmu.graphchidb.compute._
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import edu.cmu.graphchidb.storage.VarDataColumn
-
-
-// TODO: refactor: separate database creation and definition from the graphchidatabase class
-
+import com.typesafe.config.{ConfigFactory, Config}
+import scala.Some
+import scala.util.control.Breaks._
+import scala.collection.mutable.ArrayBuffer
 
 object GraphChiDatabaseAdmin {
 
-  def createDatabase(baseFilename: String, numShards:Int = 256, maxId: Long = 1L<<33) : Boolean= {
+  def createDatabase(baseFilename: String, numShards:Int = 256,
+                     maxId: Long = 1L<<33,
+                     replaceExistingFiles:Boolean=false) : Boolean= {
+    val graphName = new File(baseFilename).getName
+    val directory = new File(baseFilename).getParentFile
+    if (!directory.exists()) directory.mkdir()
 
-    // Temporary code!
-    FastSharder.createEmptyGraph(baseFilename, numShards, maxId)
-    true
+    if (!replaceExistingFiles && directory.listFiles(new FilenameFilter {
+      def accept(dir: File, name: String) = name.contains(graphName)
+    }).length > 0) {
+      throw new IllegalStateException("Database already exists in directory: " + directory)
+    } else {
+      FastSharder.createEmptyGraph(baseFilename, numShards, maxId)
+      true
+    }
   }
 
+  def createDatabaseIfNotExists(baseFilename: String, numShards:Int = 256,
+                                maxId: Long = 1L<<33) : Boolean= {
+    try {
+      createDatabase(baseFilename, numShards, maxId, replaceExistingFiles=false)
+    } catch {
+      case ise: IllegalStateException => {true}
+    }
+  }
 
 }
 
@@ -46,8 +86,21 @@ object GraphChiDatabaseAdmin {
  * Defines a sharded graphchi database.
  * @author Aapo Kyrola
  */
-class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disableDegree : Boolean = false,
-                       enableVertexShardBits : Boolean=true, numShards: Int = 256) {
+class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
+                       numShards: Int = 256) {
+
+
+  lazy val config = ConfigFactory.parseFileAnySyntax(new File("conf/graphchidb.conf"))
+
+  val bufferLimit = config.getLong("graphchidb.max_buffered_edges")
+
+  /* Optimization that is largely redundant nowadays.. */
+  val enableVertexShardBits  = false
+
+  println("Initializing GraphChi-DB. Copyright Aapo Kyrola, Carnegie Mellon University, 2014.")
+  println("Edge buffer limit: " + bufferLimit)
+
+
   // Create a tree of shards... think about more elegant way
   val shardSizes = {
     def appendIf(szs:List[Int]) : List[Int] = if (szs.head > 16) appendIf(szs.head / 4 :: szs) else szs
@@ -137,7 +190,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val maxSizeInBytes = 256 * 1024L * 1024L // todo, remove hard coding
     maxSizeInBytes / (8 + edgeEncoderDecoder.edgeSize)
   }
-  val durableTransactionLog = System.getProperty("durabletransactions", "0").equals("1")
+
+  val durableTransactionLog = config.getBoolean("graphchidb.durabletransactions")
 
 
   sealed abstract class Shard
@@ -154,12 +208,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
     var persistentShard = {
       try {
-        new QueryShard(baseFilename, shardId, numShards, myInterval)
+        new QueryShard(baseFilename, shardId, numShards, myInterval, config)
       } catch {
         case ioe: IOException => {
           // TODO: improve
           FastSharder.createEmptyShard(baseFilename, numShards, shardId)
-          new QueryShard(baseFilename, shardId, numShards, myInterval)
+          new QueryShard(baseFilename, shardId, numShards, myInterval, config)
         }
       }
     }
@@ -167,7 +221,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     def numEdges = persistentShard.getNumEdges
 
     def reset() : Unit = {
-      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval)
+      persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval,  config)
     }
 
 
@@ -248,11 +302,11 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           destShard.checkSize()
 
           while(!destShard.mergeInProgress.compareAndSet(false, true)) {
-            println("Waiting for parent shard to merge....")
+            log("Waiting for parent shard to merge....")
             Thread.sleep(200)
           }
 
-          println("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
+          log("Upstream merge %d ==> %d thread:%s".format(shardId, destShard.shardId, Thread.currentThread().getName))
 
 
           val myEdges = readIntoBuffer(destShard.myInterval)
@@ -420,8 +474,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           trEdgeEncoder.encode(trBuffer, values:_*)
           transactionLogOut.write(trBuffer.array())
         }
-      } catch {
-        case e: Exception => e.printStackTrace()
       } finally {
         bufferLock.readLock().unlock()
       }
@@ -542,7 +594,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
         val edgeSize = edgeEncoderDecoder.edgeSize
 
-        println("Buffer %d starting merge %s".format(bufferShardId, Thread.currentThread().getName))
+        log("Buffer %d starting merge %s".format(bufferShardId, Thread.currentThread().getName))
 
         timed("mergeToAndClear %d".format(bufferShardId), {
           bufferLock.writeLock().lock()
@@ -609,7 +661,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                   invokePurgeListeners()
 
                   while(!destShard.mergeInProgress.compareAndSet(false, true)) {
-                    println("Buffer: waiting for parent to merge... (%d) %s".format(destShard.shardId, Thread.currentThread().getName))
                     Thread.sleep(200)
                   }
 
@@ -639,8 +690,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
                   log("Merging buffer %d -> %d (%d buffered edges, %d from old)".format(bufferShardId, destShard.shardId,
                     myEdges.numEdges, destEdges.numEdges))
-                  println("Merging buffer %d -> %d (%d buffered edges, %d from old, thread: %s)".format(bufferShardId, destShard.shardId,
-                    myEdges.numEdges, destEdges.numEdges, Thread.currentThread().getName))
 
                   // Write shard
                   timed("buffermerge-writeshard", {
@@ -669,8 +718,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
                   destShard.mergeInProgress.compareAndSet(true, false)
                   log("Remove from oldBuffers: %d/%d %s".format(bufferShardId, parentIdx, parentIntervals(parentIdx)))
                   // Remove the edges from the buffer since they are now assumed to be in the persistent shard
-                  println("Finished Merging buffer %d -> %d  thread: %s)".format(bufferShardId, destShard.shardId,
-                    Thread.currentThread().getName))
                   oldBufferLock.synchronized {
                     oldBuffers = oldBuffers.patch(parentIdx, IndexedSeq(intervals.map(interval => EdgeBufferAndInterval(new EdgeBuffer(edgeEncoderDecoder,
                       bufferId=edgeBufferId(bufferShardId, parentIdx, interval.getId)), interval))), 1)
@@ -699,15 +746,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
 
         myAssert(oldBuffers.size == buffers.size)
 
-        if (oldBuffers.map(_.map(_.buffer.numEdges).sum).sum != 0) {
-          println("Old buffers still have %d edges".format(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum))
-        }
-
         myAssert(oldBuffers.map(_.map(_.buffer.numEdges).sum).sum == 0)
       }
-      /* Check if upstream shards too big - not in parallel to limit memory consumption */
-      println("Buffer %d finished merge %s".format(bufferShardId, Thread.currentThread().getName))
-
     }
 
   }
@@ -761,8 +801,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def checkBuffersAndParents(): Unit = {
+    if (totalBufferedEdges < 0.4 * bufferLimit) {
+      return
+    }
+
     for(i <- 1 to 5) { // Hack
-      val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
+    val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
       val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
       if (nonPendings.nonEmpty) {
         val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
@@ -779,12 +823,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           case e : Exception => e.printStackTrace()
         }
       } else {
-        println("No buffers to merge ... check disk shards")
 
         val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
         if (!shardsAndSizesToMerge.isEmpty) {
           val shardToMerge = shardsAndSizesToMerge.head._2
-          println("Found shard with over 75perc capacity -- will merge: shard=%d / %d edges".format(shardToMerge.shardId, shardToMerge.numEdges))
           shardToMerge.mergeToParents()
         }
 
@@ -796,7 +838,19 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   var databaseOpen : Boolean = true
   var buffersEmpty: Boolean = true
 
+  var autoFilledEdgeColumns : Seq[Column[Any]]  = Seq()
+  var autoFilledVertexColumns: Seq[Column[Any]] = Seq()
+
+  def autoFillEdgeValues = (src: Long, dst: Long, edgeType: Byte) => autoFilledEdgeColumns.map(_.autoFillEdge.get(src, dst, edgeType))
+
   def initialize() : Unit = {
+    // Sort columns so that auto-filled columns are last
+    columns(edgeIndexing) = columns(edgeIndexing).filter(_._2.autoFillEdge.isEmpty) ++ columns(edgeIndexing).filter(_._2.autoFillEdge.isDefined)
+
+    // Auto filled columns
+    autoFilledEdgeColumns = columns(edgeIndexing).filter(_._2.autoFillEdge.isDefined).map(_._2)
+    autoFilledVertexColumns = columns(vertexIndexing).filter(_._2.autoFillVertex.isDefined).map(_._2)
+
     bufferShards.foreach(_.init())
 
     // Add shutdown hook
@@ -829,6 +883,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     })
     flusherThread.setDaemon(true)
     flusherThread.start()
+
   }
 
   def close() = {
@@ -885,6 +940,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   /* Columns */
   def createCategoricalColumn(name: String, values: IndexedSeq[String], indexing: DatabaseIndexing,
                               temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
     this.synchronized {
       val col =  new CategoricalColumn(columns(indexing).size, filePrefix=baseFilename + "_COLUMN_cat_" + indexing.name + "_" + name.toLowerCase,
         indexing, values, deleteOnExit = temporary)
@@ -895,6 +951,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def createFloatColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Float](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_float_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.FloatByteConverter, deleteOnExit = temporary)
@@ -904,6 +962,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def createIntegerColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Int](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_int_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.IntByteConverter, deleteOnExit = temporary)
@@ -913,6 +973,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def createShortColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Short](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_short_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.ShortByteConverter, deleteOnExit = temporary)
@@ -922,6 +984,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def createByteColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Byte](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_byte_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.ByteByteConverter, deleteOnExit = temporary)
@@ -931,6 +995,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def createLongColumn(name: String, indexing: DatabaseIndexing, temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[Long](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_long_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter = ByteConverters.LongByteConverter, deleteOnExit = temporary)
@@ -940,6 +1006,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   def createCustomTypeColumn[T](name: String, indexing: DatabaseIndexing, converter: ByteConverter[T], temporary: Boolean=false) = {
+    if (initialized && indexing.name == "edge") throw new IllegalStateException("Cannot add edge columns after initialization")
+
     this.synchronized {
       val col = new FileColumn[T](columns(indexing).size, filePrefix=baseFilename + "_COLUMN_custom" + converter.sizeOf + "_" +  indexing.name + "_" + name.toLowerCase,
         sparse=false, _indexing=indexing, converter=converter, deleteOnExit = temporary)
@@ -956,11 +1024,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
-  def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
-    val col = new MySQLBackedColumn[String](columns(indexing).size, tableName, columnName, indexing, vertexIdTranslate)
-    columns(indexing) = columns(indexing) :+ (tableName + "." + columnName, col.asInstanceOf[Column[Any]])
-    col
-  }
 
   def column(name: String, indexing: DatabaseIndexing) = {
     val col = columns(indexing).find(_._1 == name)
@@ -971,7 +1034,9 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
-
+  def columnT[T](name: String, indexing: DatabaseIndexing) = {
+    column(name, indexing).asInstanceOf[Option[Column[T]]]
+  }
 
   /* Adding edges */
   // TODO: bulk version
@@ -987,7 +1052,12 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def totalBufferedEdges = bufferShards.map(_.numEdgesInclDeletions).sum
 
 
-  def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
+  private def autoFillVertexValue(vertexId: Long) = {
+    autoFilledVertexColumns.foreach(c => c.set(vertexId, c.autoFillVertex.get(vertexId)))
+  }
+
+
+  private def addEdge(edgeType: Byte, src: Long, dst: Long, values: Any*) : Unit = {
     if (!initialized) throw new IllegalStateException("You need to initialize first!")
 
     if ((edgeType & 0xf0) != 0) {
@@ -1001,8 +1071,20 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       updateVertexRecords(src)
       updateVertexRecords(dst)
 
+
+      if (autoFilledVertexColumns.nonEmpty) {
+        // Check if vertex was just added
+        if (inDegree(dst) + outDegree(dst) == 0) {
+          autoFillVertexValue(dst)
+        }
+        if (inDegree(src) + outDegree(src) == 0) {
+          autoFillVertexValue(src)
+        }
+      }
+
       incrementInDegree(dst)
       incrementOutDegree(src)
+
 
       if (enableVertexShardBits) {
         val curBits = shardBitsCol.get(src).getOrElse(0L)
@@ -1012,7 +1094,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
         }
       }
 
-      bufferForEdge(src, dst).addEdge(edgeType, src, dst, values:_*)
+      bufferForEdge(src, dst).addEdge(edgeType, src, dst,  values ++ autoFillEdgeValues(src, dst, edgeType) :_*)
     }
 
     /* Buffer flushing. TODO: make smarter. */
@@ -1035,9 +1117,17 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     this.bufferDrainLock.synchronized{
       bufferShards.foreach(bufferShard => bufferShard.mergeToParentsAndClear())
     }
+    invokePurgeListeners()
+
   }
 
-
+  /**
+   *  Add edge to the database using the original edge IDs
+   * @param edgeType
+   * @param src
+   * @param dst
+   * @param values
+   */
   def addEdgeOrigId(edgeType: Byte, src:Long, dst:Long, values: Any*) {
     addEdge(edgeType, originalToInternalId(src), originalToInternalId(dst), values:_*)
   }
@@ -1197,6 +1287,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   def deleteVertexOrigId(vertexId: Long): Boolean = { deleteVertex(originalToInternalId(vertexId)) }
 
 
+  def setVertexColumnValueOrigId[T](vertexId: Long, col: Column[T], newVal: T) = {
+    updateVertexRecords(vertexId)
+    col.set(originalToInternalId(vertexId), newVal)
+  }
+
+  def getVertexColumnValueOrigId[T](vertexId: Long, col: Column[T]) : Option[T] = col.get(originalToInternalId(vertexId))
+
+
   def setByPointer[T](column: Column[T], ptr: Long, value: T) = {
     if (PointerUtil.isBufferPointer(ptr)) {
       val bufferId = PointerUtil.decodeBufferNum(ptr)
@@ -1268,7 +1366,6 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     val bufferResults = bufferPointers.map(ptr => {
       ptr -> getByPointer(column, ptr, buf)
     }).toMap
-    println("Retrieved %d buffer results, %d persistent", bufferPointers.size, persistentPointers.size)
     persistentResults ++ bufferResults
   }
 
@@ -1530,9 +1627,23 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       def encode(out: ByteBuffer, values: Any*) = {
         if (values.size != idxRange.size)
           throw new IllegalArgumentException("Number of inputs must match the encoder configuration: %d != given %d".format(idxRange.size, values.size))
-        idxRange.foreach(i => {
-          encoderSeq(i)(values(i), out)
-        })
+        try {
+          idxRange.foreach(i => {
+            encoderSeq(i)(values(i), out)
+          })
+        } catch {
+          case e:Exception => {
+            System.err.println("---------------------------")
+            System.err.println("Error encoding edge values to bytes. You need to provide edge values in the same order as they we given:")
+            columns(edgeIndexing).zipWithIndex.foreach {
+              case (colSpec:(String, Column[Any]), i:Int) => {
+                System.err.println("  Column [" + i + "]: " + colSpec._1  + " (expected " + columnLengths(i) +
+                  " byte-value, converter " + colSpec._2.typeInfo + ", was given [" + values(i) + "])")
+              }}
+            System.err.println("---------------------------")
+            throw e
+          }
+        }
         _edgeSize
       }
 
@@ -1557,6 +1668,8 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       def columnLength(columnIdx: Int) = columnLengths(columnIdx)
     }
   }
+
+
 
 
   /* Degree management. Hi bytes = in-degree, lo bytes = out-degree */
@@ -1637,7 +1750,13 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
       case `edgeIndexing` => {
         buffer match {
           case None => col.get(PointerUtil.encodePointer(shardId, idx))
-          case Some(buf) => throw new NotImplementedException
+          case Some(buffer) => {
+            // TODO: make more efficient
+            val buf = ByteBuffer.allocate(edgeEncoderDecoder.edgeSize)
+            buffer.readEdgeIntoBuffer(idx, buf)
+            val vals = edgeEncoderDecoder.decode(buf, -1, -1)
+            Some(vals.values(col.columnId).asInstanceOf[T1])
+          }
         }
       }
       case _ => throw new UnsupportedOperationException
@@ -1645,24 +1764,21 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
   }
 
   /** Computational functionality **/
-  def sweepInEdgesWithJoin[T1, T2](intervalId: Int, maxVertex: Long, col1: Column[T1], col2: Column[T2])(updateFunc: (Long, Long, Byte, T1, T2) => Unit) = {
-    val interval = intervals(intervalId)
+  def sweepInEdgesWithJoin[T1, T2](interval: VertexInterval, maxVertex: Long, col1: Column[T1], col2: Column[T2])(updateFunc: (Long, Long, Byte, T1, T2) => Unit) = {
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
 
     shardsToSweep.foreach(shard => {
       shard.persistentShardLock.readLock().lock()
       try {
         val edgeIterator = shard.persistentShard.edgeIterator()
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst) && dst <= maxVertex) {
-            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, shard.shardId)
-            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, shard.shardId)
+            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, shard.shardId)
+            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, edgeIterator.getIdx, shard.shardId)
             updateFunc(src, dst, edgeIterator.getType, v1, v2)
           }
-          idx += 1
         }
       } finally {
         shard.persistentShardLock.readLock().unlock()
@@ -1674,16 +1790,14 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     try {
       bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
         val edgeIterator = buf.buffer.edgeIterator
-        var idx = 0
         while(edgeIterator.hasNext) {
           edgeIterator.next()
           val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
           if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
-          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
-            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, idx, buffer=Some(buf.buffer))
+          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, buffer=Some(buf.buffer))
+            val v2 : T2 = joinValue[T2](col2,  edgeIterator.getSrc, edgeIterator.getIdx, buffer=Some(buf.buffer))
             updateFunc(src, dst, edgeIterator.getType, v1, v2)
           }
-          idx += 1
         }
       })
     } finally {
@@ -1691,6 +1805,132 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
+  def sweepInEdgesWithJoin[T1](col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) : Unit = {
+    intervals.foreach(interval => sweepInEdgesWithJoin(interval, interval.getLastVertex, col1)(updateFunc))
+  }
+
+  def sweepInEdgesWithJoin[T1](interval: VertexInterval, maxVertex: Long, col1: Column[T1])(updateFunc: (Long, Long, Byte, T1) => Unit) : Unit = {
+    val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
+
+    shardsToSweep.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
+        val edgeIterator = shard.persistentShard.edgeIterator()
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst) && dst <= maxVertex) {
+            val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, shard.shardId)
+            updateFunc(src, dst, edgeIterator.getType, v1)
+          }
+        }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
+
+    val bufferToSweep = bufferShards.find(_.myInterval.intersects(interval)).get
+    bufferToSweep.bufferLock.readLock().lock()
+    try {
+      bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
+        val edgeIterator = buf.buffer.edgeIterator
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
+          val v1 : T1 = joinValue[T1](col1,  edgeIterator.getSrc, edgeIterator.getIdx, buffer=Some(buf.buffer))
+            updateFunc(src, dst, edgeIterator.getType, v1)
+          }
+        }
+      })
+    } finally {
+      bufferToSweep.bufferLock.readLock().unlock()
+    }
+  }
+
+  def sweepInEdgesWithJoinPtr[T1](interval: VertexInterval, maxVertex: Long, col1: Option[Column[T1]])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
+    val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
+
+    shardsToSweep.foreach(shard => {
+      shard.persistentShardLock.readLock().lock()
+      try {
+        val edgeIterator = shard.persistentShard.edgeIterator()
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst) && dst <= maxVertex) {
+            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, edgeIterator.getIdx))
+          }
+        }
+      } finally {
+        shard.persistentShardLock.readLock().unlock()
+      }
+    })
+
+    val bufferToSweep = bufferShards.find(_.myInterval.intersects(interval)).get
+    bufferToSweep.bufferLock.readLock().lock()
+    try {
+      bufferToSweep.buffersForDstQuery(interval.getFirstVertex).foreach(buf => {
+        val edgeIterator = buf.buffer.edgeIterator
+        while(edgeIterator.hasNext) {
+          edgeIterator.next()
+          val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+          if (interval.contains(dst)  && dst <= maxVertex) {  // The latter comparison is bit awkward
+            updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, edgeIterator.getIdx))
+          }
+        }
+      })
+    } finally {
+      bufferToSweep.bufferLock.readLock().unlock()
+    }
+  }
+
+  // Sliding windows
+  def sweepOutEdgesWithJoinPtr[T1](interval: VertexInterval, col1: Option[Column[T1]])(updateFunc: (Long, Long, Byte, Long) => Unit) = {
+    val shardsToSweep = shards
+    shardsToSweep.foreach(shard => {
+      try {
+        shard.persistentShardLock.readLock().lock()
+        try {
+          val edgeIterator = shard.persistentShard.edgeIterator(interval.getFirstVertex)
+          var finished = false
+          while(edgeIterator.hasNext && !finished) {
+            edgeIterator.next()
+            val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+            if (src <= interval.getLastVertex) {
+              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodePointer(shard.shardId, edgeIterator.getIdx()))
+            } else {
+              finished = true
+            }
+          }
+        } catch {
+          case err : Exception => err.printStackTrace()
+        } finally {
+          shard.persistentShardLock.readLock().unlock()
+        }
+      } catch {
+        case err : Exception => err.printStackTrace()
+      }
+    })
+
+    bufferShards.par.foreach(bufferToSweep => {
+      bufferToSweep.bufferLock.readLock().lock()
+      try {
+        (bufferToSweep.buffers ++ bufferToSweep.oldBuffers).flatten.filter(_.interval.intersects(interval)).foreach(buf => {
+          val edgeIterator = buf.buffer.edgeIterator
+          while(edgeIterator.hasNext) {
+            edgeIterator.next()
+            val (src, dst) = (edgeIterator.getSrc, edgeIterator.getDst)
+            if (interval.contains(src)) {
+              updateFunc(src, dst, edgeIterator.getType, PointerUtil.encodeBufferPointer(buf.buffer.bufferId, edgeIterator.getIdx))
+            }
+          }
+        })
+      } finally {
+        bufferToSweep.bufferLock.readLock().unlock()
+      }
+    })
+  }
 
   def sweepAllEdges( )(updateFunc: (Long, Long, Byte) => Unit) = {
     val shardsToSweep = shards
@@ -1729,8 +1969,10 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     })
   }
 
-  def sweepInEdges(intervalId: Int, maxVertex: Long)(updateFunc: (Long, Long, Byte) => Unit) = {
-    val interval = intervals(intervalId)
+
+
+
+  def sweepInEdges(interval: VertexInterval, maxVertex: Long)(updateFunc: (Long, Long, Byte) => Unit) = {
     val shardsToSweep = shards.filter(shard => shard.myInterval.intersects(interval))
 
     shardsToSweep.foreach(shard => {
@@ -1771,6 +2013,117 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
     }
   }
 
+  /* Runs vertex-centric computation, similar to GraphChi */
+  def runGraphChiComputation[VT, ET](algo: VertexCentricComputation[VT, ET],
+                                     numIterations: Int, enableScheduler:Boolean=false) :Unit = {
+
+    val vertexDataColumn = algo.vertexDataColumn
+    val edgeDataColumn = algo.edgeDataColumn
+
+    var scheduler = if (enableScheduler) { new BitSetScheduler(vertexIndexing) } else { new Scheduler() {} }
+    scheduler.addTaskToAll()
+
+    breakable { for(iter <- 0 until numIterations) {
+      val ctx = new GraphChiContext(iter, numIterations, scheduler)
+
+      /* Get main intervals */
+      val execIntervals = (0 until vertexIndexing.nShards).map(i => {
+        val first = vertexIndexing.localToGlobal(i, 0)
+        val last = intervalMaxVertexId(i)
+        (first, last)
+      })
+
+      // TODO: locking!
+
+      /* Maximum edges a time */
+      val maxEdgesPerInterval = config.getLong("graphchi_computation.max_edges_interval")
+
+      algo.beforeIteration(ctx)
+
+      execIntervals.foreach{ case (intervalSt: Long, intervalEn: Long) => {
+        var subIntervalSt = intervalSt
+
+        while (subIntervalSt < intervalEn) {
+          var subIntervalEn = subIntervalSt - 1
+          var intervalEdges = 0L
+
+          val vertices = new ArrayBuffer[GraphChiVertex[VT, ET]](100000)
+
+          /* Initialize vertices */
+          while(intervalEdges < maxEdgesPerInterval && subIntervalEn < intervalEn) {
+
+            // TODO: make work better with very sparsely spaced vertex IDs
+            subIntervalEn += 1
+            if (subIntervalEn % 100000 == 0) {
+              println("%d / %d edges: intervalEdges %d".format(subIntervalEn, intervalEn, intervalEdges))
+            }
+
+            if (scheduler.isScheduled(subIntervalEn)) {
+              val (inc, outc) = (inDegree(subIntervalEn), outDegree(subIntervalEn))
+              intervalEdges += inc + outc
+              vertices.append(new GraphChiVertex[VT, ET](subIntervalEn, this, vertexDataColumn, edgeDataColumn, inc, outc
+              ))
+            } else {
+              vertices.append(null)
+            }
+          }
+
+          /* Load edges (parallel sliding windows) */
+          // 1. In-edges
+          this.bufferDrainLock.synchronized {
+            this.sweepInEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), subIntervalEn, edgeDataColumn
+            ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
+              val v = vertices((dst - subIntervalSt).toInt)
+              try {
+                if (v != null) { v.addInEdge(src, dataPtr)}
+              } catch {
+                case e:Exception => e.printStackTrace()
+              }
+            }
+            )
+
+            // 2. Out-edges (parallel)
+            this.sweepOutEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), edgeDataColumn
+            ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
+              try {
+
+                val v = vertices((src - subIntervalSt).toInt)
+                if (v != null) { v.addOutEdge(dst, dataPtr) }
+              } catch {
+                case e:Exception => e.printStackTrace()
+              }
+            })
+
+
+            /* Execute update functions -- not parallel now */
+            if (algo.isParallel) {
+              println("Update subinterval (parallel) " + subIntervalSt + " -- " + subIntervalEn)
+              vertices.par.foreach( v => if (v != null) { algo.update(v, ctx) } )
+            } else {
+              println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
+              vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
+            }
+            println("Done...")
+          } // end synchronized
+          subIntervalSt = subIntervalEn + 1
+        }
+      }
+      }
+
+      algo.afterIteration(ctx)
+
+
+      if (scheduler.hasNewTasks || !enableScheduler) {
+        scheduler = scheduler.swap
+      } else {
+        println("No new tasks")
+        break
+      }
+
+    } }
+  }
+
+
   var activeComputations = Set[Computation]()
 
   def runIteration(computation: Computation, continuous: Boolean = false) = {
@@ -1784,7 +2137,7 @@ class GraphChiDatabase(baseFilename: String,  bufferLimit : Int = 10000000, disa
           do {
             timed("runiteration_%s_%d".format(computation, iter), {
               intervals.foreach(int => {
-                computation.computeForInterval(int.getId, int.getFirstVertex, intervalMaxVertexId(int.getId))
+                computation.computeForInterval(int, int.getFirstVertex, intervalMaxVertexId(int.getId))
               } )
             })
             iter += 1

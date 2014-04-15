@@ -20,33 +20,31 @@
  *
  * Publication to cite:  http://arxiv.org/abs/1403.0701
  */
-package edu.cmu.graphchi.shards;
+package edu.cmu.graphchi.util;
 
-import edu.cmu.graphchi.shards.PointerUtil;
-import org.junit.Test;
-
-import java.util.Random;
+import org.testng.annotations.Test;
 
 import static org.junit.Assert.assertEquals;
 
 /**
  * @author Aapo Kyrola
  */
-public class TestPointerUtil {
+public class TestStringToIdMap {
 
     @Test
-    public void testEncodingDecoding() {
-        int shardNum = 49;
-        int shardPos = 29193134;
+    public void testStringToIdMapBasics() {
+        StringToIdMap testMap = new StringToIdMap(128);
 
-        Random r = new Random(260379);
-        for(int i=0; i<1000; i++) {
-            long pointer = PointerUtil.encodePointer(shardNum, shardPos);
-            assertEquals(shardNum, PointerUtil.decodeShardNum(pointer));
-            assertEquals(shardPos, PointerUtil.decodeShardPos(pointer));
-
-            shardNum = Math.abs(r.nextInt() % 1024);
-            shardPos = Math.abs(r.nextInt());
+        for(int i=1000000; i<1000300; i++) {
+            testMap.put("id" + i, i);
         }
+        testMap.compute();
+
+        for(int i=1000000; i<1000300; i++) {
+            assertEquals(i, testMap.getId("id" + i));
+        }
+
+        assertEquals(-1, testMap.getId("huuhaa"));
+
     }
 }

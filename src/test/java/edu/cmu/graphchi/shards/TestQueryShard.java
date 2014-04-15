@@ -1,9 +1,35 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchi.shards;
 
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
 import edu.cmu.graphchi.VertexInterval;
 import edu.cmu.graphchi.preprocessing.FastSharder;
 import edu.cmu.graphchi.preprocessing.VertexIdTranslate;
 import org.junit.Test;
+
+import java.io.File;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -15,7 +41,7 @@ import static org.junit.Assert.assertTrue;
 public class TestQueryShard {
 
     @Test
-    public void testEdgeIterator() throws Exception  {
+    public void testEdgeIteratorSmall() throws Exception  {
         String baseFilename = "/tmp/testshard";
 
         long[] srcs = new long[]{100, 99, 98, 97, 10, 0};
@@ -26,7 +52,9 @@ public class TestQueryShard {
 
         FastSharder.writeAdjacencyShard(baseFilename, 0, 1, 1, srcs, dsts, new byte[srcs.length], 0, 101, false, null);
 
-        QueryShard shards = new QueryShard(baseFilename, 0, 1, new VertexInterval(0, 101, 0));
+        Config cnf = ConfigFactory.parseFile(new File("conf/graphchidb.conf"));
+
+        QueryShard shards = new QueryShard(baseFilename, 0, 1, new VertexInterval(0, 101, 0), cnf);
 
         EdgeIterator iter = shards.edgeIterator();
 
@@ -55,5 +83,58 @@ public class TestQueryShard {
         assertEquals(100, iter.getSrc());
         assertEquals(1, iter.getDst());
         assertFalse(iter.hasNext());
+    }
+
+    @Test
+    public void testEdgeIterator() throws Exception {
+        String baseFilename = "/tmp/testshard";
+
+        long[] srcs = new long[100000];
+        long[] dsts = new long[100000];
+
+        for(int i=0; i<srcs.length; i++) {
+            srcs[i] = 2 * (i / 10);
+            dsts[i] = i;
+        }
+
+        for(int j=0; j<dsts.length; j++) {
+            dsts[j] = VertexIdTranslate.encodeVertexPacket((byte)0, dsts[j], 0);
+        }
+
+        FastSharder.writeAdjacencyShard(baseFilename, 0, 1, 1, srcs, dsts, new byte[srcs.length], 0, 100001, false, null);
+
+        Config cnf = ConfigFactory.parseFile(new File("conf/graphchidb.conf"));
+
+        QueryShard shards = new QueryShard(baseFilename, 0, 1, new VertexInterval(0, 100001, 0), cnf);
+
+        /* From the beginning */
+        EdgeIterator iter = shards.edgeIterator();
+        for(int i=0; i<srcs.length; i++) {
+            assertTrue(iter.hasNext());
+            iter.next();
+            assertEquals(srcs[i], iter.getSrc());
+            assertEquals(VertexIdTranslate.getVertexId(dsts[i]), iter.getDst());
+            assertEquals(i, iter.getIdx());
+        }
+
+        /* From the middle */
+        iter = shards.edgeIterator(srcs[3330]);
+        for(int i=3330; i<srcs.length; i++) {
+            assertTrue(iter.hasNext());
+            iter.next();
+            assertEquals(srcs[i], iter.getSrc());
+            assertEquals(VertexIdTranslate.getVertexId(dsts[i]), iter.getDst());
+            assertEquals(i, iter.getIdx());
+        }
+
+         /* From the middle for a src which is not found */
+        iter = shards.edgeIterator(srcs[3330] - 1);
+        for(int i=3330; i<srcs.length; i++) {
+            assertTrue(iter.hasNext());
+            iter.next();
+            assertEquals(srcs[i], iter.getSrc());
+            assertEquals(VertexIdTranslate.getVertexId(dsts[i]), iter.getDst());
+            assertEquals(i, iter.getIdx());
+        }
     }
 }

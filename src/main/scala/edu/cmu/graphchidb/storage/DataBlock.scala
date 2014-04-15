@@ -103,14 +103,42 @@ trait DataBlock[T] extends IndexedByteStorageBlock {
     var cum: B = z
     for( i <- 0 until n) {
       val xOpt : Option[T] = get(i)(converter)
-      xOpt map {
-        x =>  cum = op(cum, x, i)
-      }
+      if (xOpt.isDefined) cum = op(cum, xOpt.get, i)
 
     }
     cum
   }
 
+
+
+  def foreach(op: (Long,T) => Unit)(implicit converter: ByteConverter[T])  : Unit = {
+    val n = size()
+    for( i <- 0 until n) {
+      val xOpt : Option[T] = get(i)(converter)
+      if (xOpt.isDefined) op(i, xOpt.get)
+    }
+  }
+
+  def updateAll(op: (Long, Option[T]) => T) (implicit converter: ByteConverter[T])  : Unit = {
+    val n = size()
+    for( i <- 0 until n) {
+      val xOpt : Option[T] = get(i)(converter)
+      val newVal = op(i, xOpt)
+      set(i, newVal)
+    }
+  }
+
+  def select(cond: (Long, T) => Boolean)(implicit converter: ByteConverter[T]) : Iterator[(Long, T)] = {
+    val n = size()
+    (0 until n).iterator.filter(i => {
+      val xOpt : Option[T] = get(i)(converter)
+      if (xOpt.isDefined) {
+        cond(i, xOpt.get)
+      } else {
+        false
+      }
+    }).map(i => (i, get(i)(converter).get))
+  }
 
 }
 

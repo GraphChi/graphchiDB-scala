@@ -1,3 +1,25 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchi.util;
 
 import java.util.Random;
@@ -140,14 +162,30 @@ public class Sorting {
         return a;
     }
 
+    private static boolean nativeLibraryLoaded = false;
+
     static {
-        System.loadLibrary("graphchi_sorting");
+        try {
+            System.loadLibrary("graphchi_sorting");
+            nativeLibraryLoaded = true;
+        } catch (UnsatisfiedLinkError err) {
+            System.err.println("Note: Could not load native library for sorting -- using java-only sorts (slightly slower)!");
+        }
     }
 
     public static native void quickSort(long arr[], int arr2[]);
-    
+
 
     public static native int[] radixSortWithIndex(long arr[]);
+
+    public static int[] sortWithIndex(long arr[])  {
+          if (nativeLibraryLoaded) {
+              return radixSortWithIndex(arr);
+          } else {
+              return quickSortWithIndexJava(arr);
+          }
+    }
+
 
     public static void quickSortJava(long arr[], int arr2[], int left, int right) {
         if (left < right) {

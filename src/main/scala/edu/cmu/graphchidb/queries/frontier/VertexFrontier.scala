@@ -1,8 +1,31 @@
+/**
+ * @author  Aapo Kyrola <akyrola@cs.cmu.edu>
+ * @version 1.0
+ *
+ * @section LICENSE
+ *
+ * Copyright [2014] [Aapo Kyrola / Carnegie Mellon University]
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Publication to cite:  http://arxiv.org/abs/1403.0701
+ */
 package edu.cmu.graphchidb.queries.frontier
 
-import edu.cmu.graphchidb.{GraphChiDatabase, DatabaseIndexing}
+import edu.cmu.graphchidb.{DatabaseIndexing, GraphChiDatabase}
 import scala.collection.{mutable, BitSet}
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
+import scala.util.Random
 
 /**
  * A set of vertices. Ligra-style computation.
@@ -26,7 +49,26 @@ trait VertexFrontier {
 
   def ->[T](f : VertexFrontier => T) = f(this)
 
+
+  def limit(maxSize: Int, randomSample:Boolean) : VertexFrontier
+
+  def limitF(maxSize: Int, randomSample:Boolean, db: GraphChiDatabase, indexing: DatabaseIndexing) : VertexFrontier = {
+    if (size <= maxSize) {
+      this
+    } else {
+      val sq =
+        if (randomSample) {
+          Random.shuffle(toSeq)
+        } else {
+          toSeq
+        }
+      val newElements = sq take maxSize
+      new SparseVertexFrontier(indexing, newElements.toSet, db)
+    }
+  }
+
 }
+
 
 
 
@@ -44,7 +86,7 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
         shardBitSets = (0 until indexing.nShards).map(i => this.shardBitSets(i) | dense.shardBitSets(i))
       }
       case sparse: SparseVertexFrontier => {
-         sparse.toSet.foreach(x => insert(x))
+        sparse.toSet.foreach(x => insert(x))
       }
     }
   }
@@ -64,30 +106,31 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
     other match {
       case dense: DenseVertexFrontier => {
         (0 until indexing.nShards).foreach(i => {
-           val intersection = this.shardBitSets(i) & dense.shardBitSets(i)
-           val iterator = intersection.iterator
-           if (iterator.hasNext) {
-               return Some(indexing.localToGlobal(i, iterator.next()))
-           }
+          val intersection = this.shardBitSets(i) & dense.shardBitSets(i)
+          val iterator = intersection.iterator
+          if (iterator.hasNext) {
+            return Some(indexing.localToGlobal(i, iterator.next()))
+          }
         })
         None
       }
       case sparse: SparseVertexFrontier => {
         sparse.toSet.foreach(x => {
-            if (hasVertex(x)) return Some(x)
+          if (hasVertex(x)) return Some(x)
         })
         None
       }
     }
+
   }
 
   def insert(vertexId: Long) : Unit = {
-     val bitset = shardBitSets(indexing.shardForIndex(vertexId))
-     val localIdx = indexing.globalToLocal(vertexId).toInt
-     if (!bitset(localIdx)) {
-       bitset.+=(localIdx)
-       counter += 1 // not thread-safe!
-     }
+    val bitset = shardBitSets(indexing.shardForIndex(vertexId))
+    val localIdx = indexing.globalToLocal(vertexId).toInt
+    if (!bitset(localIdx)) {
+      bitset.+=(localIdx)
+      counter += 1 // not thread-safe!
+    }
   }
   def hasVertex(vertexId: Long) = shardBitSets(indexing.shardForIndex(vertexId))(indexing.globalToLocal(vertexId).toInt)
   def isEmpty = counter == 0
@@ -104,9 +147,13 @@ class DenseVertexFrontier(indexing: DatabaseIndexing, db_ : GraphChiDatabase) ex
     sparseFrontier
   }
 
+
   def toSet = toSparse.toSet
 
   def toSeq = (0 until indexing.nShards).map(shardIdx => shardBitSets(shardIdx).toSeq.map(j => indexing.localToGlobal(shardIdx, j))).flatten
+
+  def limit(maxSize: Int, randomSample:Boolean) : VertexFrontier = limitF(maxSize, randomSample, db, indexing)
+
 }
 
 
@@ -117,11 +164,11 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
   val backingSet = new mutable.HashSet[Long] with mutable.SynchronizedSet[Long]
 
   def this(indexing: DatabaseIndexing, set: Set[Long], db_ :GraphChiDatabase) {
-      this(indexing, db_)
-      backingSet ++= set
+    this(indexing, db_)
+    backingSet ++= set
   }
   def remove(other: VertexFrontier) : Unit = {
-      throw new NotImplementedException
+    throw new NotImplementedException
   }
 
   def hasAnyVertex(other: VertexFrontier) : Option[Long] = {
@@ -149,6 +196,8 @@ class SparseVertexFrontier(indexing: DatabaseIndexing, db_ :GraphChiDatabase) ex
     denseFrontier
   }
   def toSeq: Seq[Long] = backingSet.toSeq
+
+  def limit(maxSize: Int, randomSample:Boolean) : VertexFrontier = limitF(maxSize, randomSample, db, indexing)
 }
 
 object VertexFrontier {
@@ -156,14 +205,14 @@ object VertexFrontier {
   val sparseLimit = 100
 
   def createFrontier(internalIds: Seq[Long], db: GraphChiDatabase) = {
-      if (internalIds.size > sparseLimit) {
-         val dense = new DenseVertexFrontier(db.vertexIndexing, db)
-         internalIds.foreach(id => dense.insert(id))
-         dense
-      } else {
-        // TODO: get rid of the java-long stuff
-         new SparseVertexFrontier(db.vertexIndexing, internalIds.toSet, db)
-      }
+    if (internalIds.size > sparseLimit) {
+      val dense = new DenseVertexFrontier(db.vertexIndexing, db)
+      internalIds.foreach(id => dense.insert(id))
+      dense
+    } else {
+      // TODO: get rid of the java-long stuff
+      new SparseVertexFrontier(db.vertexIndexing, internalIds.toSet, db)
+    }
   }
 
 }
