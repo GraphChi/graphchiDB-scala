@@ -140,14 +140,30 @@ public class Sorting {
         return a;
     }
 
+    private static boolean nativeLibraryLoaded = false;
+
     static {
-        System.loadLibrary("graphchi_sorting");
+        try {
+            System.loadLibrary("graphchi_sorting");
+            nativeLibraryLoaded = true;
+        } catch (UnsatisfiedLinkError err) {
+            System.err.println("Note: Could not load native library for sorting -- using java-only sorts (slightly slower)!");
+        }
     }
 
     public static native void quickSort(long arr[], int arr2[]);
-    
+
 
     public static native int[] radixSortWithIndex(long arr[]);
+
+    public static int[] sortWithIndex(long arr[])  {
+          if (nativeLibraryLoaded) {
+              return radixSortWithIndex(arr);
+          } else {
+              return quickSortWithIndexJava(arr);
+          }
+    }
+
 
     public static void quickSortJava(long arr[], int arr2[], int left, int right) {
         if (left < right) {

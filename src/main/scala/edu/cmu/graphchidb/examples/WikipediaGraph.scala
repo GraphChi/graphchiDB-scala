@@ -24,7 +24,18 @@ import edu.cmu.graphchidb.queries.Queries
 object WikipediaGraph {
 
   /**
+
+  // Usage in Scala console
   import  edu.cmu.graphchidb.examples.WikipediaGraph._
+
+  // If first time, populate the DB (takes 3 hours on SSD, MacBook Pro)
+  populate()
+
+ // Otherwise, and after that, can start playing
+ // Note: initialization of the index will take maybe a minute
+   shortestPath("Barack_Obama", "Sauli_Niinisto")
+
+
     */
   val pageInfo =  System.getProperty("user.home")  + "/graphs/wikipedia/enwiki-20140402-page.sql"
   val pageLinks =  System.getProperty("user.home")  + "/graphs/wikipedia/enwiki-20140402-pagelinks.sql"

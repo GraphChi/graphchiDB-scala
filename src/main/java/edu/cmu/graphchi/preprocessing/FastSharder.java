@@ -65,7 +65,7 @@ public class FastSharder {
         }
 
 
-        int[] indices =  radixSortWithIndex(shoveled2);
+        int[] indices =  sortWithIndex(shoveled2);
 
         File startIdxFile =
                 new File(
