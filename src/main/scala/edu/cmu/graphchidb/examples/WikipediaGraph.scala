@@ -8,6 +8,10 @@ import edu.cmu.graphchidb.Util._
 import edu.cmu.graphchidb.examples.util.WikipediaParsers
 import edu.cmu.graphchi.util.StringToIdMap
 import edu.cmu.graphchi.GraphChiEnvironment
+import scala.collection.mutable.ArrayBuffer
+import java.util.Collections
+import java.util
+import edu.cmu.graphchidb.queries.Queries
 
 /**
  * Example application that reads
@@ -32,7 +36,7 @@ object WikipediaGraph {
   val linkType = 0.toByte
 
   GraphChiDatabaseAdmin.createDatabaseIfNotExists(baseFilename, numShards = numShards)
-  val DB = new GraphChiDatabase(baseFilename,  numShards = numShards)
+  implicit val DB = new GraphChiDatabase(baseFilename,  numShards = numShards)
 
 
   val pageTitleVarData = DB.createVarDataColumn("pagetitle", DB.vertexIndexing)
@@ -58,7 +62,7 @@ object WikipediaGraph {
     var unsatisfiedLinks = 0L
     var insertedLinks = 0L
     val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
-            val t = System.currentTimeMillis()
+    val t = System.currentTimeMillis()
     WikipediaParsers.loadPageLinks(new File(pageLinks), (fromPageIdOrigId: Long, namespace: Int, toPageName: String) =>
     {
       if (namespace == 0) {
@@ -77,21 +81,21 @@ object WikipediaGraph {
         }
       }
     })
-    println("Created %d links, %d could not find destination page (page not created)".format(insertedLinks, unsatisfiedLinks))
+    println("Created %d links, could not find destination page for %d links (page not created)".format(insertedLinks, unsatisfiedLinks))
     DB.flushAllBuffers()
   }
 
 
   lazy val pageIndex = {
     println("Loading page title index, this may take a while...")
-    val idMap = new StringToIdMap(1<<29)
+    val names = new StringToIdMap(5000000);
 
     timed(("load-pageindex"), {
       pageTitlePointer.foreach( (vertexId: Long, namePtr: Long) => {
         try {
           if (namePtr > 0) {
             val title = pageTitleVarData.getString(namePtr)
-            idMap.put(title, DB.internalToOriginalId(vertexId).toInt)  // Store the original ID because they are smaller numbers and fit to int
+            names.put(title, DB.internalToOriginalId(vertexId).toInt)
             if (vertexId % 100000 == 0) println("Processing index: %d %d".format(vertexId, namePtr))
 
           }
@@ -100,17 +104,28 @@ object WikipediaGraph {
         }
 
       })
+
+      // Now sort
+      names.compute()
+      names
     })
-    println("Done loading index")
-    idMap
   }
 
   def pageName(origId: Int) = {
     pageTitleVarData.getString(pageTitlePointer.get(DB.originalToInternalId(origId)).get)
   }
 
+  def shortestPath(fromPage: String, toPage: String) = {
+    val from = pageIndex.getId(fromPage)
+    if (from < 0) throw new IllegalArgumentException("Cannot find page " + fromPage)
+    val to = pageIndex.getId(toPage)
+    if (to < 0) throw new IllegalArgumentException("Cannot find page " + toPage)
+    val path = Queries.shortestPath(DB.originalToInternalId(from), DB.originalToInternalId(to), maxDepth=10, edgeType=0)
+    path.map { id => (pageName(DB.internalToOriginalId(id).toInt), DB.internalToOriginalId(id).toInt) }
+  }
+
   def populate() = {
-     timed("populate", {
+    timed("populate", {
       loadPagesFromDump()
       loadLinksFromDump() } )
   }

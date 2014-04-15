@@ -117,7 +117,7 @@ object WikipediaParsers {
                   if (b > 0) {
                     val namespace = str.substring(nx +1, str.indexOf(",", nx+1)).toInt
 
-                    val c =  str.indexOf("'),", b+1)
+                    val c =  str.indexOf("'),(", b+1)
                     if (c > 0) {
                       val pageName = str.substring(b + 1, c)
                       val next = str.indexOf(")", c)

@@ -16,10 +16,13 @@ public class TestStringToIdMap {
         for(int i=1000000; i<1000300; i++) {
             testMap.put("id" + i, i);
         }
+        testMap.compute();
 
         for(int i=1000000; i<1000300; i++) {
             assertEquals(i, testMap.getId("id" + i));
         }
+
+        assertEquals(-1, testMap.getId("huuhaa"));
 
     }
 }
