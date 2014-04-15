@@ -214,3 +214,13 @@ Inside the database directory, there is a debug log-file that is written by the 
 ## Deleting database
 
 To delete your database, just remove the directory containing the database. You need to restart your application as well.
+
+## Native Library for Sorting
+
+To get better performance, you can enable a native library for sort operations. It is provided in binary under lib/, and can be compiled from src/jni/ (although I have had trouble compiling it on Linux).
+
+To enable, add this to the command line:
+```
+  ... -Djava.library.path=lib/
+```
+
