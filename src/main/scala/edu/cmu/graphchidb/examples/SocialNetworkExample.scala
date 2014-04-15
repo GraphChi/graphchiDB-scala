@@ -29,8 +29,20 @@ object SocialNetworkExample {
    // Some testing
    recommendFriends(8737)
    recommendFriends(2419)
+   recommendFriendsLimited(2419)
 
-          recommendFriendsLimited(2419)
+   // To run connected components
+   connectedComponents()
+
+   // After a while, you can ask
+   ccAlgo.printStats
+
+   // To get a vertex component label (which might not be yet the final one)
+   ccAlgo.vertexColumn.get(DB.originalToInternalId(8737)).get
+
+   // To get pagerank of a vertex (note, that it is being continuously updated), so this
+   // just looks up the value.
+   pagerankCol.get(DB.originalToInternalId(8737)).get
 
    *
    */

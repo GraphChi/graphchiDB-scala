@@ -53,6 +53,51 @@ However, do NOT add more memory to the JVM, because GraphChi-DB uses memory mapp
 
 ## Example: Social Network
 
+This example creates a graph from a social network data. For each edge, we add a timestamp and weight column. In this example, this values
+are populated with random values, so they are just provided as an example.
+
+In addition, the example computes continously Pagerank for each vertex. You can also invoke a connected components computation. Note that these computations operate in the background and if the graph changes, also their results can become incorrect. 
+
+This example shows also how to compute simple social network recommendations based on friends-of-friends. 
+
+### Input data
+
+To run this example, you need to have some input graph. You can try these:
+* Live Journal: http://snap.stanford.edu/data/soc-LiveJournal1.html
+* Twitter graph (2010): http://an.kaist.ac.kr/traces/WWW2010.html
+
+Remember to configure the proper filenames in the code. Look for variable "sourceFile".
+
+
+### Example session:
+
+```scala
+ import  edu.cmu.graphchidb.examples.SocialNetworkExample._
+
+   // To initialize DB
+   startIngest
+
+   // Some testing
+   recommendFriends(8737)
+   recommendFriends(2419)
+   recommendFriendsLimited(2419)
+
+   // To run connected components
+   connectedComponents()
+
+   // After a while, you can ask
+   ccAlgo.printStats
+
+   // To get a vertex component label (which might not be yet the final one)
+   ccAlgo.vertexColumn.get(DB.originalToInternalId(8737)).get
+
+   // To get pagerank of a vertex (note, that it is being continuously updated), so this
+   // just looks up the value.
+   pagerankCol.get(DB.originalToInternalId(8737)).get
+```
+
+
+
 ## Example: Wikipedia Graph
 
 ## Example: Movie Database and Recommender
@@ -92,3 +137,11 @@ DB.flushAllBuffers()
 ```
 
 Again, see the example applications...
+
+## Debug log
+
+Inside the database directory, there is a debug log-file that is written by the database.
+
+```
+   tail -f *debug.txt*
+```
