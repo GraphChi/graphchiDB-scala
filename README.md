@@ -16,7 +16,7 @@ Each source code file has full license information.
 
 ## Requirements
 
-* SSD
+* Solid-state Drive (SSD)  (for good query performance; hard drive might work well if enough RAM)
 * 8 GB of RAM is recommended. Might work with less.
 * Scala 2.9
 
