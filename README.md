@@ -1,127 +1,62 @@
-# GraphChi-java
-Version 0.2
+# GraphChi-DB
+
+GraphChi-DB is a scalable, embedded, single-computer graph database that can also execute similar large-scale graph computation as [GraphChi](https://github.com/graphchi).
+it has been developed by [Aapo Kyrola](http://www.cs.cmu.edu/~akyrola) as part of his Ph.D. thesis.
+
+GraphChi-DB is written in Scala, with some Java code. Generally, you need to know Scala quite well to be able to use it.
+
+** IMPORTANT: GraphChi-DB is early release, research code. It is buggy, it has awful API, and it is provided with no guarantees.
+DO NOT USE IT FOR ANYTHING IMPORTANT.  **
 
 
-## News
+## License
 
-* Performance has been improved by parallelizing shard loading better (Oct 22, 2013)
-* GraphChi was moved to GitHub from Google Code (July 24). Please report/fix any broken links.
-* GraphChi's Java version has a new cool random walk simulation engine: https://github.com/GraphChi/graphchi-java/wiki/Personalized-Pagerank-with-DrunkardMob
+GraphChi-DB is licensed under the Apache License, Version 2.0
+Each source code file has full license information.
 
+## Requirements
 
+* SSD
+* 8 GB of RAM is recommended. Might work with less.
+* Scala 2.9
 
-# Introduction
+ ## Discussion group
 
-Project for developing the Java version of GraphChi ( http://www.graphchi.org ), the disk-based graph computation engine. To learn more about GraphChi, visit the C++ version's project page: https://github.com/GraphChi/graphchi-cpp
+ Please join the discussion group (shared with GraphChi users).
 
-**NEW:** GraphChi can be used in Hadoop/Pig scripts: [GraphChi for Pig](https://github.com/GraphChi/graphchi-java/wiki/GraphChi-For-Pig).
-
-### How to use
-
- 
-Read the README.txt for information on how to build and run the example applications. You are going to need [Maven](http://maven.apache.org/download.cgi) for building.
-
-It is a very good idea to study the example applications carefully. There are currently three example applications in the package **edu.cmu.graphchi.apps**:
-* [PageRank](https://github.com/GraphChi/graphchi-java/tree/master/src/main/java/edu/cmu/graphchi/apps/Pagerank.java) for computing the famous [PageRank](http://en.wikipedia.org/wiki/PageRank) ranking
-* [Connected Components](https://github.com/GraphChi/graphchi-java/tree/master/src/main/java/edu/cmu/graphchi/apps/ConnectedComponents.java) for computing the weakly connected components
-* [Alternative Least Squares Matrix Factorization](https://github.com/GraphChi/graphchi-java/tree/master/src/main/java/edu/cmu/graphchi/apps/ALSMatrixFactorization.java)
+ http://groups.google.com/group/graphchi-discuss
 
 
+ ## Publication
 
+You can read about GraphChi-DB's design, evaluation and motivation from pre-print [GraphChi-DB: Simple Design For a Scalable Graph Database System - on Just a PC](http://arxiv.org/abs/1403.0701).
 
+# Documentation
 
-### Input data
+Not provided. We suggest you look through the examples (see below), to get the basic idea.
 
-GraphChi-java supports [edge-list](https://github.com/GraphChi/graphchi-cpp/wiki/Edge-List-Format) and: [adjacency list](https://github.com/GraphChi/graphchi-cpp/wiki/Adjacency-List-Format) formats.
+# Examples
 
-To preprocess the graph, you need to call "sharder" in the beginning of your program. For example, if you graph has floating-point input values for each edge, you can call it as follows:
+## To run
 
-```java
-    protected static FastSharder createSharder(String graphName, int numShards) throws IOException {
-            return new FastSharder<Float, Float>(graphName, numShards, new VertexProcessor<Float>() {
-                public Float receiveVertexValue(int vertexId, String token) {
-                    return (token == null ? 0.0f : Float.parseFloat(token));
-                }
-            }, new EdgeProcessor<Float>() {
-                public Float receiveEdge(int from, int to, String token) {
-                    return (token == null ? 0.0f : Float.parseFloat(token));
-                }
-            }, new FloatConverter(), new FloatConverter());
-        }
-    
-        public static void main(String[] args) throws  Exception {
-            String baseFilename = args[0];
-            int nShards = Integer.parseInt(args[1]);
-            String filetype= args[2]; // "edgelist" or "adjacency"
-    
-            /* Create shards */
-            FastSharder sharder = createSharder(baseFilename, nShards);
-            if (new File(ChiFilenames.getFilenameIntervals(baseFilename, nShards)).exists()) {
-                    sharder.shard(new FileInputStream(new File(baseFilename)), filetype);
-                } else {
-                    logger.info("Found shards -- no need to preprocess");
-                }
-        ....
+Best way to explore GraphChi-DB is to load the project into an IDE (such as Eclipse or IntelliJ IDEA), and use the Scala Console. This will allow you to interactively explore the data.
+You can also include GraphChi-DB easily in your Scala project.
+
+Following JVM parameters are recommended:
+```
+   -Xmx5G -ea
 ```
 
-**Note:** (For edge-lists only) initial values for vertices are also now supported. If you define a self-edge (i.e edge with same source and destination), the value of the 'edge' is interpreted as value for the vertex. Thus you need to provide both a vertex-value and edge-value parser to the FastSharder.
-
-
-### Hadoop / PIG
-
-Since version 0.2 (January 2013), GraphChi Java programs can be directly invoked from [Pig](http://pig.apache.org). More information will on page GraphChiForPig.
-
-Example PIG script:
-
-```
-    REGISTER graphchi-java-0.2-jar-with-dependencies.jar;
-    
-    pagerank = LOAD '/user/akyrola/graphs/soc-LiveJournal1.txt' USING edu.cmu.graphchi.apps.pig.PigPagerank as (vertex:int, rank:float);
-    
-    STORE pagerank INTO '/user/akyrola/pagerank';
-```
-
-
-### Scala
-
-An early Scala-wrapper is also provided. See [PagerankScala](https://github.com/GraphChi/graphchi-java/blob/master/src/main/scala/edu/cmu/graphchi/scala/apps/PagerankScala.scala) for example.
-
-
-### Differences to the C++ version
-
-Following features are not implemented in the Java-version:
-* dynamic graphs
-* dynamic edge data
-
-GraphChi implements a preprocessing step called "sharding", which reads an input graph and stores it in efficient binary format on the disk (see [Introduction to GraphChi](https://github.com/GraphChi/graphchi-cpp/wiki/Introduction-To-GraphChi) for more information). Java-version now includes its own sharding code (called "FastSharder"), which differs from the C++ version: FastSharder shuffles the order of vertices to guarantee (with high probability) an even distribution of edges over shards. Thus, internally GraphChi's Java-version uses different vertex IDs than in the original graph. 
-
-Translating between the internal ids and original ids is easy using the **VertexIdTranslate** class:
-
-```Java
-         VertexIdTranslate trans = engine.getVertexIdTranslate();
-         for(int i=0; i < engine.numVertices(); i++) {
-              System.out.println("Internal id " + i + " = original id " + trans.backward(i));
-          }
-```
-
-
-### Performance
-
-On a new MacBook Pro (2012), I can run Pagerank on a Twitter-graph with 1.5 B edges (available from http://an.kaist.ac.kr/traces/WWW2010.html/)  in about 10 minutes / iteration.  It is 2-3x slower than the C++ version on an SSD disk.  I expect this performance to be sufficient for many users, especially researchers and analysts who do need real-time performance but favor a convenient programming environment.
-
-
-## Acknowledgements
-
-I want to thank Twitter and particularly the Personalization and Recommendations Team for the my internship during Fall 2012. M
-any of the improvements to mature the GraphChi's Java-version were done during the course of the internship. 
-
-Aapo Kyrola akyrola----at----cs.cmu.edu
+**Note: ** With less than 5 gigabyte of RAM, the database may crash (silently) in an out-of-memory exception. This is because its buffers overflow, and the database cannot yet manage its own memory usage.
+However, do NOT add more memory to the JVM, because GraphChi-DB uses memory mapping of the operating system to manage the data. It is better to leave as much memory for the OS to use for memory mapping.
 
 
 
 
--- Aapo Kyrola, 
-akyrola@cs.cmu.edu
+# Notes
 
+## ID-mapping
 
+## Durability
 
+##
