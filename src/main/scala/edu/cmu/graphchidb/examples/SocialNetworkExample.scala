@@ -23,13 +23,16 @@ object SocialNetworkExample {
 
    import  edu.cmu.graphchidb.examples.SocialNetworkExample._
 
-   // To initialize DB
+   // To initialize DB (you need to do this only on your first session)
    startIngest
 
    // Some testing
    recommendFriends(8737)
    recommendFriends(2419)
    recommendFriendsLimited(2419)
+
+   DB.queryIn(DB.originalToInternalId(2409), 0)
+   DB.queryOut(DB.originalToInternalId(8737), 0)
 
    // To run connected components
    connectedComponents()
@@ -38,7 +41,7 @@ object SocialNetworkExample {
    ccAlgo.printStats
 
    // To get a vertex component label (which might not be yet the final one)
-   ccAlgo.vertexColumn.get(DB.originalToInternalId(8737)).get
+  ccComponentColumn.get(DB.originalToInternalId(8737)).get
 
    // To get pagerank of a vertex (note, that it is being continuously updated), so this
    // just looks up the value.
@@ -65,6 +68,7 @@ object SocialNetworkExample {
 
   /* Connected components (run connectedComponents()) */
   val ccAlgo = new ConnectedComponentsLabelProp(DB)
+  val ccComponentColumn = ccAlgo.vertexDataColumn.get
 
   DB.initialize()
 

@@ -69,18 +69,22 @@ To run this example, you need to have some input graph. You can try these:
 Remember to configure the proper filenames in the code. Look for variable "sourceFile".
 
 
-### Example session:
+### Example session
 
 ```scala
- import  edu.cmu.graphchidb.examples.SocialNetworkExample._
+   import  edu.cmu.graphchidb.examples.SocialNetworkExample._
 
-   // To initialize DB
+   // To initialize DB (you need to do this only on your first session)
    startIngest
 
    // Some testing
    recommendFriends(8737)
    recommendFriends(2419)
    recommendFriendsLimited(2419)
+   
+   // In and out neighbors
+   DB.queryIn(DB.originalToInternalId(2409), 0)
+   DB.queryOut(DB.originalToInternalId(8737), 0)
 
    // To run connected components
    connectedComponents()
@@ -89,7 +93,7 @@ Remember to configure the proper filenames in the code. Look for variable "sourc
    ccAlgo.printStats
 
    // To get a vertex component label (which might not be yet the final one)
-   ccAlgo.vertexColumn.get(DB.originalToInternalId(8737)).get
+   ccAlgo.vertexDataColumn.get.get(DB.originalToInternalId(8737)).get
 
    // To get pagerank of a vertex (note, that it is being continuously updated), so this
    // just looks up the value.
@@ -100,7 +104,66 @@ Remember to configure the proper filenames in the code. Look for variable "sourc
 
 ## Example: Wikipedia Graph
 
+This example application reads Wikipedia's SQL dumps and creates a graph of the wikipedia pages. It allows you to then find shortest paths between pages. You can consider extending it with Pagerank, Connected Components etc. by using techniques from the previous example.
+
+### Input data
+
+Wikipedia dumps are available here: http://dumps.wikimedia.org/enwiki/latest/
+
+You need **two** files: 
+* Pagelinks: for example http://dumps.wikimedia.org/enwiki/20140402/enwiki-20140402-pagelinks.sql.gz
+* Per-page data: http://dumps.wikimedia.org/enwiki/20140402/enwiki-20140402-page.sql.gz
+
+The example application includes a very hacky, but very fast, parser for the data. Note that it has been tested only with the English wikipedia data.
+
+
+### Example session: Ingest
+
+You need to run this only on your first session:
+```scala
+  import  edu.cmu.graphchidb.examples.WikipediaGraph._
+
+  // If first time, populate the DB (takes 3 hours on SSD, MacBook Pro)
+  populate()
+```
+
+### Example session: Play
+
+Note, that the first query will take a long time as the application needs to compute the page title index. Also, it takes time before the graph is fully cached (using memory mapping).
+
+```scala
+  import  edu.cmu.graphchidb.examples.WikipediaGraph._ shortestPath("Barack_Obama", "Sauli_Niinisto")
+  shortestPath("Helsinki", "Pittsburgh")
+  shortestPath("Carnegie_Mellon_University", "Graph")
+```
+
 ## Example: Movie Database and Recommender
+
+This example creates a database of movies and a graph of user - movie ratings. After the database has been populated, you can run matrix factorization using the Alternating Least Squares (ALS) algorithm and use it to recommend movies to a user. Note, that this is overly simple recommender algorithm and unlikely to produce very good results.
+
+### Data
+
+You can get Netflix Prize movie rating database from here:  http://www.select.cs.cmu.edu/code/graphlab/datasets/
+
+Download the "netflix_mm" file.
+
+
+### Example session
+
+Ingest:
+```scala
+ import edu.cmu.graphchidb.examples.MovieDatabase._
+  startIngest
+```
+
+Recommend
+```scala
+  import edu.cmu.graphchidb.examples.MovieDatabase._
+  recommendForUser(X)
+```
+
+### Notes
+This example is a bit awkward: GraphChi-DB does not support typed vertices, so we need to use different range of IDs for movie and user vertices. Variable "userIdOffset" is used for this. The example functions in the app include the translation.
 
 
 # Notes
@@ -115,7 +178,7 @@ There is currently no batch mode to insert edges. Still, even in the online mode
 GraphChi-DB maps original vertex IDs to an internal ID space. Functions that ask for "origId" expect you to provide the original vertex ID (from the source data).
 Typically you need to map IDs returned by the database into original IDs. See the example applications for examples. The GraphChiDB class has two functions to map between the ID spaces:
 
-```java
+```scala
 DB.originalToInternalId(origId)
 DB.internalToOriginalId(internalId)
 ```
@@ -145,3 +208,7 @@ Inside the database directory, there is a debug log-file that is written by the 
 ```
    tail -f *debug.txt*
 ```
+
+## Deleting database
+
+To delete your database, just remove the directory containing the database. You need to restart your application as well.

@@ -1,6 +1,5 @@
 package edu.cmu.graphchidb.examples
 
-import scala.util.Random
 import edu.cmu.graphchi.GraphChiEnvironment
 import scala.io.Source
 import java.io.File
@@ -18,7 +17,13 @@ object MovieDatabase {
   /*
   import edu.cmu.graphchidb.examples.MovieDatabase._
   startIngest
+
+  // After ingestion, run
   runALS
+
+  // Then to recommend for a user id X
+  recommendForUser(X)
+
 
    */
 
