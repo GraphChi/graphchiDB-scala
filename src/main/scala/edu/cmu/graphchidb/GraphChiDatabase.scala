@@ -74,7 +74,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   /* Optimization that is largely redundant nowadays.. */
   val enableVertexShardBits  = false
 
-  println("Buffer limit: " + bufferLimit)
+  println("Initializing GraphChi-DB. Copyright Aapo Kyrola, Carnegie Mellon University, 2014.")
+  println("Edge buffer limit: " + bufferLimit)
 
 
   // Create a tree of shards... think about more elegant way

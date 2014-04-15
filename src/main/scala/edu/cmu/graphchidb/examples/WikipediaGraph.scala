@@ -12,12 +12,16 @@ import scala.collection.mutable.ArrayBuffer
 import java.util.Collections
 import java.util
 import edu.cmu.graphchidb.queries.Queries
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Example application that reads
  * wikipedia SQL dumps to create a graph. Dumps available from Wikipedia.
  *
- * In the 2014-04-03 dump, there were about 42.4 million pages.
+ * In the 2014-04-03 dump, there were about 42.4 million pages and over 300 million edges.
+ * Creating the database will take >3 hours on a laptop with SSD.
+ *
+ * Note, to use this example you need to allocate at least 5 gigs of memory (-Xmx5G)
  *
  * @author Aapo Kyrola
  */
@@ -32,11 +36,15 @@ object WikipediaGraph {
   populate()
 
  // Otherwise, and after that, can start playing
- // Note: initialization of the index will take maybe a minute
+ // Note: initialization of the index will take maybe a minute.
    shortestPath("Barack_Obama", "Sauli_Niinisto")
+   shortestPath("Helsinki", "Pittsburgh")
+   shortestPath("Carnegie_Mellon_University", "Graph")
 
+    // Note that in the beginning the queries are slower as the data is not yet paged into memory.
 
     */
+
   val pageInfo =  System.getProperty("user.home")  + "/graphs/wikipedia/enwiki-20140402-page.sql"
   val pageLinks =  System.getProperty("user.home")  + "/graphs/wikipedia/enwiki-20140402-pagelinks.sql"
 
@@ -70,25 +78,27 @@ object WikipediaGraph {
   }
 
   def loadLinksFromDump(): Unit = {
-    var unsatisfiedLinks = 0L
-    var insertedLinks = 0L
+    var unsatisfiedLinks = new AtomicLong(0L)
+    var insertedLinks =  new AtomicLong(0L)
     val ingestMeter = GraphChiEnvironment.metrics.meter("edgeingest")
     val t = System.currentTimeMillis()
     WikipediaParsers.loadPageLinks(new File(pageLinks), (fromPageIdOrigId: Long, namespace: Int, toPageName: String) =>
     {
+      // Note: this function will be called in parallel
       if (namespace == 0) {
         val toPageOrigId = pageIndex.getId(toPageName)
         if (toPageOrigId >= 0) {
           DB.addEdgeOrigId(linkType, fromPageIdOrigId, toPageOrigId)
-          insertedLinks += 1
-          if (insertedLinks % 1000 == 0) ingestMeter.mark(1000)
-          if (insertedLinks % 1000000 == 0) {
-            println("Created %d links, %d could not find destination page (page not created)".format(insertedLinks, unsatisfiedLinks))
-            println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(insertedLinks) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
+
+          val cnt = insertedLinks.incrementAndGet()
+          if (cnt % 1000 == 0) ingestMeter.mark(1000)
+          if (cnt % 1000000 == 0) {
+            println("Created %d links, %d could not find destination page (page not created)".format(insertedLinks.get, unsatisfiedLinks.get))
+            println((System.currentTimeMillis - t) / 1000 + " s. : Processed: %d".format(insertedLinks.get) + " ;" + ingestMeter.getOneMinuteRate + " / sec"
               + "; mean=" + ingestMeter.getMeanRate + " edges/sec")
           }
         } else {
-          unsatisfiedLinks += 1
+          unsatisfiedLinks.incrementAndGet()
         }
       }
     })

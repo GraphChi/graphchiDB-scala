@@ -25,6 +25,8 @@ public class StringToIdMap {
     public void compute() {
         System.out.println("Finalizing id mapping. Index contains " + strings.size() + " strings.");
         Collections.sort(strings);
+        System.out.println("Done finalizing id mapping.");
+
         finalized = true;
     }
 

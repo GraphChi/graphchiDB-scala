@@ -2,6 +2,8 @@ package edu.cmu.graphchidb.examples.util
 
 import edu.cmu.graphchidb.Util._
 import java.io.{File, FileInputStream, InputStreamReader, BufferedReader}
+import scala.collection.mutable.ArrayBuffer
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * @author Aapo Kyrola
@@ -89,11 +91,12 @@ object WikipediaParsers {
       while (!stream.readLine().contains("ALTER TABLE `pagelinks`")) {}
 
       // Now we are where the data starts
-      var chunk = 32678
+      var chunk = 65536
       val chars = new Array[Char](chunk)
 
       var finished = false
       var leftover = ""
+      var parCount = new AtomicInteger()
       while (!finished) {
         var a =  stream.read(chars, 0, chunk)
         var chunkStr = leftover + new String(chars)
@@ -103,7 +106,7 @@ object WikipediaParsers {
         def processLinkChunk(str: String) = {
           // Very ugly, should use some state machine or proper parser
           var st = 0
-
+          val pages = new ArrayBuffer[Tuple3[Long, Int, String]]()
           var finished = false
           try {
             while(!finished) {
@@ -122,7 +125,7 @@ object WikipediaParsers {
                       val pageName = str.substring(b + 1, c)
                       val next = str.indexOf(")", c)
                       if (next > 0) {
-                        insertFn(pageId, namespace, pageName)
+                        pages.append((pageId, namespace, pageName))
                         st = next
                       } else finished = true
                     } else finished = true
@@ -137,6 +140,15 @@ object WikipediaParsers {
               throw e
             }
           }
+          // Handle insertions async -- but do not allow too many parallel calls
+          while(parCount.get() > 8) { Thread.sleep(100) }
+
+          async {
+             parCount.incrementAndGet()
+             pages.foreach(pg => insertFn(pg._1, pg._2, pg._3))
+             parCount.getAndDecrement
+          }
+
           str.substring(st)
         }
 
