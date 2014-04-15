@@ -6,7 +6,7 @@ it has been developed by [Aapo Kyrola](http://www.cs.cmu.edu/~akyrola) as part o
 GraphChi-DB is written in Scala, with some Java code. Generally, you need to know Scala quite well to be able to use it.
 
 **IMPORTANT: GraphChi-DB is early release, research code. It is buggy, it has awful API, and it is provided with no guarantees.
-DO NOT USE IT FOR ANYTHING IMPORTANT. **
+DO NOT USE IT FOR ANYTHING IMPORTANT.**
 
 
 ## License
