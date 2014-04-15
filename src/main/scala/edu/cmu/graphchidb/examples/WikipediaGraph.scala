@@ -24,16 +24,13 @@
 package edu.cmu.graphchidb.examples
 
 import edu.cmu.graphchidb.{GraphChiDatabase, GraphChiDatabaseAdmin}
-import scala.collection.mutable
 import java.io._
 
 import edu.cmu.graphchidb.Util._
 import edu.cmu.graphchidb.examples.util.WikipediaParsers
 import edu.cmu.graphchi.util.StringToIdMap
 import edu.cmu.graphchi.GraphChiEnvironment
-import scala.collection.mutable.ArrayBuffer
-import java.util.Collections
-import java.util
+
 import edu.cmu.graphchidb.queries.Queries
 import java.util.concurrent.atomic.AtomicLong
 
