@@ -37,6 +37,8 @@ Not provided. We suggest you look through the examples (see below), to get the b
 
 # Examples
 
+**In general, you must be very familiar with Scala and Java development to be able to use GraphChi-DB.** 
+
 ## To run
 
 Best way to explore GraphChi-DB is to load the project into an IDE (such as Eclipse or IntelliJ IDEA), and use the Scala Console. This will allow you to interactively explore the data.
