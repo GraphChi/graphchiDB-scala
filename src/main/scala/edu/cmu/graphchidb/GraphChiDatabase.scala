@@ -1001,11 +1001,6 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     }
   }
 
-  def createMySQLColumn(tableName: String, columnName: String, indexing: DatabaseIndexing) = {
-    val col = new MySQLBackedColumn[String](columns(indexing).size, tableName, columnName, indexing, vertexIdTranslate)
-    columns(indexing) = columns(indexing) :+ (tableName + "." + columnName, col.asInstanceOf[Column[Any]])
-    col
-  }
 
   def column(name: String, indexing: DatabaseIndexing) = {
     val col = columns(indexing).find(_._1 == name)
@@ -2052,40 +2047,41 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
           /* Load edges (parallel sliding windows) */
           // 1. In-edges
-          this.sweepInEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), subIntervalEn, edgeDataColumn
-          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
-            val v = vertices((dst - subIntervalSt).toInt)
-            try {
-              if (v != null) { v.addInEdge(src, dataPtr)}
-            } catch {
-              case e:Exception => e.printStackTrace()
+          this.bufferDrainLock.synchronized {
+            this.sweepInEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), subIntervalEn, edgeDataColumn
+            ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
+              val v = vertices((dst - subIntervalSt).toInt)
+              try {
+                if (v != null) { v.addInEdge(src, dataPtr)}
+              } catch {
+                case e:Exception => e.printStackTrace()
+              }
             }
-          }
-          )
+            )
 
-          // 2. Out-edges (parallel)
-          this.sweepOutEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), edgeDataColumn
-          ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
-            try {
+            // 2. Out-edges (parallel)
+            this.sweepOutEdgesWithJoinPtr(new VertexInterval(subIntervalSt, subIntervalEn), edgeDataColumn
+            ) ((src: Long, dst: Long, edgeType: Byte, dataPtr: Long) => {
+              try {
 
-              val v = vertices((src - subIntervalSt).toInt)
-              if (v != null) { v.addOutEdge(dst, dataPtr) }
-            } catch {
-              case e:Exception => e.printStackTrace()
+                val v = vertices((src - subIntervalSt).toInt)
+                if (v != null) { v.addOutEdge(dst, dataPtr) }
+              } catch {
+                case e:Exception => e.printStackTrace()
+              }
+            })
+
+
+            /* Execute update functions -- not parallel now */
+            if (algo.isParallel) {
+              println("Update subinterval (parallel) " + subIntervalSt + " -- " + subIntervalEn)
+              vertices.par.foreach( v => if (v != null) { algo.update(v, ctx) } )
+            } else {
+              println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
+              vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
             }
-          })
-
-
-          /* Execute update functions -- not parallel now */
-          if (algo.isParallel) {
-            println("Update subinterval (parallel) " + subIntervalSt + " -- " + subIntervalEn)
-            vertices.par.foreach( v => if (v != null) { algo.update(v, ctx) } )
-          } else {
-            println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
-            vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
-          }
-          println("Done...")
-
+            println("Done...")
+          } // end synchronized
           subIntervalSt = subIntervalEn + 1
         }
       }

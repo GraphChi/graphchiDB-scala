@@ -9,6 +9,7 @@ import java.io.File
 import edu.cmu.graphchidb.Util._
 import edu.cmu.graphchidb.examples.computation.ConnectedComponentsLabelProp
 import edu.cmu.graphchidb.queries.Queries
+import edu.cmu.graphchidb.compute.Pagerank
 
 /**
  * Example application for social network graph.
@@ -46,10 +47,17 @@ object SocialNetworkExample {
   val timestampColumn = DB.createLongColumn("timestamp", DB.edgeIndexing)
   val weightColumn = DB.createFloatColumn("weight",   DB.edgeIndexing)
 
+  /* Pagerank -- run in background continuously */
+  val pagerankComputation = new Pagerank(DB)
+  val pagerankCol = DB.column("pagerank", DB.vertexIndexing).get
 
+  /* Connected components (run connectedComponents()) */
   val ccAlgo = new ConnectedComponentsLabelProp(DB)
 
   DB.initialize()
+
+  /* Start pagerank */
+  DB.runIteration(pagerankComputation, continuous=true)
 
 
   def startIngest() {
@@ -82,7 +90,10 @@ object SocialNetworkExample {
 
 
   def connectedComponents() {
+    async {
+      println("Running connected components in background...")
       DB.runGraphChiComputation(ccAlgo, 100, enableScheduler=true)
+    }
   }
 
   /**

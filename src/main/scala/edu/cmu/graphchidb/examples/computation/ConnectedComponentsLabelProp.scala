@@ -27,16 +27,6 @@ class ConnectedComponentsLabelProp(database: GraphChiDatabase)
    * @param context
    */
   def update(vertex: GraphChiVertex[Long, Long], context: GraphChiContext) = {
-    // debug
-    if (vertex.inc.get != vertex.inDegree) {
-      System.err.println("Mismatch in indeg: " + vertex.inc.get + " / " + vertex.inDegree)
-    }
-    // assert(vertex.inc.get == vertex.inDegree)
-    if (vertex.inc.get != vertex.inDegree) {
-      System.err.println("Mismatch in outdeg: " + vertex.outc.get + " / " + vertex.outDegree)
-    }
-    assert(vertex.outc.get == vertex.outDegree)
-
     val minLabel = vertex.edgeValues.foldLeft(vertex.id)((mn, label) => math.min(mn, label))
 
     if (minLabel != vertex.getData || context.iteration == 0) {

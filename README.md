@@ -51,6 +51,11 @@ Following JVM parameters are recommended:
 However, do NOT add more memory to the JVM, because GraphChi-DB uses memory mapping of the operating system to manage the data. It is better to leave as much memory for the OS to use for memory mapping.
 
 
+## Example: Social Network
+
+## Example: Wikipedia Graph
+
+## Example: Movie Database and Recommender
 
 
 # Notes

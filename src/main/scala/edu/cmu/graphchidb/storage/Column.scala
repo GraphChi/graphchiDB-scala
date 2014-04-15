@@ -1,18 +1,12 @@
 package edu.cmu.graphchidb.storage
 
-import edu.cmu.graphchidb.{Util, GraphChiDatabase, DatabaseIndexing}
+import edu.cmu.graphchidb.{Util, DatabaseIndexing}
 import edu.cmu.graphchidb.storage.ByteConverters._
 
 import sun.reflect.generics.reflectiveObjects.NotImplementedException
 import java.io._
-import java.sql.DriverManager
-import edu.cmu.graphchi.preprocessing.VertexIdTranslate
-import java.nio.{MappedByteBuffer, LongBuffer, ByteBuffer}
-import scala.Some
-import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
-import java.nio.channels.FileChannel.MapMode
-import java.util.concurrent.locks.ReentrantReadWriteLock
-import scala.collection.mutable.ArrayBuffer
+import java.nio.{ByteBuffer}
+
 
 /**
  *
@@ -219,105 +213,3 @@ class CategoricalColumn(id: Int, filePrefix: String, indexing: DatabaseIndexing,
 
 }
 
-
-class MySQLBackedColumn[T](id: Int, tableName: String, columnName: String, _indexing: DatabaseIndexing,
-                           vertexIdTranslate: VertexIdTranslate) extends Column[T] {
-
-  def encode(value: T, out: ByteBuffer) = throw new UnsupportedOperationException
-  def decode(in: ByteBuffer) = throw new UnsupportedOperationException
-  def elementSize = throw new UnsupportedOperationException
-
-  def autoFillVertex : Option[(Long) => T] = None
-  def autoFillEdge : Option[(Long, Long, Byte) => T] = None
-
-  override def columnId = id
-
-  override  def readValueBytes(shardNum: Int, idx: Int, buf: ByteBuffer) : Unit = throw new UnsupportedOperationException
-
-  def delete = throw new NotImplementedException
-
-
-
-  // TODO: temporary code
-  val dbConnection = {
-    Class.forName("com.mysql.jdbc.Driver")
-    DriverManager.getConnection("jdbc:mysql://127.0.0.1/graphchidb?" +
-      "user=graphchidb&password=dbchi9999")
-  }
-
-  def get(_idx: Long) = {
-    val idx = vertexIdTranslate.backward(_idx)
-    val pstmt = dbConnection.prepareStatement("select %s from %s where id=?".format(columnName, tableName))
-    try {
-      pstmt.setLong(1, idx)
-      val rs = pstmt.executeQuery()
-      if (rs.next()) Some(rs.getObject(1).asInstanceOf[T]) else None
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-  }
-
-  override def getName(idx: Long) = get(idx).map(a => a.toString).headOption
-
-
-  override def getMany(_idxs: Set[Long]) : Map[Long, Option[T]] = {
-    val idxs = new Array[Long](_idxs.size)
-    _idxs.zipWithIndex.foreach { tp=> { idxs(tp._2) = vertexIdTranslate.backward(tp._1) } }
-
-    val pstmt = dbConnection.prepareStatement("select id, %s from %s where id in (%s)".format(columnName, tableName,
-      idxs.mkString(",")))
-    try {
-      val rs = pstmt.executeQuery()
-
-      new Iterator[(Long, Option[T])] {
-        def hasNext = rs.next()
-        def next() = (vertexIdTranslate.forward(rs.getLong(1)), Some(rs.getObject(2).asInstanceOf[T]))
-      }.toStream.toMap
-
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-
-
-  }
-  def foldLeft[B](z: B)(op: (B, T, Long) => B): B = {
-    throw new NotImplementedException
-  }
-
-
-
-  def set(_idx: Long, value: T) = {
-    val idx = vertexIdTranslate.backward(_idx)
-    val pstmt = dbConnection.prepareStatement("replace into %s (id, %s) values(?, ?)".format(tableName, columnName))
-    try {
-      pstmt.setLong(1, idx)
-      pstmt.setObject(2, value)
-      pstmt.executeUpdate()
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-  }
-
-  def getByName(name: String) : Option[Long] = {
-    val pstmt = dbConnection.prepareStatement("select id from %s where %s=?".format(tableName, columnName))
-    try {
-      pstmt.setString(1, name)
-      val rs = pstmt.executeQuery()
-      if (rs.next) Some(vertexIdTranslate.forward(rs.getLong(1))) else None
-    } finally {
-      if (pstmt != null) pstmt.close()
-    }
-  }
-
-  def indexing = _indexing
-
-  def foreach(op: (Long,T) => Unit) : Unit= {
-    throw new NotImplementedException
-  }
-
-
-  def updateAll(updateFunc: (Long, Option[T]) => T) : Unit = throw new NotImplementedException
-  def recreateWithData(shardNum: Int, data: Array[Byte]) : Unit = throw new NotImplementedException
-  def select(op: (Long, T) => Boolean) : Iterator[(Long, T)]  = throw new NotImplementedException
-
-}

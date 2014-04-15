@@ -53,33 +53,43 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
                                                    edgeDataColumn: Option[Column[EdgeDataType]],
                                                    val inDegree: Int, val outDegree: Int) {
   /* Internal specification of edges */
-  val inc = new AtomicInteger(0)
-  val outc = new AtomicInteger(0)
+  var inc = 0
+  var outc = 0
   // First in-edges, then out-edges. Alternating tuples (vertex-id, dataPtr)
   private val edgeSpec = new Array[Long]((inDegree + outDegree) * 2)
 
 
   def addInEdge(vertexId: Long, dataPtr: Long) : Unit = {
-    val i = inc.getAndIncrement
-    if (inc.get() > inDegree) {
-      System.err.println("Mismatch vertex " + id + " inc=" + inc + " inDeg=" + inDegree)
+    this.synchronized {
+      if (inc < inDegree) {
+        val i = inc
+        inc += 1
+
+        edgeSpec(i * 2) = vertexId
+        edgeSpec(i * 2 + 1) = dataPtr
+      } // If more edges were added during the construction of this vertex, ignore them. Questionnable!
     }
-    edgeSpec(i * 2) = vertexId
-    edgeSpec(i * 2 + 1) = dataPtr
   }
 
   def addOutEdge(vertexId: Long, dataPtr: Long) : Unit = {
-    val i = outc.getAndIncrement  + inDegree
-    if (outc.get() > outDegree) {
-      System.err.println("Mismatch vertex " + id + " outc=" + outc + " outDeg=" + outDegree)
-      assert(false)
+    this.synchronized {
+      if (outc < outDegree) {
+        val i = outc  + inDegree
+        outc += 1
+
+        edgeSpec(i * 2) = vertexId
+        edgeSpec(i * 2 + 1) = dataPtr
+      }
     }
-    edgeSpec(i * 2) = vertexId
-    edgeSpec(i * 2 + 1) = dataPtr
   }
 
-  def edge(i : Int) : GraphChiEdge[EdgeDataType] =
+  private def adjust(j: Int) =  if (inc < inDegree && j >= inc) { j + (inDegree - inc)} else { j } // Adjust for if got less edges than expected
+
+
+  def edge(j : Int) : GraphChiEdge[EdgeDataType] = {
+    val i = adjust(j)
     new GraphChiEdge[EdgeDataType](edgeSpec(i * 2), edgeSpec(i * 2 + 1), edgeDataColumn, database)
+  }
 
   def inEdge(i: Int) = if (i < inDegree) { edge(i) } else
   { throw new ArrayIndexOutOfBoundsException("Asked in-edge %d, but in-degree only %d".format(i, inDegree))}
@@ -89,25 +99,26 @@ class GraphChiVertex[VertexDataType, EdgeDataType](val id: Long, database: Graph
 
   def edges = (0 until getNumEdges).iterator.map {i => edge(i)}
 
-  def printEdgePtrs =  (0 until getNumEdges).foreach {i => println("%d:%d".format(edgeSpec(i * 2), edgeSpec(i * 2 + 1))) }
+  // Debug
+  def printEdgePtrs() =  (0 until getNumEdges).foreach {i => println("%d:%d".format(edgeSpec(adjust(i) * 2), edgeSpec(adjust(i) * 2 + 1))) }
 
-  def edgeValues =  (0 until getNumEdges).iterator.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1)).get}
-  def edgeVertexIds =  (0 until getNumEdges).iterator.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(i * 2)).get}
+  def edgeValues =  (0 until getNumEdges).iterator.map {i =>  database.getByPointer(edgeDataColumn.get, edgeSpec(adjust(i) * 2 + 1)).get}
+  def edgeVertexIds =  (0 until getNumEdges).iterator.map {i =>  edgeSpec(adjust(i) * 2)}
 
   def setAllEdgeValues(newVal: EdgeDataType) =
-    (0 until getNumEdges).foreach {i => database.setByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1), newVal)}
+    (0 until getNumEdges).foreach {i => database.setByPointer(edgeDataColumn.get, edgeSpec(adjust(i) * 2 + 1), newVal)}
 
   def setAllOutEdgeValues(newVal: EdgeDataType) =
-    (inDegree until getNumEdges).foreach {i => database.setByPointer(edgeDataColumn.get, edgeSpec(i * 2 + 1), newVal)}
+    (inDegree until getNumEdges).foreach {i => database.setByPointer(edgeDataColumn.get, edgeSpec(adjust(i) * 2 + 1), newVal)}
 
 
 
   def inEdges = (0 until getNumOutEdges).iterator.map {i => outEdge(i)}
   def outEdges = (0 until getNumInEdges).iterator.map {i => inEdge(i)}
 
-  def getNumInEdges = inDegree
-  def getNumOutEdges = outDegree
-  def getNumEdges = inDegree + outDegree
+  def getNumInEdges = inc
+  def getNumOutEdges = outc
+  def getNumEdges = inc + outc
 
   def getData = vertexDataColumn match {
     case Some(column: Column[VertexDataType])=> column.get(id).get
