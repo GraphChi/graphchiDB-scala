@@ -1,6 +1,6 @@
 # GraphChi-DB
 
-GraphChi-DB is a scalable, embedded, single-computer graph database that can also execute similar large-scale graph computation as [GraphChi](https://github.com/graphchi).
+GraphChi-DB is a scalable, embedded, single-computer online graph database that can also execute similar large-scale graph computation as [GraphChi](https://github.com/graphchi).
 it has been developed by [Aapo Kyrola](http://www.cs.cmu.edu/~akyrola) as part of his Ph.D. thesis.
 
 GraphChi-DB is written in Scala, with some Java code. Generally, you need to know Scala quite well to be able to use it.
@@ -55,8 +55,35 @@ However, do NOT add more memory to the JVM, because GraphChi-DB uses memory mapp
 
 # Notes
 
+## Online
+
+An added edge is immediately visible to queries and subsequent computation. That is, you can query the database while inserting new data.
+There is currently no batch mode to insert edges. Still, even in the online mode you can expect to be able to insert over 100K edges per second.
+
 ## ID-mapping
+
+GraphChi-DB maps original vertex IDs to an internal ID space. Functions that ask for "origId" expect you to provide the original vertex ID (from the source data).
+Typically you need to map IDs returned by the database into original IDs. See the example applications for examples. The GraphChiDB class has two functions to map between the ID spaces:
+
+```java
+DB.originalToInternalId(origId)
+DB.internalToOriginalId(internalId)
+```
+
+This mapping is awkward, but crucial for the performance of the database. See the publication for more information.
+
+
 
 ## Durability
 
-##
+New edges are first added to in-memory buffers. When the buffers are full, they are flushed to disk. If the computer crashes when the edges are in buffers, they are lost!
+GraphChi-DB has also a durable mode which logs all edges to a file before adding them to buffers (see the configuration file). However, there is currently no method to recover after a crash.
+
+GraphChi-DB uses a shutdown hook to flush the buffered edges to disk. It is important not to force-kill the JVM! You can also manually call
+
+```java
+DB.flushAllBuffers()
+
+```
+
+Again, see the example applications...
