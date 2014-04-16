@@ -11,8 +11,8 @@ DO NOT USE IT FOR ANYTHING IMPORTANT.**
 
 ## License
 
-GraphChi-DB is licensed under the Apache License, Version 2.0
-Each source code file has full license information.
+GraphChi-DB is licensed under the Apache License, Version 2.0.
+See any source code file for full license information.
 
 ## Requirements
 
