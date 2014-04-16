@@ -102,6 +102,33 @@ Remember to configure the proper filenames in the code. Look for variable "sourc
    pagerankCol.get(DB.originalToInternalId(8737)).get
 ```
 
+### Advanced Social Network Analysis
+
+Application __SubgraphFrequencies__ allows reproducing some of the results in paper [Ugander, Backstrom, Kleinberg: "Subgraph frequencies: Mapping the empirical and extremal geography of large graph collections"] (http://www2013.org/proceedings/p1307.pdf).
+
+Given a graph (social network), it will sample a set of vertices, and for each of the vertices load the induced subgraph of the vertex's neighbors (excluding itself).
+From each induced neighborhood graph, we sample thousands of times three vertices and record the type of subgraph induced by the three vertices.
+The frequencies are output to a file that can be plotted using R or Matlab to see the subgraph frequency distribution of the graph.
+
+Note: you need to first create the graph (see previous example).
+
+Example session:
+```scala
+   // Usage:
+       import edu.cmu.graphchidb.examples.SubgraphFrequencies._
+
+       // To compute subgraph freqs of a given vertex neighborhood
+       computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(2419))
+
+      // To produce data similar to used in Figure 1 of Ugander et. al.:
+       computeDistribution(500)
+   )
+
+```
+
+The source code contains a sample R script to plot the distribution.
+
+
 
 
 ## Example: Wikipedia Graph
