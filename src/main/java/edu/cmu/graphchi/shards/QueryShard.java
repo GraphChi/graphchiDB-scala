@@ -395,7 +395,7 @@ public class QueryShard {
                     long[] cached = (queryCache == null ||  queryCache.size() >= queryCacheSize || freezeCache ? null : new long[n]);
                     int cachek = 0;
 
-                    for(int i=0; i<n; i++) {
+                    for(int i=0; i<n && tmpAdjBuffer.position() < tmpAdjBuffer.capacity(); i++) {
                         long e = tmpAdjBuffer.get();
                         byte etype = VertexIdTranslate.getType(e);
 
@@ -465,7 +465,8 @@ public class QueryShard {
 
                 tmpAdjBuffer.position((int)curPtr);
 
-                for(int i=0; i<n; i++) {
+                for(int i=0; i<n && tmpAdjBuffer.position() < tmpAdjBuffer.capacity(); i++) {
+                    // The latter condition is to fix some bug with the last vertex?
                     long e = tmpAdjBuffer.get();
                     byte etype = VertexIdTranslate.getType(e);
 

@@ -106,7 +106,11 @@ Remember to configure the proper filenames in the code. Look for variable "sourc
 
 ## Example: Wikipedia Graph
 
-This example application reads Wikipedia's SQL dumps and creates a graph of the wikipedia pages. It allows you to then find shortest paths between pages. You can consider extending it with Pagerank, Connected Components etc. by using techniques from the previous example.
+This example application reads Wikipedia's SQL dumps and creates a graph of the wikipedia pages. The process takes a while (a couple of hours)
+because the program needs to resolve page names to page IDs.
+
+It allows you to then find shortest paths between pages.
+You can consider extending it with Pagerank, Connected Components etc. by using techniques from the previous example.
 
 ### Input data
 
