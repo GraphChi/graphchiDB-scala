@@ -55,6 +55,8 @@ However, do NOT add more memory to the JVM, because GraphChi-DB uses memory mapp
 
 ## Example: Social Network
 
+Source: https://github.com/GraphChi/graphchiDB-scala/blob/master/src/main/scala/edu/cmu/graphchidb/examples/SocialNetworkExample.scala
+
 This example creates a graph from a social network data. For each edge, we add a timestamp and weight column. In this example, this values
 are populated with random values, so they are just provided as an example.
 
@@ -104,6 +106,8 @@ Remember to configure the proper filenames in the code. Look for variable "sourc
 
 ### Advanced Social Network Analysis
 
+Source: https://github.com/GraphChi/graphchiDB-scala/blob/master/src/main/scala/edu/cmu/graphchidb/examples/SubgraphFrequencies.scala
+
 Application __SubgraphFrequencies__ allows reproducing some of the results in paper [Ugander, Backstrom, Kleinberg: "Subgraph frequencies: Mapping the empirical and extremal geography of large graph collections"] (http://www2013.org/proceedings/p1307.pdf).
 
 Given a graph (social network), it will sample a set of vertices, and for each of the vertices load the induced subgraph of the vertex's neighbors (excluding itself).
@@ -132,6 +136,8 @@ The source code contains a sample R script to plot the distribution.
 
 
 ## Example: Wikipedia Graph
+
+Source: https://github.com/GraphChi/graphchiDB-scala/blob/master/src/main/scala/edu/cmu/graphchidb/examples/WikipediaGraph.scala
 
 This example application reads Wikipedia's SQL dumps and creates a graph of the wikipedia pages. The process takes a while (a couple of hours)
 because the program needs to resolve page names to page IDs.
@@ -174,6 +180,8 @@ Note, that the first query will take a long time as the application needs to com
 
 ## Example: Movie Database and Recommender
 
+Source: https://github.com/GraphChi/graphchiDB-scala/blob/master/src/main/scala/edu/cmu/graphchidb/examples/MovieDatabase.scala
+
 This example creates a database of movies and a graph of user - movie ratings. After the database has been populated, you can run matrix factorization using the Alternating Least Squares (ALS) algorithm and use it to recommend movies to a user. Note, that this is overly simple recommender algorithm and unlikely to produce very good results.
 
 ### Data
@@ -191,7 +199,7 @@ Ingest:
   startIngest
 ```
 
-Recommend
+Recommend:
 ```scala
   import edu.cmu.graphchidb.examples.MovieDatabase._
   recommendForUser(X)
