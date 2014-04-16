@@ -27,6 +27,9 @@ import edu.cmu.graphchidb.queries.frontier.FrontierQueries._
 import edu.cmu.graphchidb.storage.Column
 import edu.cmu.graphchidb.queries.frontier.{DenseVertexFrontier, VertexFrontier}
 import scala.actors.Futures
+import scala.collection.mutable.ArrayBuffer
+import edu.cmu.graphchi.queries.QueryCallback
+import java.{lang, util}
 
 /**
  * Advanced queries
@@ -65,6 +68,32 @@ object Queries {
       val result = friends->selectOut(edgeType, groupByCount, dst => !start.hasVertex(dst))
       result.results })
   }
+
+
+  /**
+   * Returns edges from the database that span between the vertices given
+   * See http://mathworld.wolfram.com/Vertex-InducedSubgraph.html
+   * @param vertices
+   * @param db
+   * @return
+   */
+
+  def inducedSubgraph(vertices: Set[Long], edgeType: Byte)(implicit db: GraphChiDatabase) = {
+      /* It suffices to find the out-edges for all the vertices that span between them */
+      var subgraphEdges = new ArrayBuffer[ResultEdge]()
+      db.queryOutMultiple(vertices.toSeq, edgeType, new QueryCallback {
+        def receiveInNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {}
+        def receiveOutNeighbors(vertexId: Long, neighborIds: util.ArrayList[lang.Long], edgeTypes: util.ArrayList[lang.Byte], dataPointers: util.ArrayList[lang.Long]) = {}
+        def immediateReceive() = true
+        def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
+            if (vertices.contains(dst)) {
+              subgraphEdges.append(ResultEdge(src, dst, dataPtr))
+            }
+        }
+      })
+    subgraphEdges
+  }
+
 
 
   def shortestPath(fromInternal: Long, toInternal: Long, maxDepth: Int = 5, edgeType: Byte)(implicit db: GraphChiDatabase) = {

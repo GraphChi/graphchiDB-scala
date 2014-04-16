@@ -61,6 +61,12 @@ public class StringToIdMap {
         else return strings.get(idx).id;
     }
 
+    public int getIdWithException(String s) {
+        int id = getId(s);
+        if (id == -1) throw new RuntimeException("Cannot find string: " + s);
+        return id;
+    }
+
     static class IdString implements Comparable<IdString> {
         private int id;
         private String str;

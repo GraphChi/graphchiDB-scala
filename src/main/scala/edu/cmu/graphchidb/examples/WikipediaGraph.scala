@@ -107,7 +107,7 @@ object WikipediaGraph {
 
       if (namespace == 0) {
         val toPageOrigId = pageIndex.getId(toPageName)
-        if (toPageOrigId >= 0) {
+        if (toPageOrigId >= 0 && toPageOrigId != fromPageIdOrigId) { // Prune self-links as they are not very interesting
           DB.addEdgeOrigId(linkType, fromPageIdOrigId, toPageOrigId)
 
           insertedLinks += 1
@@ -153,6 +153,12 @@ object WikipediaGraph {
     })
   }
 
+  def populate() = {
+    timed("populate", {
+      loadPagesFromDump()
+      loadLinksFromDump() } )
+  }
+
   def pageName(origId: Int) = {
     pageTitleVarData.getString(pageTitlePointer.get(DB.originalToInternalId(origId)).get)
   }
@@ -166,9 +172,17 @@ object WikipediaGraph {
     path.map { id => (pageName(DB.internalToOriginalId(id).toInt), DB.internalToOriginalId(id).toInt) }
   }
 
-  def populate() = {
-    timed("populate", {
-      loadPagesFromDump()
-      loadLinksFromDump() } )
+
+  /**
+   * Computes the subgraph of a set of pages
+   * @param pages
+   * @return
+   */
+  def inducedSubgraph(pages: Set[String]) = {
+     val internalIds = pages.map(title => DB.originalToInternalId(pageIndex.getIdWithException(title)))
+
+     val subgraph = Queries.inducedSubgraph(internalIds, linkType)
+     subgraph.map(edge => (pageName(DB.internalToOriginalId(edge.src).toInt), pageName(DB.internalToOriginalId(edge.dst).toInt)))
   }
+
 }

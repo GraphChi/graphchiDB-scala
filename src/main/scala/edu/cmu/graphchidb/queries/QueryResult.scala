@@ -30,6 +30,8 @@ import edu.cmu.graphchidb.queries.internal.{QueryResultContainer, ResultEdges}
 
 case class VertexId(originalId: Long, internalId: Long)
 
+case class ResultEdge(src: Long, dst: Long, dataPtr: Long)
+
 /**
  * TODO: this needs refactoring
  * @author Aapo Kyrola
