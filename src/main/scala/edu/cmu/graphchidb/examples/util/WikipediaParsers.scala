@@ -114,15 +114,22 @@ object WikipediaParsers {
 
       // Now we are where the data starts
       var chunk = 65536
+      val totalBytes = linkFile.length()
+      var readBytes = 0
       val chars = new Array[Char](chunk)
 
       var finished = false
+      var i  = 0
       var leftover = ""
-      var parCount = new AtomicInteger()
-      while (!finished) {
+       while (!finished) {
         var a =  stream.read(chars, 0, chunk)
+        i += 1
+        readBytes += a
         var chunkStr = leftover + new String(chars)
 
+        if (i % 100 == 0) {
+           println(" Read %d bytes of %d total, %f percent".format(readBytes, totalBytes, (readBytes.toDouble / totalBytes) * 100.0))
+        }
 
 
         def processLinkChunk(str: String) = {

@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong
  * Example application that reads
  * wikipedia SQL dumps to create a graph. Dumps available from Wikipedia.
  *
- * In the 2014-04-03 dump, there were about 42.4 million pages and over 300 million edges.
+ * In the 2014-04-03 dump, there were about 42.4 million pages and over 400 million edges.
  * Creating the database will take >3 hours on a laptop with SSD.
  *
  * Note, to use this example you need to allocate at least 5 gigs of memory (-Xmx5G)
