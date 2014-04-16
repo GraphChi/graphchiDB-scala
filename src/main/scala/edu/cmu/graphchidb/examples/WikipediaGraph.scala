@@ -63,6 +63,7 @@ object WikipediaGraph {
    shortestPath("Rabbit", "Empire_State_Building")
     // Note that in the beginning the queries are slower as the data is not yet paged into memory.
 
+    inducedSubgraph(Set("Finland", "Sweden", "Russia", "Norway", "Denmark", "Iceland"))
     */
 
   val pageInfo =  System.getProperty("user.home")  + "/graphs/wikipedia/enwiki-20140402-page.sql"
