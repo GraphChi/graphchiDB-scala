@@ -60,7 +60,7 @@ object WikipediaGraph {
    shortestPath("Barack_Obama", "Sauli_Niinisto")
    shortestPath("Helsinki", "Pittsburgh")
    shortestPath("Carnegie_Mellon_University", "Graph")
-
+   shortestPath("Rabbit", "Empire_State_Building")
     // Note that in the beginning the queries are slower as the data is not yet paged into memory.
 
     */

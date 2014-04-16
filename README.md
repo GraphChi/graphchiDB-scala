@@ -125,7 +125,7 @@ You need to run this only on your first session:
 ```scala
   import  edu.cmu.graphchidb.examples.WikipediaGraph._
 
-  // If first time, populate the DB (takes 3 hours on SSD, MacBook Pro)
+  // If first time, populate the DB (takes 4 hours on SSD, MacBook Pro)
   populate()
 ```
 
@@ -134,9 +134,11 @@ You need to run this only on your first session:
 Note, that the first query will take a long time as the application needs to compute the page title index. Also, it takes time before the graph is fully cached (using memory mapping).
 
 ```scala
-  import  edu.cmu.graphchidb.examples.WikipediaGraph._ shortestPath("Barack_Obama", "Sauli_Niinisto")
+  import  edu.cmu.graphchidb.examples.WikipediaGraph._
+  shortestPath("Barack_Obama", "Sauli_Niinisto")
   shortestPath("Helsinki", "Pittsburgh")
   shortestPath("Carnegie_Mellon_University", "Graph")
+  shortestPath("Rabbit", "Empire_State_Building")
 ```
 
 ## Example: Movie Database and Recommender
@@ -188,6 +190,10 @@ DB.internalToOriginalId(internalId)
 This mapping is awkward, but crucial for the performance of the database. See the publication for more information.
 
 
+## Crash?
+
+Sometimes GraphChi-DB seems to get silently stuck. This is caused by an Out-of-Memory error that is not being, for some reason, thrown and logged.
+You should allocate 5 gigabytes of RAM to the JVM: -Xmx5G
 
 ## Durability
 
