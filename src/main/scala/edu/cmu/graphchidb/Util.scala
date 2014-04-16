@@ -68,4 +68,17 @@ object Util {
       fout.close()
   }
 
+
+  /* Utility to choose numSamples elements from 0 to size-1 */
+  def randomIndices(size: Int, numSamples: Int) = {
+    assert(numSamples <= size)
+    def genRandomSet(s: Set[Int]) : Set[Int] = {
+      if (s.size < numSamples) {
+        val r = Random.nextInt(size)
+        if (s.contains(r)) { genRandomSet(s) }
+        else { genRandomSet(s + r)}
+      } else s
+    }
+    genRandomSet(Set[Int]())
+  }
 }
