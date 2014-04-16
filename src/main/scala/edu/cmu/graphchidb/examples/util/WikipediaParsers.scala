@@ -128,8 +128,7 @@ object WikipediaParsers {
         def processLinkChunk(str: String) = {
           // Very ugly, should use some state machine or proper parser
           var st = 0
-          val pages = new ArrayBuffer[Tuple3[Long, Int, String]]()
-          var finished = false
+           var finished = false
           try {
             while(!finished) {
               val stnext = str.indexOf("(", st)
@@ -147,7 +146,7 @@ object WikipediaParsers {
                       val pageName = str.substring(b + 1, c)
                       val next = str.indexOf(")", c)
                       if (next > 0) {
-                        pages.append((pageId, namespace, pageName))
+                        insertFn(pageId, namespace, pageName)
                         st = next
                       } else finished = true
                     } else finished = true
@@ -161,14 +160,6 @@ object WikipediaParsers {
               println(str)
               throw e
             }
-          }
-          // Handle insertions async -- but do not allow too many parallel calls
-          while(parCount.get() > 8) { Thread.sleep(100) }
-
-          async {
-             parCount.incrementAndGet()
-             pages.foreach(pg => insertFn(pg._1, pg._2, pg._3))
-             parCount.getAndDecrement
           }
 
           str.substring(st)
