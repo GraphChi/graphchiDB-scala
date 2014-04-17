@@ -141,8 +141,9 @@ object SubgraphFrequencies {
        if (freqs.sum > 0) {
          fw.write("%f,%f,%f,%f\n".format(freqs(0), freqs(1), freqs(2), freqs(3)))
          n += 1
+         println("%d/%d".format(n, N))
+
        }
-       println("%d/%d".format(n, N))
      }
       fw.close()
       println("Results in subgraphs.txt")
