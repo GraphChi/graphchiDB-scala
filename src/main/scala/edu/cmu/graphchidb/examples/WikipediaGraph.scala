@@ -57,6 +57,8 @@ object WikipediaGraph {
 
  // Otherwise, and after that, can start playing
  // Note: initialization of the index will take maybe a minute.
+      import  edu.cmu.graphchidb.examples.WikipediaGraph._
+
    shortestPath("Barack_Obama", "Sauli_Niinisto")
    shortestPath("Helsinki", "Pittsburgh")
    shortestPath("Carnegie_Mellon_University", "Graph")

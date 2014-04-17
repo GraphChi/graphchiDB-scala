@@ -87,10 +87,12 @@ object Queries {
         def immediateReceive() = true
         def receiveEdge(src: Long, dst: Long, edgeType: Byte, dataPtr: Long) = {
             if (vertices.contains(dst)) {
-              subgraphEdges.append(ResultEdge(src, dst, dataPtr))
+              subgraphEdges.synchronized {
+                subgraphEdges.append(ResultEdge(src, dst, dataPtr))
+              }
             }
         }
-      })
+      }, parallel=true)
     subgraphEdges
   }
 
