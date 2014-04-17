@@ -80,7 +80,6 @@ object SubgraphFrequencies {
 
 
   /* Input graph: change to match your graph */
-  val sourceFile =  System.getProperty("user.home")  + "/graphs/soc-LiveJournal1.txt"
   val baseFilename = System.getProperty("user.home")  + "/graphs/DB/livejournal/lj"
   val numShards = 16
 
