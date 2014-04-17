@@ -46,11 +46,6 @@ Not provided. We suggest you look through the examples (see below), to get the b
 Best way to explore GraphChi-DB is to load the project into an IDE (such as Eclipse or IntelliJ IDEA), and use the Scala Console. This will allow you to interactively explore the data.
 You can also include GraphChi-DB easily in your Scala project.
 
-Alternative, you can use Scala console with Maven, as follows:
-```
-  mvn compile scala:console -DjvmArgs=-Xmx5G
-```
-
 Following JVM parameters are recommended:
 ```
    -Xmx5G -ea
