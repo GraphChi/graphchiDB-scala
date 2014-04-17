@@ -57,8 +57,6 @@ public class QueryShard {
 
     private ShardIndex index;
     private int shardNum;
-    private int numShards;
-    private String fileName;
     private File adjFile;
 
     private LongBuffer adjBuffer;
@@ -66,8 +64,8 @@ public class QueryShard {
     private IntBuffer inEdgeStartBuffer;
     private VertexInterval interval;
 
-    private Config dbConfig;
 
+    private int deletedCount = 0;
 
     private static final Timer inEdgeIndexLookupTimer = GraphChiEnvironment.metrics.timer(name(QueryShard.class, "inedge-indexlookup"));
 
@@ -108,10 +106,7 @@ public class QueryShard {
 
     public QueryShard(String fileName, int shardNum, int numShards, VertexInterval interval, Config dbConfig) throws IOException {
         this.shardNum = shardNum;
-        this.numShards = numShards;
-        this.fileName = fileName;
         this.interval = interval;
-        this.dbConfig = dbConfig;
 
         pinIndexToMemory = dbConfig.getBoolean("queryshard.pinindex");
         queryCacheSize = dbConfig.getInt("queryshard.cachesize");
@@ -267,9 +262,14 @@ public class QueryShard {
         }
     }
 
+    public int getDeletedCount() {
+        return deletedCount;
+    }
+
     private void deleteEdgeAtPtr(Long ptr) {
         int idx = PointerUtil.decodeShardPos(ptr);
         long edge = adjBuffer.get(idx);
+        if (VertexIdTranslate.getType(edge) == VertexIdTranslate.DELETED_TYPE) deletedCount++;
         adjBuffer.put(idx, VertexIdTranslate.encodeAsDeleted(VertexIdTranslate.getVertexId(edge),
                 VertexIdTranslate.getAux(edge)));
 

@@ -224,6 +224,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
       persistentShard = new QueryShard(baseFilename, shardId, numShards, myInterval,  config)
     }
 
+    def deletedCount = persistentShard.getDeletedCount
+
 
     def find(edgeType: Byte, src: Long, dst: Long) : Option[Long] = {
       persistentShardLock.readLock().lock()
@@ -278,6 +280,30 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         i += 1
       }
       thisBuffer.compact
+    }
+
+    /* Rewrites this shard. The purpose of this is to remove deleted edges permanently. */
+    def reconstruct() : Unit = {
+        try {
+          println("Reconstructing disk shard: %d".format(shardId))
+          val myEdges = readIntoBuffer(this.myInterval)
+          val edgeSize = edgeEncoderDecoder.edgeSize
+
+          // Already sorted so no need to resort
+          FastSharder.writeAdjacencyShard(baseFilename, shardId, numShards, edgeSize, myEdges.srcArray,
+            myEdges.dstArrayWithType, myEdges.byteArray, myInterval.getFirstVertex,
+            myInterval.getLastVertex, true,  persistentShardLock.writeLock())
+
+          (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+            val columnBuffer = ByteBuffer.allocate(myEdges.numEdges * edgeEncoderDecoder.columnLength(columnIdx))
+            EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, myEdges.byteArray, myEdges.numEdges)
+            columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardId, columnBuffer.array())
+          })
+          reset()
+          println("Done reconstructing")
+        } finally {
+           persistentShardLock.writeLock().unlock()
+        }
     }
 
     def mergeToAndClear(destShards: Seq[DiskShard]) : Unit = {
@@ -794,6 +820,11 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
 
   val bufferDrainLock = new Object
+
+  /* Used to purge deleted edges from DB */
+  def reconstructShardsWithManyDeletedEdges = {
+     shards.filter(sh => sh.deletedCount > sh.numEdges * 0.25).map(_.reconstruct())
+  }
 
   def reportBufferStats = {
     log("Edges in buffers=%d".format(totalBufferedEdges))
