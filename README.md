@@ -143,6 +143,7 @@ Example session:
 
 The source code contains a sample R script to plot the distribution.
 
+To read more about statistical graph analysis using GraphChi-DB, check the wiki page: [Tutorial-Statistical-Graph-Analysis](https://github.com/GraphChi/graphchiDB-scala/wiki/Tutorial-Statistical-Graph-Analysis).
 
 
 
