@@ -853,6 +853,11 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
     bufferShards.foreach(_.init())
 
+    if (Runtime.getRuntime().maxMemory() < 5L * 1000L * 1000L * 1000L) {
+        println("##### WARNING: YOU HAVE LESS THAN 5 GIGABYTES OF MEMORY ALLOCATED TO GRAPHCHIDB ####")
+        println("##### THIS MAY LEAD TO OUT-OF-MEMORY PROBLEMS. USE -Xmx5G #####")
+    }
+
     // Add shutdown hook
     Runtime.getRuntime.addShutdownHook(shutdownHook)
 
