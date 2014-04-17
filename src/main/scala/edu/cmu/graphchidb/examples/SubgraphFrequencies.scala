@@ -56,7 +56,7 @@ object SubgraphFrequencies {
     import edu.cmu.graphchidb.examples.SubgraphFrequencies._
 
     // To compute subgraph freqs of a given vertex neighborhood
-    computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(2419))
+    computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(DB.originalToInternalId(2419)))
 
    // To produce data similar to used in Figure 1 of Ugander et. al.:
     computeDistribution(500)
@@ -89,8 +89,7 @@ object SubgraphFrequencies {
 
   DB.initialize()
 
-  def inducedNeighborhoodGraph(origVertexId: Long): Set[ResultEdge] = {
-    val internalId = DB.originalToInternalId(origVertexId)
+  def inducedNeighborhoodGraph(internalId: Long): Set[ResultEdge] = {
     val friends = DB.queryOut(internalId, 0)
 
     val directedgraph = Queries.inducedSubgraph(friends.getInternalIds.toSet - internalId, 0)  // One might be friend of himself, to remove it
@@ -129,13 +128,12 @@ object SubgraphFrequencies {
       * Skips trivial vertices (too small neighborhoods).
       */
    def computeDistribution(N: Int = 500) = {
-     val numVertices = DB.numVertices
      var n = 0
      val fw = new FileWriter("subgraphs.txt")
 
      while(n < N) {
-       val randomVertexOrigId = Random.nextInt(numVertices.toInt)
-       val freqs = computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(randomVertexOrigId))
+       val randomVertexInternalId  =  DB.randomVertex()
+       val freqs = computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(randomVertexInternalId))
 
        if (freqs.sum > 0) {
          fw.write("%f,%f,%f,%f\n".format(freqs(0), freqs(1), freqs(2), freqs(3)))

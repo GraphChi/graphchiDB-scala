@@ -284,26 +284,26 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
     /* Rewrites this shard. The purpose of this is to remove deleted edges permanently. */
     def reconstruct() : Unit = {
-        try {
-          println("Reconstructing disk shard: %d".format(shardId))
-          val myEdges = readIntoBuffer(this.myInterval)
-          val edgeSize = edgeEncoderDecoder.edgeSize
+      try {
+        println("Reconstructing disk shard: %d".format(shardId))
+        val myEdges = readIntoBuffer(this.myInterval)
+        val edgeSize = edgeEncoderDecoder.edgeSize
 
-          // Already sorted so no need to resort
-          FastSharder.writeAdjacencyShard(baseFilename, shardId, numShards, edgeSize, myEdges.srcArray,
-            myEdges.dstArrayWithType, myEdges.byteArray, myInterval.getFirstVertex,
-            myInterval.getLastVertex, true,  persistentShardLock.writeLock())
+        // Already sorted so no need to resort
+        FastSharder.writeAdjacencyShard(baseFilename, shardId, numShards, edgeSize, myEdges.srcArray,
+          myEdges.dstArrayWithType, myEdges.byteArray, myInterval.getFirstVertex,
+          myInterval.getLastVertex, true,  persistentShardLock.writeLock())
 
-          (0 until columns(edgeIndexing).size).foreach(columnIdx => {
-            val columnBuffer = ByteBuffer.allocate(myEdges.numEdges * edgeEncoderDecoder.columnLength(columnIdx))
-            EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, myEdges.byteArray, myEdges.numEdges)
-            columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardId, columnBuffer.array())
-          })
-          reset()
-          println("Done reconstructing")
-        } finally {
-           persistentShardLock.writeLock().unlock()
-        }
+        (0 until columns(edgeIndexing).size).foreach(columnIdx => {
+          val columnBuffer = ByteBuffer.allocate(myEdges.numEdges * edgeEncoderDecoder.columnLength(columnIdx))
+          EdgeBuffer.projectColumnToBuffer(columnIdx, columnBuffer, edgeEncoderDecoder, myEdges.byteArray, myEdges.numEdges)
+          columns(edgeIndexing)(columnIdx)._2.recreateWithData(shardId, columnBuffer.array())
+        })
+        reset()
+        println("Done reconstructing")
+      } finally {
+        persistentShardLock.writeLock().unlock()
+      }
     }
 
     def mergeToAndClear(destShards: Seq[DiskShard]) : Unit = {
@@ -823,7 +823,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
   /* Used to purge deleted edges from DB */
   def reconstructShardsWithManyDeletedEdges = {
-     shards.filter(sh => sh.deletedCount > sh.numEdges * 0.25).map(_.reconstruct())
+    shards.filter(sh => sh.deletedCount > sh.numEdges * 0.25).map(_.reconstruct())
   }
 
   def reportBufferStats = {
@@ -885,8 +885,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     bufferShards.foreach(_.init())
 
     if (Runtime.getRuntime().maxMemory() < 5L * 1000L * 1000L * 1000L) {
-        println("##### WARNING: YOU HAVE LESS THAN 5 GIGABYTES OF MEMORY ALLOCATED TO GRAPHCHIDB ####")
-        println("##### THIS MAY LEAD TO OUT-OF-MEMORY PROBLEMS. USE -Xmx5G #####")
+      println("##### WARNING: YOU HAVE LESS THAN 5 GIGABYTES OF MEMORY ALLOCATED TO GRAPHCHIDB ####")
+      println("##### THIS MAY LEAD TO OUT-OF-MEMORY PROBLEMS. USE -Xmx5G #####")
     }
 
     // Add shutdown hook
@@ -1110,10 +1110,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
       if (autoFilledVertexColumns.nonEmpty) {
         // Check if vertex was just added
-        if (inDegree(dst) + outDegree(dst) == 0) {
+        if (degree(dst) == 0) {
           autoFillVertexValue(dst)
         }
-        if (inDegree(src) + outDegree(src) == 0) {
+        if (degree(src) == 0) {
           autoFillVertexValue(src)
         }
       }
@@ -1778,6 +1778,30 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
   def inDegree(internalId: Long) = Util.hiBytes(degreeColumn.get(internalId).getOrElse(0L))
   def outDegree(internalId: Long) = Util.loBytes(degreeColumn.get(internalId).getOrElse(0L))
+
+  def degree(internalId: Long) = {
+    val b = degreeColumn.get(internalId).getOrElse(0L)
+    Util.hiBytes(b) + Util.loBytes(b)
+  }
+
+  /**
+   * Returns a random vertex with at least one edge
+   * @return
+   */
+  def randomVertex() : Long = {
+    val maxTries = 1000
+    var i =0
+    val n = numVertices
+    while(i < maxTries) {
+      val randOrigId = math.abs(scala.util.Random.nextLong()) % n
+      val internalId = originalToInternalId(randOrigId)
+      if (degree(internalId) > 0) {
+        return internalId
+      }
+      i += 1
+    }
+    throw new IllegalStateException("Could not find a random vertex with > 0 edges in %d tries".format(maxTries))
+  }
 
 
   def joinValue[T1](col: Column[T1], vertexId: Long, idx: Int, shardId: Int=0, buffer: Option[EdgeBuffer] = None): T1 = {

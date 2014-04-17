@@ -132,7 +132,8 @@ Example session:
        import edu.cmu.graphchidb.examples.SubgraphFrequencies._
 
        // To compute subgraph freqs of a given vertex neighborhood
-       computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(2419))
+           computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(DB.originalToInternalId(2419)))
+
 
       // To produce data similar to used in Figure 1 of Ugander et. al.:
        computeDistribution(500)
