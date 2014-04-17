@@ -3,6 +3,8 @@
 GraphChi-DB is a scalable, embedded, single-computer online graph database that can also execute similar large-scale graph computation as [GraphChi](https://github.com/graphchi).
 it has been developed by [Aapo Kyrola](http://www.cs.cmu.edu/~akyrola) as part of his Ph.D. thesis.
 
+It can handle graphs with billions of edges on just a laptop or PC, fast!
+
 GraphChi-DB is written in Scala, with some Java code. Generally, you need to know Scala quite well to be able to use it.
 
 **IMPORTANT: GraphChi-DB is early release, research code. It is buggy, it has awful API, and it is provided with no guarantees.
@@ -71,6 +73,7 @@ To run this example, you need to have some input graph. You can try these:
 * Twitter graph (2010): http://an.kaist.ac.kr/traces/WWW2010.html
 
 Remember to configure the proper filenames in the code. Look for variable "sourceFile".
+Also set the "numShards" parameter properly. Based on the expected number of edges, use one shard / 5 million edges. That is, for 1 billion edgers, use 200 shards. 
 
 
 ### Example session
@@ -247,6 +250,11 @@ DB.flushAllBuffers()
 ```
 
 Again, see the example applications...
+
+
+## Number of shards
+
+When creating a database, you need to specify the number of shards. A rule of thumb: if you expect N edges, use N / 5 million shards. So for 1 billion edges, use 200 shards, for 5 billion, maybe 500 is fine. 
 
 ## Debug log
 
