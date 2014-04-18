@@ -69,6 +69,12 @@ object Queries {
       result.results })
   }
 
+  def friendsOfFriends(internalId: Long, edgeType: Byte)(implicit db: GraphChiDatabase)  = {
+    val start = queryVertex(internalId, db)
+    val fof = start->traverseOut(edgeType)->traverseOut(edgeType)
+    fof.toSet
+  }
+
 
   /**
    * Returns edges from the database that span between the vertices given

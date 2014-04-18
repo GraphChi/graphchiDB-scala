@@ -50,12 +50,12 @@ You can also include GraphChi-DB easily in your Scala project.
 You can also launch Scala console directly from Maven, but remember to specify the proper JVM parameters, as follows:
 
 ```
-export MAVEN_OPTS="-Xmx5G" && mvn compile scala:console
+export MAVEN_OPTS="-Xmx6G -Djava.library.path=lib" && mvn compile scala:console
 ```
 
 Following JVM parameters are recommended:
 ```
-   -Xmx5G -ea
+   -Xmx6G -ea
 ```
 
 **Note:** With less than 5 gigabyte of RAM, the database may crash (silently) in an out-of-memory exception. This is because its buffers overflow, and the database cannot yet manage its own memory usage.
@@ -132,7 +132,7 @@ Example session:
        import edu.cmu.graphchidb.examples.SubgraphFrequencies._
 
        // To compute subgraph freqs of a given vertex neighborhood
-           computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(DB.originalToInternalId(2419)))
+       computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(DB.originalToInternalId(2419)))
 
 
       // To produce data similar to used in Figure 1 of Ugander et. al.:
