@@ -187,7 +187,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
 
   // TODO: hardcoded
   def shardSizeLimit = {
-    val maxSizeInBytes = 256 * 1024L * 1024L // todo, remove hard coding
+    val maxSizeInBytes = 128 * 1024L * 1024L // todo, remove hard coding
     maxSizeInBytes / (8 + 8 + edgeEncoderDecoder.edgeSize)
   }
 
