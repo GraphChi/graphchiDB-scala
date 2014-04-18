@@ -376,6 +376,12 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
               e.printStackTrace()
               throw e
             }
+            case oom: OutOfMemoryError => {
+                oom.printStackTrace()
+                System.err.println("Out-of-memory error received when merging shard.")
+                System.err.println("The state of the database may be inconsistent (you might have duplicate edges). Restart your JVM and add more memory with -Xmx")
+                System.err.println("Alternatively, modify the configuration parameters and reduce buffer size, and use more shards.")
+            }
           } finally {
 
             destShard.persistentShardLock.writeLock().unlock()
@@ -750,10 +756,22 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
                   }
                 } catch {
                   case e:Exception => e.printStackTrace()
+                  case oom: OutOfMemoryError => {
+                    oom.printStackTrace()
+                    System.err.println("Out-of-memory error received when merging shard when merging buffer to disk.")
+                    System.err.println("The state of the database may be inconsistent. Restart your JVM and add more memory with -Xmx")
+                    System.err.println("Alternatively, modify the configuration parameters and reduce buffer size, and use more shards.")
+                  }
                 } finally {
                 }
               } catch {
                 case e:Exception => e.printStackTrace()
+                case oom: OutOfMemoryError => {
+                  oom.printStackTrace()
+                  System.err.println("Out-of-memory error received when merging buffer to disk.")
+                  System.err.println("The state of the database may be inconsistent. Restart your JVM and add more memory with -Xmx")
+                  System.err.println("Alternatively, modify the configuration parameters and reduce buffer size, and use more shards.")
+                }
               }
             }
             )
@@ -1445,6 +1463,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
           shard.persistentShard.queryIn(internalId, result, edgeType)
         } catch {
           case e: Exception => e.printStackTrace()
+          case oom: OutOfMemoryError => {
+            oom.printStackTrace()
+            System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+          }
         }
       } finally {
         shard.persistentShardLock.readLock().unlock()
@@ -1481,6 +1503,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
             }})
         } catch {
           case e: Exception  => e.printStackTrace()
+          case oom: OutOfMemoryError => {
+              oom.printStackTrace()
+              System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+          }
         } finally {
           bufferShard.bufferLock.readLock().unlock()
         }
@@ -1502,6 +1528,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
           }
         } catch {
           case e: Exception  =>  e.printStackTrace()
+          case oom: OutOfMemoryError => {
+            oom.printStackTrace()
+            System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+          }
         }
       })
     } else {
@@ -1516,6 +1546,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
           }
         } catch {
           case e: Exception  =>  e.printStackTrace()
+          case oom: OutOfMemoryError => {
+            oom.printStackTrace()
+            System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+          }
         }
       })
     }
@@ -1547,6 +1581,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
                 }})}
           } catch {
             case e: Exception  => e.printStackTrace()
+            case oom: OutOfMemoryError => {
+              oom.printStackTrace()
+              System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+            }
           } finally {
             bufferShard.bufferLock.readLock().unlock()
           }
@@ -1573,6 +1611,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         } catch {
           case fqe: FinishQueryException => finished = true
           case e: Exception  =>  e.printStackTrace()
+          case oom: OutOfMemoryError => {
+            oom.printStackTrace()
+            System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+          }
         }
       }
 
@@ -1595,6 +1637,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
               })}
           } catch {
             case e: Exception  => e.printStackTrace()
+            case oom: OutOfMemoryError => {
+              oom.printStackTrace()
+              System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+            }
           } finally {
             bufferShard.bufferLock.readLock().unlock()
           }
@@ -1613,6 +1659,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         } catch {
           case fqe: FinishQueryException => finished = true
           case exception: Exception => exception.printStackTrace()
+          case oom: OutOfMemoryError => {
+            oom.printStackTrace()
+            System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+          }
         } finally {
           shard.persistentShardLock.readLock().unlock()
         }
