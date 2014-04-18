@@ -832,36 +832,34 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   }
 
   def checkBuffersAndParents(): Unit = {
-    if (totalBufferedEdges < 0.4 * bufferLimit) {
-      return
-    }
-
-    for(i <- 1 to 5) { // Hack
     val perBufferTrigger = (bufferLimit / bufferShards.size  * 0.75).toInt
-      val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
-      if (nonPendings.nonEmpty) {
-        val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
-        try {
-
-          if (math.random < (maxBuffer.numEdges * 1.0 / perBufferTrigger) ) {   // Probabilistic hack
-            reportBufferStats
-            this.bufferDrainLock.synchronized { // assure only one parallel drain happening at once (to save memory)
-              maxBuffer.mergeToParentsAndClear()
-            }
-
+    val nonPendings = bufferShards.filterNot(_.hasPendingMerge)
+    if (nonPendings.nonEmpty) {
+      val maxBuffer = nonPendings.maxBy(_.numEdgesInclDeletions)
+      try {
+        if (maxBuffer.numEdges >= perBufferTrigger) {
+          reportBufferStats
+          this.bufferDrainLock.synchronized { // assure only one parallel drain happening at once (to save memory)
+            maxBuffer.mergeToParentsAndClear()
           }
-        } catch {
-          case e : Exception => e.printStackTrace()
-        }
-      } else {
+          checkBuffersAndParents()
 
-        val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
-        if (!shardsAndSizesToMerge.isEmpty) {
-          val shardToMerge = shardsAndSizesToMerge.head._2
-          shardToMerge.mergeToParents()
         }
-
+      } catch {
+        case e : Exception => e.printStackTrace()
       }
+    } else {
+      println("No buffers to merge ... check disk shards")
+
+      val shardsAndSizesToMerge = shards.map(shard => (shard.numEdges, shard)).filter(_._1 > shardSizeLimit * 0.75)
+      if (!shardsAndSizesToMerge.isEmpty) {
+        val shardToMerge = shardsAndSizesToMerge.head._2
+        println("Found shard with over 75perc capacity -- will merge: shard=%d / %d edges".format(shardToMerge.shardId, shardToMerge.numEdges))
+        shardToMerge.mergeToParents()
+        // Try again
+        checkBuffersAndParents()
+      }
+
     }
   }
 
