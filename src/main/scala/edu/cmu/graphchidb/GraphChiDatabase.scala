@@ -2124,7 +2124,7 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   /* Runs vertex-centric computation, similar to GraphChi */
   def runGraphChiComputation[VT, ET](algo: VertexCentricComputation[VT, ET],
                                      numIterations: Int, enableScheduler:Boolean=false) :Unit = {
-
+    if (!initialized) throw new IllegalStateException("You must call initialize first!")
     val vertexDataColumn = algo.vertexDataColumn
     val edgeDataColumn = algo.edgeDataColumn
 
@@ -2132,6 +2132,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
     scheduler.addTaskToAll()
 
     breakable { for(iter <- 0 until numIterations) {
+      println("Start iteration: " + iter)
+
       val ctx = new GraphChiContext(iter, numIterations, scheduler)
 
       /* Get main intervals */
@@ -2141,7 +2143,6 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         (first, last)
       })
 
-      // TODO: locking!
 
       /* Maximum edges a time */
       val maxEdgesPerInterval = config.getLong("graphchi_computation.max_edges_interval")
@@ -2235,6 +2236,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
   var activeComputations = Set[Computation]()
 
   def runIteration(computation: Computation, continuous: Boolean = false) = {
+    if (!initialized) throw new IllegalStateException("You must call initialize first!")
+
     if (activeComputations.contains(computation)) {
       println("Computation %s was already active!".format(computation))
     } else {

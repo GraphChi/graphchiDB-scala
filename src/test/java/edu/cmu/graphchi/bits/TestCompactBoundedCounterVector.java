@@ -77,6 +77,22 @@ public class TestCompactBoundedCounterVector {
     }
 
     @Test
+    public void testIncrementAllNonZero() {
+        CompactBoundedCounterVector counter = new CompactBoundedCounterVector(100, 3);
+        counter.incrementAllNonZero();
+        for(int j=0; j<100; j++) assertEquals(0, counter.get(j));
+        counter.incrementAll();
+        counter.incrementAllNonZero();
+        for(int j=0; j<100; j++) assertEquals(2, counter.get(j));
+
+        counter = new CompactBoundedCounterVector(100, 3);
+        counter.set(13, (byte)3);
+        counter.incrementAllNonZero();
+        for(int j=0; j<100; j++) assertEquals((j ==13 ? 4 : 0), counter.get(j));
+
+    }
+
+    @Test
     public void testPointWiseMin() {
         CompactBoundedCounterVector counter1 = new CompactBoundedCounterVector(100, 3);
         CompactBoundedCounterVector counter2 = new CompactBoundedCounterVector(100, 3);
@@ -89,8 +105,47 @@ public class TestCompactBoundedCounterVector {
         for(int j=0; j<100; j++) {
             assertEquals(Math.min(j%3, j%5), minv.get(j));
         }
+    }
 
+
+    @Test
+    public void testPointWiseMinNonZeroes() {
+        CompactBoundedCounterVector counter1 = new CompactBoundedCounterVector(100, 3);
+        CompactBoundedCounterVector counter2 = new CompactBoundedCounterVector(100, 3);
+        for(int j=0; j<100; j++) {
+            counter1.set(j, (byte) (j % 3));
+            counter2.set(j, (byte) (j % 5));
         }
+
+        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMinOfNonzeroes(counter1, counter2);
+        for(int j=0; j<100; j++) {
+            int a = j % 3;
+            int b = j % 5;
+            if (a == 0) assertEquals(b, minv.get(j));
+            else if (b == 0) assertEquals(a, minv.get(j));
+            else assertEquals(Math.min(a, b), minv.get(j));
+        }
+    }
+
+    @Test
+    public void testPointWiseMinNonZeroesIncrementByOne() {
+        CompactBoundedCounterVector counter1 = new CompactBoundedCounterVector(100, 3);
+        CompactBoundedCounterVector counter2 = new CompactBoundedCounterVector(100, 3);
+        for(int j=0; j<100; j++) {
+            counter1.set(j, (byte) (j % 3));
+            counter2.set(j, (byte) (j % 5));
+        }
+
+        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(counter1, counter2);
+        for(int j=0; j<100; j++) {
+            int a = j % 3;
+            int b = j % 5;
+            if (a == 0) assertEquals(b == 0 ? 0 : b + 1, minv.get(j));
+            else if (b == 0) assertEquals(a, minv.get(j));
+            else assertEquals(Math.min(a, b + 1), minv.get(j));
+        }
+    }
+
 
     @Test
     public void testByteConverter() {

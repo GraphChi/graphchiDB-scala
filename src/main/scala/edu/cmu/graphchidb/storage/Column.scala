@@ -99,7 +99,6 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
   def indexing = _indexing
   def blockFilename(shardNum: Int) = filePrefix + "." + shardNum
 
-
   var blocks = (0 until indexing.nShards).map {
     shard =>
       if (!sparse) {
@@ -188,6 +187,12 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
     (0 until blocks.size).foreach(shardIdx => blocks(shardIdx).updateAll((localIdx:Long, v: Option[T])
     => updateFunc(indexing.localToGlobal(shardIdx, localIdx), v))(converter))
   }
+
+
+  def fillWithZeroes = {
+    blocks.foreach(b => b.fillWithZeroes)
+  }
+
 
   def select(cond: (Long, T) => Boolean) : Iterator[(Long, T)]  = {
 

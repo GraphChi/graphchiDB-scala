@@ -26,6 +26,7 @@ package edu.cmu.graphchi.bits;
 import edu.cmu.graphchidb.storage.ByteConverter;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 /**
  * Used to represent N counters, each with a small bounded value. For example,
@@ -38,6 +39,7 @@ public class CompactBoundedCounterVector {
     int n;
     int bitsPerCounter;
     byte[] bytes;
+
 
     public CompactBoundedCounterVector(int n, int bitsPerCounter) {
         this.n = n;
@@ -68,6 +70,12 @@ public class CompactBoundedCounterVector {
         for(int i=0; i < n; i++) increment(i);
     }
 
+    public void incrementAllNonZero() {
+        for(int i=0; i < n; i++) {
+            if (get(i) > 0) increment(i);
+        }
+    }
+
     public static CompactBoundedCounterVector pointwiseMin(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
         if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
         CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
@@ -78,6 +86,34 @@ public class CompactBoundedCounterVector {
         return minv;
     }
 
+    public static CompactBoundedCounterVector pointwiseMinOfNonzeroes(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
+        if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
+        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
+
+        for(int i=0; i < v1.n; i++) {
+            int a = v1.get(i);
+            int b = v2.get(i);
+            if (a == 0) minv.set(i, (byte)b);
+            else if (b == 0) minv.set(i, (byte)a);
+            else minv.set(i, (byte) Math.min(a, b));
+        }
+        return minv;
+    }
+
+    // Pointwise minimum of non-zero entries but increments by one the right side (v2)
+    public static CompactBoundedCounterVector pointwiseMinOfNonzeroesIncrementByOne(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
+        if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
+        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
+
+        for(int i=0; i < v1.n; i++) {
+            int a = v1.get(i);
+            int b = v2.get(i);
+            if (a == 0) minv.set(i, (byte) (b == 0 ? 0 : b + 1));
+            else if (b == 0) minv.set(i, (byte)a);
+            else minv.set(i, (byte) Math.min(a, b + 1));
+        }
+        return minv;
+    }
 
     public synchronized void set(int index, byte val) {
         int bitIndex = index * bitsPerCounter;
@@ -137,4 +173,23 @@ public class CompactBoundedCounterVector {
         };
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        CompactBoundedCounterVector that = (CompactBoundedCounterVector) o;
+
+        if (bitsPerCounter != that.bitsPerCounter) return false;
+        if (n != that.n) return false;
+        if (!Arrays.equals(bytes, that.bytes)) return false;
+
+        return true;
+    }
+
+    public String toString() {
+        String s = "";
+        for(int i=0; i<size(); i++) s += get(i) + ", ";
+        return s;
+    }
 }

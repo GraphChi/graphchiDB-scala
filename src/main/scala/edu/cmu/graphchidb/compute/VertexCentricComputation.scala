@@ -27,6 +27,8 @@ import edu.cmu.graphchidb.GraphChiDatabase
 import edu.cmu.graphchidb.storage.Column
 import scala.actors.threadpool.AtomicInteger
 
+
+
 /**
  * Classes for Vertex Centric computation in GraphChi-DB
  * Code bit unscalaish internally to optimize the memory usage
