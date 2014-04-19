@@ -23,6 +23,10 @@
 
 package edu.cmu.graphchi.bits;
 
+import edu.cmu.graphchidb.storage.ByteConverter;
+
+import java.nio.ByteBuffer;
+
 /**
  * Used to represent N counters, each with a small bounded value. For example,
  * if bounded value is 7, we use 3 bits for each counter.
@@ -94,6 +98,28 @@ public class CompactBoundedCounterVector {
         return a;
     }
 
+    public ByteConverter<CompactBoundedCounterVector> getByteConverter() {
+        final int len = bytes.length;
+        final int _n = n;
+        final int _bitsPerCounter = bitsPerCounter;
+        return new ByteConverter<CompactBoundedCounterVector>() {
+            @Override
+            public CompactBoundedCounterVector fromBytes(ByteBuffer bb) {
+                CompactBoundedCounterVector cv = new CompactBoundedCounterVector(_n, _bitsPerCounter);
+                bb.get(cv.bytes);
+                return cv;
+            }
 
+            @Override
+            public void toBytes(CompactBoundedCounterVector v, ByteBuffer out) {
+                out.put(v.bytes);
+            }
+
+            @Override
+            public int sizeOf() {
+                return len;
+            }
+        };
+    }
 
 }

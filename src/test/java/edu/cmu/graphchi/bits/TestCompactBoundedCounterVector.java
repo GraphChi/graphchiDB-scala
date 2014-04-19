@@ -1,6 +1,9 @@
 package edu.cmu.graphchi.bits;
 
+import edu.cmu.graphchidb.storage.ByteConverter;
 import org.junit.Test;
+
+import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
@@ -61,6 +64,34 @@ public class TestCompactBoundedCounterVector {
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    public void testByteConverter() {
+        int n = 55;
+        int bits = 5;
+        ByteBuffer bb = ByteBuffer.allocate(n * bits / 8 + 1);
+        CompactBoundedCounterVector counter = new CompactBoundedCounterVector(n, bits);
+
+        assertEquals((1 << 5) - 1, counter.getMaxCount());
+
+        int mx = counter.getMaxCount();
+
+        for(int j=0; j<n; j++) {
+            counter.set(j,  (byte) (j % counter.getMaxCount()));
+            assertEquals(j % mx, counter.get(j));
+        }
+
+        ByteConverter<CompactBoundedCounterVector> conv = counter.getByteConverter();
+        conv.toBytes(counter, bb);
+
+        bb.rewind();
+
+        counter = null;
+        CompactBoundedCounterVector newCounter = conv.fromBytes(bb);
+        for(int j=0; j<n; j++) {
+            assertEquals(j % mx, newCounter.get(j));
         }
     }
 }
