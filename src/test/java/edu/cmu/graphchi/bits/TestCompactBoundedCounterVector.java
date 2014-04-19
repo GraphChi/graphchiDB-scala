@@ -68,6 +68,31 @@ public class TestCompactBoundedCounterVector {
     }
 
     @Test
+    public void testIncrementAll() {
+        CompactBoundedCounterVector counter = new CompactBoundedCounterVector(100, 3);
+        counter.incrementAll();
+        for(int j=0; j<100; j++) assertEquals(1, counter.get(j));
+        counter.incrementAll();
+        for(int j=0; j<100; j++) assertEquals(2, counter.get(j));
+    }
+
+    @Test
+    public void testPointWiseMin() {
+        CompactBoundedCounterVector counter1 = new CompactBoundedCounterVector(100, 3);
+        CompactBoundedCounterVector counter2 = new CompactBoundedCounterVector(100, 3);
+        for(int j=0; j<100; j++) {
+            counter1.set(j, (byte) (j % 3));
+            counter2.set(j, (byte) (j % 5));
+        }
+
+        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMin(counter1, counter2);
+        for(int j=0; j<100; j++) {
+            assertEquals(Math.min(j%3, j%5), minv.get(j));
+        }
+
+        }
+
+    @Test
     public void testByteConverter() {
         int n = 55;
         int bits = 5;

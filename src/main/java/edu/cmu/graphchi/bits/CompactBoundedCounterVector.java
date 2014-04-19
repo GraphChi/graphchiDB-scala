@@ -56,7 +56,7 @@ public class CompactBoundedCounterVector {
         return (1<<bitsPerCounter) - 1;
     }
 
-    public void increment(int index) {
+    public synchronized void increment(int index) {
         int val = get(index);
         if (val < getMaxCount()) {
             val++;
@@ -64,7 +64,22 @@ public class CompactBoundedCounterVector {
         }
     }
 
-    public void set(int index, byte val) {
+    public void incrementAll() {
+        for(int i=0; i < n; i++) increment(i);
+    }
+
+    public static CompactBoundedCounterVector pointwiseMin(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
+        if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
+        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
+
+        for(int i=0; i < v1.n; i++) {
+            minv.set(i, (byte) Math.min(v1.get(i), v2.get(i)));
+        }
+        return minv;
+    }
+
+
+    public synchronized void set(int index, byte val) {
         int bitIndex = index * bitsPerCounter;
         for(int j=0; j<bitsPerCounter; j++) {
             int byteIndex = bitIndex / 8;
@@ -80,7 +95,7 @@ public class CompactBoundedCounterVector {
         }
     }
 
-    public int get(int index) {
+    public synchronized int get(int index) {
         int bitIndex = index * bitsPerCounter;
         int a = 0;
         for(int j=0; j<bitsPerCounter; j++) {
