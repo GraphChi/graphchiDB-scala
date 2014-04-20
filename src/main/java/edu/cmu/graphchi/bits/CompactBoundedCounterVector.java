@@ -50,6 +50,12 @@ public class CompactBoundedCounterVector {
         }
     }
 
+    public CompactBoundedCounterVector(int[] arr, int bitsPerCounter) {
+        this(arr.length, bitsPerCounter);
+        int mx = getMaxCount();
+        for(int j=0; j<arr.length; j++) set(j, (byte) (arr[j] < mx ? arr[j] : mx));
+    }
+
     public int size() {
         return n;
     }
@@ -76,44 +82,12 @@ public class CompactBoundedCounterVector {
         }
     }
 
-    public static CompactBoundedCounterVector pointwiseMin(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
-        if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
-        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
-
-        for(int i=0; i < v1.n; i++) {
-            minv.set(i, (byte) Math.min(v1.get(i), v2.get(i)));
+    public int[] toIntArray() {
+        int[] arr = new int[size()];
+        for(int j=0; j<arr.length; j++) {
+            arr[j] = get(j);
         }
-        return minv;
-    }
-
-    public static CompactBoundedCounterVector pointwiseMinOfNonzeroes(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
-        if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
-        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
-
-        for(int i=0; i < v1.n; i++) {
-            int a = v1.get(i);
-            int b = v2.get(i);
-            if (a == 0) minv.set(i, (byte)b);
-            else if (b == 0) minv.set(i, (byte)a);
-            else minv.set(i, (byte) Math.min(a, b));
-        }
-        return minv;
-    }
-
-    // Pointwise minimum of non-zero entries but increments by one the right side (v2)
-    public static CompactBoundedCounterVector pointwiseMinOfNonzeroesIncrementByOne(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2,
-                                                                                    boolean recycleLeft) {
-        if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
-        CompactBoundedCounterVector minv = (recycleLeft ? v1 : new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter));
-
-        for(int i=0; i < v1.n; i++) {
-            int a = v1.get(i);
-            int b = v2.get(i);
-            if (a == 0) minv.set(i, (byte) (b == 0 ? 0 : b + 1));
-            else if (b == 0) minv.set(i, (byte)a);
-            else minv.set(i, (byte) Math.min(a, b + 1));
-        }
-        return minv;
+        return arr;
     }
 
     public void set(int index, byte val) {
@@ -192,5 +166,17 @@ public class CompactBoundedCounterVector {
         String s = "";
         for(int i=0; i<size(); i++) s += get(i) + ", ";
         return s;
+    }
+
+    // Helper method used by MultiBFS
+    public static void pointwiseMinOfNonzeroesIncrementByOne(int[] arr1, CompactBoundedCounterVector counter2) {
+        int n = arr1.length;
+        for(int j=0; j<n; j++) {
+            int b = counter2.get(j);
+            if (b != 0) {
+                if (arr1[j] == 0) arr1[j] = b + 1;
+                else arr1[j] = Math.min(arr1[j], b + 1);
+            }
+        }
     }
 }

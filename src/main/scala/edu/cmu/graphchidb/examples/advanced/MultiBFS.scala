@@ -28,6 +28,7 @@ import edu.cmu.graphchidb.compute.{GraphChiContext, GraphChiVertex, VertexCentri
 import edu.cmu.graphchi.bits.CompactBoundedCounterVector
 import edu.cmu.graphchidb.Util._
 import java.io.FileWriter
+import java.util
 
 /**
  * Computes multiple BFS'es in parallel.
@@ -82,10 +83,10 @@ object MultiBFS {
         fw.write("level%d,".format(i))
       }
       fw.write("\n")
-        for(i <- 0 until numBFSinParallel) {
-         fw.write("%d,".format(DB.internalToOriginalId(multiBFSComp.seeds(i))))
-         bfsCounters(i).foreach(j => fw.write("%d,".format(j)))
-         fw.write("\n")
+      for(i <- 0 until numBFSinParallel) {
+        fw.write("%d,".format(DB.internalToOriginalId(multiBFSComp.seeds(i))))
+        bfsCounters(i).foreach(j => fw.write("%d,".format(j)))
+        fw.write("\n")
       }
       fw.close()
 
@@ -109,18 +110,21 @@ class MultiBFSComputation(DB: GraphChiDatabase) extends VertexCentricComputation
    * @param context
    */
   def update(vertex: GraphChiVertex[CompactBoundedCounterVector, AnyRef], context: GraphChiContext) = {
+    if (vertex.getNumEdges > 0) {
+      // Logic: take the minimum non-zero counter from neighbors (incremented by one), and my own counters
+      var before = bfsLevelColumn.get(vertex.id).get.toIntArray
+      val curMin = vertex.edgeVertexIds.foldLeft(before)((cur, nbid) => {
+        val nbrCounters = bfsLevelColumn.get(nbid).get
+        CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(cur, nbrCounters)
+        cur
+      })
 
-    // Logic: take the minimum non-zero counter from neighbors (incremented by one), and my own counters
-    var before = bfsLevelColumn.get(vertex.id).get
-    val curMin = vertex.edgeVertexIds.foldLeft(before)((cur, nbid) => {
-      val nbrCounters = bfsLevelColumn.get(nbid).get
-      CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(cur, nbrCounters, true)
-    })
-
-    if (context.iteration == 0 || !equals(curMin, before) ) {
-      bfsLevelColumn.set(vertex.id, curMin)
-      // Schedule neighbors
-      context.scheduler.addTasks(vertex.edgeVertexIds)
+      // Schedule neighbors and update the column value if my counters changed
+      if (context.iteration == 0 || !util.Arrays.equals(curMin, before) ) {
+        bfsLevelColumn.set(vertex.id, new CompactBoundedCounterVector(curMin, numBits))
+        // Schedule neighbors
+        context.scheduler.addTasks(vertex.edgeVertexIds)
+      }
     }
   }
 

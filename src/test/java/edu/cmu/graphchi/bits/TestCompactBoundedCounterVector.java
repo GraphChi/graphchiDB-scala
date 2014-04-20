@@ -93,37 +93,14 @@ public class TestCompactBoundedCounterVector {
     }
 
     @Test
-    public void testPointWiseMin() {
+    public void testToIntArray() {
         CompactBoundedCounterVector counter1 = new CompactBoundedCounterVector(100, 3);
-        CompactBoundedCounterVector counter2 = new CompactBoundedCounterVector(100, 3);
         for(int j=0; j<100; j++) {
             counter1.set(j, (byte) (j % 3));
-            counter2.set(j, (byte) (j % 5));
         }
-
-        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMin(counter1, counter2);
-        for(int j=0; j<100; j++) {
-            assertEquals(Math.min(j%3, j%5), minv.get(j));
-        }
-    }
-
-
-    @Test
-    public void testPointWiseMinNonZeroes() {
-        CompactBoundedCounterVector counter1 = new CompactBoundedCounterVector(100, 3);
-        CompactBoundedCounterVector counter2 = new CompactBoundedCounterVector(100, 3);
-        for(int j=0; j<100; j++) {
-            counter1.set(j, (byte) (j % 3));
-            counter2.set(j, (byte) (j % 5));
-        }
-
-        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMinOfNonzeroes(counter1, counter2);
-        for(int j=0; j<100; j++) {
-            int a = j % 3;
-            int b = j % 5;
-            if (a == 0) assertEquals(b, minv.get(j));
-            else if (b == 0) assertEquals(a, minv.get(j));
-            else assertEquals(Math.min(a, b), minv.get(j));
+        int[] arr = counter1.toIntArray();
+        for(int j=0; j<arr.length; j++) {
+            assertEquals(j % 3, arr[j]);
         }
     }
 
@@ -136,7 +113,9 @@ public class TestCompactBoundedCounterVector {
             counter2.set(j, (byte) (j % 5));
         }
 
-        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(counter1, counter2, true);
+        int[] arr1 = counter1.toIntArray();
+        CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(arr1, counter2);
+        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(arr1, 3);
         for(int j=0; j<100; j++) {
             int a = j % 3;
             int b = j % 5;
