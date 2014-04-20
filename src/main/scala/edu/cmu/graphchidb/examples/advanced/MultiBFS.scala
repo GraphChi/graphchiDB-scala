@@ -78,14 +78,14 @@ object MultiBFS {
       // Compute the bfs level distributions
       val filename = "bfslevels_%d.txt".format(System.currentTimeMillis())
       val fw = new FileWriter(filename)
-      fw.write("vertex,")
+      fw.write("vertex")
       for(i <- 0 until bfsCounters(0).length) {
-        fw.write("level%d,".format(i + 1))
+        fw.write(",level%d".format(i + 1))
       }
       fw.write("\n")
       for(i <- 0 until numBFSinParallel) {
-        fw.write("%d,".format(DB.internalToOriginalId(multiBFSComp.seeds(i))))
-        bfsCounters(i).foreach(j => fw.write("%d,".format(j)))
+        fw.write("%d".format(DB.internalToOriginalId(multiBFSComp.seeds(i))))
+        bfsCounters(i).foreach(j => fw.write(",%d".format(j)))
         fw.write("\n")
       }
       fw.close()
