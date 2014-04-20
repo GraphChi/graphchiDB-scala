@@ -48,7 +48,7 @@ object MultiBFS {
   implicit val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
   DB.initialize()
 
-  val numBFSinParallel = 128  /// Note: for good performance, you should have enough memory to hold numVertices * 3 * numBFSinParallel BITS
+  val numBFSinParallel = 1200  /// Note: for good performance, you should have enough memory to hold numVertices * 3 * numBFSinParallel BITS
   val multiBFSComp = new MultiBFSComputation(DB)
 
   def runForRandomSeeds() = {
@@ -80,7 +80,7 @@ object MultiBFS {
       val fw = new FileWriter(filename)
       fw.write("vertex,")
       for(i <- 0 until bfsCounters(0).length) {
-        fw.write("level%d,".format(i))
+        fw.write("level%d,".format(i + 1))
       }
       fw.write("\n")
       for(i <- 0 until numBFSinParallel) {
