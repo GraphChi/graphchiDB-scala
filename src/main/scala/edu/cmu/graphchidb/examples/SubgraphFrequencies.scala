@@ -63,11 +63,11 @@ object SubgraphFrequencies {
 
     // R-script to plot the results
     library("scatterplot3d")
-    df = read.table("subgraphs.txt", sep=",", header=FALSE)
+    df = read.table("subgraphs.txt", sep=",", header=TRUE)
 
-    triangles <- df[, 4]
-    oneedges <- df[, 2]
-    empty <- df[, 1]
+    triangles <- df$edges3
+    oneedges <- df$edges1
+    empty <- df$edges0
 
     scatterplot3d(triangles, empty, oneedges,  highlight.3d = TRUE,  angle = 30,
             col.axis = "blue", col.grid = "lightblue", cex.axis = 1.3,
@@ -129,8 +129,9 @@ object SubgraphFrequencies {
       */
    def computeDistribution(N: Int = 500) = {
      var n = 0
-     val fw = new FileWriter("subgraphs.txt")
-
+     val filename = "subgraphs_%d.txt".format(System.currentTimeMillis())
+     val fw = new FileWriter(filename)
+     fw.write("edges0,edges1,edges2,edges3\n")
      while(n < N) {
        val randomVertexInternalId  =  DB.randomVertex()
        val freqs = computeThreeVertexSubgraphFrequencies(inducedNeighborhoodGraph(randomVertexInternalId))
@@ -143,7 +144,7 @@ object SubgraphFrequencies {
        }
      }
       fw.close()
-      println("Results in subgraphs.txt")
+      println("Results in " + filename)
   }
 
 }

@@ -44,11 +44,10 @@ object MultiBFS {
 
   val baseFilename = System.getProperty("user.home")  + "/graphs/DB/livejournal/lj"
 
-  val numBFSinParallel = 1200  /// Note: for good performance, you should have enough memory to hold numVertices * 3 * numBFSinParallel BITS
-
   implicit val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
   DB.initialize()
 
+  val numBFSinParallel = 128  /// Note: for good performance, you should have enough memory to hold numVertices * 3 * numBFSinParallel BITS
   val multiBFSComp = new MultiBFSComputation(DB)
 
   def runForRandomSeeds() = {
