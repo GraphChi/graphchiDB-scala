@@ -58,7 +58,7 @@ public class CompactBoundedCounterVector {
         return (1<<bitsPerCounter) - 1;
     }
 
-    public synchronized void increment(int index) {
+    public void increment(int index) {
         int val = get(index);
         if (val < getMaxCount()) {
             val++;
@@ -116,7 +116,7 @@ public class CompactBoundedCounterVector {
         return minv;
     }
 
-    public synchronized void set(int index, byte val) {
+    public void set(int index, byte val) {
         int bitIndex = index * bitsPerCounter;
         for(int j=0; j<bitsPerCounter; j++) {
             int byteIndex = bitIndex / 8;
@@ -132,7 +132,7 @@ public class CompactBoundedCounterVector {
         }
     }
 
-    public synchronized int get(int index) {
+    public int get(int index) {
         int bitIndex = index * bitsPerCounter;
         int a = 0;
         for(int j=0; j<bitsPerCounter; j++) {
