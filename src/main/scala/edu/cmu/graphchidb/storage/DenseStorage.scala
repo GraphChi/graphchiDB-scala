@@ -37,13 +37,15 @@ class MemoryMappedDenseByteStorageBlock(file: File, _size: Option[Long], element
   }
 
   def fillWithZeroes() : Unit = {
+    this.synchronized {
       val filler = new Array[Byte](4096)
       var i = 0
       while (i < byteBuffer.capacity()) {
-         byteBuffer.position(i)
-         byteBuffer.put(filler, 0, math.min(filler.length, byteBuffer.capacity() - byteBuffer.position()))
-         i += filler.length
+        byteBuffer.position(i)
+        byteBuffer.put(filler, 0, math.min(filler.length, byteBuffer.capacity() - byteBuffer.position()))
+        i += filler.length
       }
+    }
   }
 
   private def mmap(size: Long) =

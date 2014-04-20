@@ -123,10 +123,11 @@ class FileColumn[T](id: Int, filePrefix: String, sparse: Boolean, _indexing: Dat
 
   private def checkSize(block: MemoryMappedDenseByteStorageBlock, localIdx: Int) = {
     if (block.size <= localIdx && _indexing.allowAutoExpansion) {
-      val EXPANSION_BLOCK = 4096 // TODO -- not right place
-      val expansionSize = (scala.math.ceil((localIdx + 1).toDouble /  EXPANSION_BLOCK) * EXPANSION_BLOCK).toInt
-      block.expand(expansionSize)
-
+      this.synchronized {
+        val EXPANSION_BLOCK = 4096 // TODO -- not right place
+        val expansionSize = (scala.math.ceil((localIdx + 1).toDouble /  EXPANSION_BLOCK) * EXPANSION_BLOCK).toInt
+        block.expand(expansionSize)
+      }
       //println("Expanding because %d was out of bounds. New size: %d / %d".format(localIdx, expansionSize, block.size))
     }
   }
