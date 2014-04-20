@@ -136,7 +136,7 @@ public class TestCompactBoundedCounterVector {
             counter2.set(j, (byte) (j % 5));
         }
 
-        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(counter1, counter2);
+        CompactBoundedCounterVector minv = CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(counter1, counter2, true);
         for(int j=0; j<100; j++) {
             int a = j % 3;
             int b = j % 5;

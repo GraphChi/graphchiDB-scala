@@ -101,9 +101,10 @@ public class CompactBoundedCounterVector {
     }
 
     // Pointwise minimum of non-zero entries but increments by one the right side (v2)
-    public static CompactBoundedCounterVector pointwiseMinOfNonzeroesIncrementByOne(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2) {
+    public static CompactBoundedCounterVector pointwiseMinOfNonzeroesIncrementByOne(CompactBoundedCounterVector v1, CompactBoundedCounterVector v2,
+                                                                                    boolean recycleLeft) {
         if (v1.n != v2.n) throw new IllegalArgumentException("Counter sizes do not match");
-        CompactBoundedCounterVector minv = new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter);
+        CompactBoundedCounterVector minv = (recycleLeft ? v1 : new CompactBoundedCounterVector(v1.n, v1.bitsPerCounter));
 
         for(int i=0; i < v1.n; i++) {
             int a = v1.get(i);

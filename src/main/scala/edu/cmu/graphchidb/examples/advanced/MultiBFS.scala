@@ -44,7 +44,7 @@ object MultiBFS {
 
   val baseFilename = System.getProperty("user.home")  + "/graphs/DB/livejournal/lj"
 
-  val numBFSinParallel = 16  /// Note: for good performance, you should have enough memory to hold numVertices * 3 * numBFSinParallel BITS
+  val numBFSinParallel = 1200  /// Note: for good performance, you should have enough memory to hold numVertices * 3 * numBFSinParallel BITS
 
   implicit val DB = new GraphChiDatabase(baseFilename,  numShards = 16)
   DB.initialize()
@@ -78,8 +78,13 @@ object MultiBFS {
       // Compute the bfs level distributions
       val filename = "bfslevels_%d.txt".format(System.currentTimeMillis())
       val fw = new FileWriter(filename)
-      for(i <- 0 until numBFSinParallel) {
-         fw.write("%d,".format(multiBFSComp.seeds(i)))
+      fw.write("vertex,")
+      for(i <- 0 until bfsCounters(0).length) {
+        fw.write("level%d,".format(i))
+      }
+      fw.write("\n")
+        for(i <- 0 until numBFSinParallel) {
+         fw.write("%d,".format(DB.internalToOriginalId(multiBFSComp.seeds(i))))
          bfsCounters(i).foreach(j => fw.write("%d,".format(j)))
          fw.write("\n")
       }
@@ -110,11 +115,11 @@ class MultiBFSComputation(DB: GraphChiDatabase) extends VertexCentricComputation
     var before = bfsLevelColumn.get(vertex.id).get
     val curMin = vertex.edgeVertexIds.foldLeft(before)((cur, nbid) => {
       val nbrCounters = bfsLevelColumn.get(nbid).get
-      CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(cur, nbrCounters)
+      CompactBoundedCounterVector.pointwiseMinOfNonzeroesIncrementByOne(cur, nbrCounters, true)
     })
 
     if (context.iteration == 0 || !equals(curMin, before) ) {
-      vertex.setData(curMin)
+      bfsLevelColumn.set(vertex.id, curMin)
       // Schedule neighbors
       context.scheduler.addTasks(vertex.edgeVertexIds)
     }
@@ -138,6 +143,9 @@ class MultiBFSComputation(DB: GraphChiDatabase) extends VertexCentricComputation
       bfsLevelColumn.set(seedId, counter)
     }}
   }
+
+
+  override def  isParallel = true
 
 
   def edgeDataColumn = None

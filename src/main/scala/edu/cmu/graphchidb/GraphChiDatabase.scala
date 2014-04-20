@@ -377,10 +377,10 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
               throw e
             }
             case oom: OutOfMemoryError => {
-                oom.printStackTrace()
-                System.err.println("Out-of-memory error received when merging shard.")
-                System.err.println("The state of the database may be inconsistent (you might have duplicate edges). Restart your JVM and add more memory with -Xmx")
-                System.err.println("Alternatively, modify the configuration parameters and reduce buffer size, and use more shards.")
+              oom.printStackTrace()
+              System.err.println("Out-of-memory error received when merging shard.")
+              System.err.println("The state of the database may be inconsistent (you might have duplicate edges). Restart your JVM and add more memory with -Xmx")
+              System.err.println("Alternatively, modify the configuration parameters and reduce buffer size, and use more shards.")
             }
           } finally {
 
@@ -1504,8 +1504,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
         } catch {
           case e: Exception  => e.printStackTrace()
           case oom: OutOfMemoryError => {
-              oom.printStackTrace()
-              System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
+            oom.printStackTrace()
+            System.err.println("Out-of-memory when executing a query. Increase JVM memory with -XMx")
           }
         } finally {
           bufferShard.bufferLock.readLock().unlock()
@@ -2187,6 +2187,8 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
                 if (v != null) { v.addInEdge(src, dataPtr)}
               } catch {
                 case e:Exception => e.printStackTrace()
+                case ooe: OutOfMemoryError => System.err.println("Out-of-memory while loading in edges")
+
               }
             }
             )
@@ -2200,17 +2202,37 @@ class GraphChiDatabase(baseFilename: String,  disableDegree : Boolean = false,
                 if (v != null) { v.addOutEdge(dst, dataPtr) }
               } catch {
                 case e:Exception => e.printStackTrace()
+                case ooe: OutOfMemoryError => System.err.println("Out-of-memory while loading out edges")
+
               }
             })
 
 
             /* Execute update functions -- not parallel now */
-            if (algo.isParallel) {
-              println("Update subinterval (parallel) " + subIntervalSt + " -- " + subIntervalEn)
-              vertices.par.foreach( v => if (v != null) { algo.update(v, ctx) } )
-            } else {
-              println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
-              vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
+            try {
+              if (algo.isParallel) {
+                println("Update subinterval (parallel) " + subIntervalSt + " -- " + subIntervalEn)
+                vertices.par.foreach( v => if (v != null) {
+                  try {
+                    algo.update(v, ctx)
+                  } catch {
+                    case e: Exception =>  e.printStackTrace()
+                    case ooe: OutOfMemoryError => {
+                      ooe.printStackTrace()
+                      throw new RuntimeException(ooe)
+                    }
+                    case err: Error => err.printStackTrace()
+                  }
+                } )
+              } else {
+                println("Update subinterval " + subIntervalSt + " -- " + subIntervalEn)
+                vertices.foreach( v => if (v != null) { algo.update(v, ctx) } )
+              }
+            } catch {
+              case ooe: OutOfMemoryError => {
+                ooe.printStackTrace()
+                System.err.println("Out-of-memory while executing update functions")
+              }
             }
             println("Done...")
           } // end synchronized
