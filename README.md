@@ -69,7 +69,7 @@ Source: https://github.com/GraphChi/graphchiDB-scala/blob/master/src/main/scala/
 This example creates a graph from a social network data. For each edge, we add a timestamp and weight column. In this example, this values
 are populated with random values, so they are just provided as an example.
 
-In addition, the example computes continously Pagerank for each vertex. You can also invoke a connected components computation. Note that these computations operate in the background and if the graph changes, also their results can become incorrect. 
+In addition, the example computes continuously Pagerank for each vertex. You can also invoke a connected components computation. Note that these computations operate in the background and if the graph changes, also their results can become incorrect. 
 
 This example shows also how to compute simple social network recommendations based on friends-of-friends. 
 
